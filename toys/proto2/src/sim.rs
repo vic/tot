@@ -1,0 +1,889 @@
+//! Deterministic integer sim (design sec 7, 10.3, 11). SoA arrays preallocated to caps: no heap
+//! allocation per tick. World unit = milli-metre (i32), HP = milli-HP (i32).
+use crate::data::{
+    AttackKind, Content, FamId, FamKind, Formation, MAX_SKILLS, MobRole, ShapeDef, SkillId, SkillKind, WaveEv,
+};
+use crate::rng::{Stream, Xo};
+use std::num::{NonZeroU16, NonZeroU32};
+
+mod step;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickChoice {
+    Card(u8),
+    Skip,
+}
+
+/// One tick of player intent. Same type for human keys and bots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Input {
+    /// World direction signs, each -1..=1.
+    pub mv: (i32, i32),
+    pub dodge: bool,
+    pub hack: bool,
+    pub autofire: bool,
+    pub pick: Option<PickChoice>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Side {
+    Hostile,
+    Hijacked,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tier {
+    Trash,
+    Elite,
+    Champion,
+    Boss,
+}
+
+/// Director command (design sec 8.2): the SAME typed set any director (built-in, agent, human)
+/// emits. Positions are not in the command: the sim places spawns on the ring, so a spawn in
+/// view cannot be expressed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cmd {
+    Spawn { fam: FamId, n: NonZeroU16, tier: Tier, form: Formation },
+    Boss { fam: FamId },
+    Flee,
+    Narrate { ev: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reject {
+    LiveCap { live: usize, n: u16, cap: usize },
+    BossActive,
+    NotMob,
+    NotBoss,
+    BossTier,
+    NoText,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Src {
+    /// built-in director, no agent asked
+    Builtin,
+    /// built-in filled a rejected / late / missing agent command
+    Fallback,
+    Mcp(Client),
+    /// `$EDITOR` / `:spawn` / `:prompt`
+    Human,
+}
+
+/// MCP client name: 1..=16 chars of [a-z0-9_-]. Copy, so log rows stay Copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Client {
+    b: [u8; 16],
+    n: u8,
+}
+
+impl Src {
+    /// Closed set (design sec 3): builtin | fallback | human | mcp:<client>.
+    pub fn parse(s: &str) -> Option<Src> {
+        match s {
+            "builtin" => Some(Src::Builtin),
+            "fallback" => Some(Src::Fallback),
+            "human" => Some(Src::Human),
+            _ => {
+                let name = s.strip_prefix("mcp:")?.as_bytes();
+                let ok = (1..=16).contains(&name.len()) && name.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-' || *c == b'_');
+                let mut b = [0u8; 16];
+                b.get_mut(..name.len())?.copy_from_slice(name);
+                ok.then_some(Src::Mcp(Client { b, n: name.len() as u8 }))
+            }
+        }
+    }
+    pub fn tag(&self) -> String {
+        match self {
+            Src::Builtin => "builtin".into(),
+            Src::Fallback => "fallback".into(),
+            Src::Human => "human".into(),
+            Src::Mcp(c) => format!("mcp:{}", String::from_utf8_lossy(&c.b[..usize::from(c.n)])),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LogRow {
+    pub tick: u32,
+    pub src: Src,
+    pub cmd: Cmd,
+    pub ok: Result<(), Reject>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cause {
+    Contact { fam: FamId, tier: Tier },
+    Shot { fam: FamId },
+    BossAttack { fam: FamId },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Win,
+    Dead { cause: Cause, foreseen: bool },
+    Timeout,
+}
+
+/// World-space telegraph area.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shape {
+    Band { along_x: bool, at: i32, half: i32 },
+    Lattice { x: i32, y: i32, pitch: i32, half: i32 },
+    Circle { x: i32, y: i32, r: i32 },
+    Arena,
+}
+
+impl Shape {
+    pub fn contains(&self, px: i32, py: i32) -> bool {
+        match *self {
+            Shape::Band { along_x: true, at, half } => (py - at).abs() <= half,
+            Shape::Band { along_x: false, at, half } => (px - at).abs() <= half,
+            Shape::Lattice { x, y, pitch, half } => {
+                let m = |d: i32| (d.rem_euclid(pitch)).min(pitch - d.rem_euclid(pitch)) <= half;
+                m(px - x) || m(py - y)
+            }
+            Shape::Circle { x, y, r } => dist2(px - x, py - y) <= i64::from(r) * i64::from(r),
+            Shape::Arena => true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TeleKind {
+    HitPlayer { dmg: i32, cause: Cause },
+    PurgeHijacked,
+    Spawn { fam: FamId, n: u8 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Tele {
+    pub shape: Shape,
+    pub left: u16,
+    pub lead: u16,
+    pub kind: TeleKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FxShape {
+    Cone { x: i32, y: i32, dx: i32, dy: i32, r: i32, cos: i32 },
+    Ring { x: i32, y: i32, r: i32 },
+    Line { x0: i32, y0: i32, x1: i32, y1: i32 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Fx {
+    pub shape: FxShape,
+    pub left: u8,
+    pub skill: SkillId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drop {
+    Xp(u16),
+    Chest,
+}
+
+pub fn dist2(dx: i32, dy: i32) -> i64 {
+    i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy)
+}
+fn dist(dx: i32, dy: i32) -> i32 {
+    dist2(dx, dy).isqrt() as i32
+}
+fn scale(v: i32, permille: i64) -> i32 {
+    (i64::from(v) * permille / 1000) as i32
+}
+/// Vector (dx,dy) resized to length `len` (0 if dx=dy=0).
+fn toward(dx: i32, dy: i32, len: i32) -> (i32, i32) {
+    let d = dist(dx, dy);
+    if d == 0 {
+        return (0, 0);
+    }
+    // one division: k = len/d in 16.16 fixed point
+    let k = (i64::from(len) << 16) / i64::from(d);
+    (((i64::from(dx) * k) >> 16) as i32, ((i64::from(dy) * k) >> 16) as i32)
+}
+
+pub struct Player {
+    pub x: i32,
+    pub y: i32,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub flux: i32,
+    pub xp: u32,
+    pub level: u16,
+    pub face: (i32, i32),
+    pub iframes: u16,
+    pub dodge_cd: u16,
+    dash_left: u16,
+    dash_dir: (i32, i32),
+}
+
+/// Enemies, SoA. Swap-remove keeps order deterministic.
+#[derive(Default)]
+pub struct Enemies {
+    pub x: Vec<i32>,
+    pub y: Vec<i32>,
+    pub hp: Vec<i32>,
+    pub max: Vec<i32>,
+    pub fam: Vec<FamId>,
+    pub tier: Vec<Tier>,
+    pub side: Vec<Side>,
+    pub timer: Vec<u16>,
+    pub glitch: Vec<u8>,
+    pub seen: Vec<u32>,
+    pub id: Vec<u32>,
+    pub rad: Vec<i32>,
+    vx: Vec<i32>,
+    vy: Vec<i32>,
+    pub purger: Vec<bool>,
+    pub swift: Vec<bool>,
+    hit_cd: Vec<u8>,
+    orb_cd: Vec<u8>,
+    cd: Vec<u16>,
+    nx: Vec<i32>,
+    ny: Vec<i32>,
+}
+
+macro_rules! each_col {
+    ($e:expr, $f:ident $(, $a:expr)*) => {{
+        let e = $e;
+        e.x.$f($($a),*); e.y.$f($($a),*); e.hp.$f($($a),*); e.max.$f($($a),*); e.fam.$f($($a),*);
+        e.tier.$f($($a),*); e.side.$f($($a),*); e.timer.$f($($a),*); e.glitch.$f($($a),*); e.seen.$f($($a),*);
+        e.rad.$f($($a),*); e.vx.$f($($a),*); e.vy.$f($($a),*); e.id.$f($($a),*); e.purger.$f($($a),*); e.swift.$f($($a),*); e.hit_cd.$f($($a),*); e.orb_cd.$f($($a),*);
+        e.cd.$f($($a),*);
+    }};
+}
+
+impl Enemies {
+    fn with_capacity(n: usize) -> Enemies {
+        let mut e = Enemies::default();
+        each_col!(&mut e, reserve_exact, n);
+        e.nx.reserve_exact(n);
+        e.ny.reserve_exact(n);
+        e
+    }
+    pub fn len(&self) -> usize {
+        self.x.len()
+    }
+    fn remove(&mut self, i: usize) {
+        each_col!(self, swap_remove, i);
+    }
+}
+
+#[derive(Default)]
+struct Bolts {
+    x: Vec<i32>,
+    y: Vec<i32>,
+    vx: Vec<i32>,
+    vy: Vec<i32>,
+    ttl: Vec<u16>,
+    pierce: Vec<u8>,
+    dmg: Vec<i32>,
+    last: Vec<u32>,
+    skill: Vec<SkillId>,
+    gl: Vec<u8>,
+}
+
+#[derive(Default)]
+pub struct Shots {
+    pub x: Vec<i32>,
+    pub y: Vec<i32>,
+    pub vx: Vec<i32>,
+    pub vy: Vec<i32>,
+    ttl: Vec<u16>,
+    age: Vec<u16>,
+    dmg: Vec<i32>,
+    pub fam: Vec<FamId>,
+}
+
+#[derive(Default)]
+pub struct Drops {
+    pub x: Vec<i32>,
+    pub y: Vec<i32>,
+    pub kind: Vec<Drop>,
+    pulled: Vec<bool>,
+}
+
+#[derive(Clone, Copy)]
+struct Mine {
+    x: i32,
+    y: i32,
+    ttl: u16,
+    dmg: i32,
+    r: i32,
+    skill: SkillId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Owned {
+    pub id: SkillId,
+    pub rank: u8,
+    /// sum of rarity gains, permille (first pick = 1000 at common)
+    pub power: u32,
+    cd: u16,
+    phase: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Card {
+    pub skill: SkillId,
+    pub rarity: u8,
+    pub new_rank: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Offer {
+    pub cards: [Option<Card>; 3],
+    pub chest: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PickRec {
+    pub tick: u32,
+    pub skill: Option<SkillId>,
+    pub rarity: u8,
+}
+
+struct BossState {
+    id: u32,
+    fam: FamId,
+    phase: usize,
+    timers: [u16; 4],
+    hard_t: u16,
+    age: u32,
+    last: bool,
+}
+
+/// Run counters for the harness and telemetry.
+pub struct Stats {
+    pub kills: u32,
+    pub dealt: [i64; MAX_SKILLS],
+    /// damage output before the overkill clamp (degenerate detector reads this)
+    pub output: [i64; MAX_SKILLS],
+    pub dealt_hijack: i64,
+    pub taken: i64,
+    win_spawned: i64,
+    pub rho: Vec<(u32, u32)>,
+    pub picks: Vec<PickRec>,
+    pub first_pick: Option<u32>,
+    pub boss_kill_ticks: Vec<(FamId, u32)>,
+    pub hijacked_peak: u16,
+}
+
+/// Negative-control mutants (design sec 14.2). Harness-only; data cannot express them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mutant {
+    ZeroTelegraph,
+    Plus500(SkillId),
+    DoubleTrashHp,
+}
+
+const BOLT_R: i32 = 200;
+const GRID_N: usize = 128;
+const GRID_CELL: i32 = 1000;
+/// Largest mob radius the grid queries add to a search radius (enemies.jsonl max is 0.5 m).
+const MOB_R_MAX: i32 = 600;
+const TRIG_N: u32 = crate::trig::TURN;
+const JUMP_R: i32 = 4000;
+const CHAIN_FALLOFF: i64 = 850;
+const FX_TICKS: u8 = 6;
+const MINE_TRIGGER: i32 = 1000;
+/// Reference contact distance^2 (2 x 0.35 m) for the soft push: constant divisor, no per-pair div.
+const SEP_RR2: i64 = 700 * 700;
+/// Separation runs only within view radius + this margin (mm).
+const SEP_MARGIN: i32 = 4000;
+/// Off-screen hostiles recompute their heading every this many ticks.
+const LOD_EVERY: u32 = 4;
+
+struct Grid {
+    ox: i32,
+    oy: i32,
+    start: Vec<u32>,
+    items: Vec<u32>,
+    cell: Vec<u32>,
+    // positions + radius copied in cell order: neighbour scans read contiguous memory
+    gx: Vec<i32>,
+    gy: Vec<i32>,
+    gr: Vec<i32>,
+}
+
+impl Grid {
+    fn new(cap: usize) -> Grid {
+        Grid { ox: 0, oy: 0, start: vec![0; GRID_N * GRID_N + 1], items: vec![0; cap], cell: vec![0; cap], gx: vec![0; cap], gy: vec![0; cap], gr: vec![0; cap] }
+    }
+    fn cxy(&self, x: i32, y: i32) -> (usize, usize) {
+        let c = |v: i32| ((v.div_euclid(GRID_CELL)).clamp(0, GRID_N as i32 - 1)) as usize;
+        (c(x - self.ox), c(y - self.oy))
+    }
+    fn build(&mut self, cx: i32, cy: i32, xs: &[i32], ys: &[i32], rs: &[i32]) {
+        self.ox = cx - GRID_CELL * GRID_N as i32 / 2;
+        self.oy = cy - GRID_CELL * GRID_N as i32 / 2;
+        self.start.fill(0);
+        for (i, (&x, &y)) in xs.iter().zip(ys).enumerate() {
+            let (a, b) = self.cxy(x, y);
+            let c = b * GRID_N + a;
+            self.cell[i] = c as u32;
+            self.start[c + 1] += 1;
+        }
+        for c in 0..GRID_N * GRID_N {
+            self.start[c + 1] += self.start[c];
+        }
+        for i in 0..xs.len() {
+            let c = self.cell[i] as usize;
+            let k = self.start[c];
+            self.items[k as usize] = i as u32;
+            (self.gx[k as usize], self.gy[k as usize], self.gr[k as usize]) = (xs[i], ys[i], rs[i]);
+            self.start[c] += 1;
+        }
+        // start[c] now = end of c = start of c+1; shift back
+        for c in (1..=GRID_N * GRID_N).rev() {
+            self.start[c] = self.start[c - 1];
+        }
+        self.start[0] = 0;
+    }
+    /// Enemy indices in cells touching the square of half-size r around (x, y).
+    fn query(&self, x: i32, y: i32, r: i32, out: &mut Vec<u32>) {
+        out.clear();
+        let (a0, b0) = self.cxy(x - r, y - r);
+        let (a1, b1) = self.cxy(x + r, y + r);
+        for b in b0..=b1 {
+            let s = self.start[b * GRID_N + a0] as usize;
+            let e = self.start[b * GRID_N + a1 + 1] as usize;
+            out.extend_from_slice(&self.items[s..e]);
+        }
+    }
+    /// Contiguous ranges (into items/gx/gy/gr), one per grid row touching the square.
+    fn ranges(&self, x: i32, y: i32, r: i32) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
+        let (a0, b0) = self.cxy(x - r, y - r);
+        let (a1, b1) = self.cxy(x + r, y + r);
+        (b0..=b1).map(move |b| self.start[b * GRID_N + a0] as usize..self.start[b * GRID_N + a1 + 1] as usize)
+    }
+    fn count(&self, a: usize, b: usize) -> u32 {
+        let c = b * GRID_N + a;
+        self.start[c + 1] - self.start[c]
+    }
+}
+
+pub struct Sim<'c> {
+    pub c: &'c Content,
+    pub tick: u32,
+    pub p: Player,
+    pub e: Enemies,
+    bolts: Bolts,
+    pub shots: Shots,
+    pub drops: Drops,
+    mines: Vec<Mine>,
+    pub fx: Vec<Fx>,
+    pub blades: Vec<(i32, i32)>,
+    pub arena: crate::floorgen::Arena,
+    pub tele: Vec<Tele>,
+    pub owned: Vec<Owned>,
+    pub offer: Option<Offer>,
+    pending: u16,
+    pending_chest: u16,
+    since_rare: u16,
+    boss: Option<BossState>,
+    pub log: Vec<LogRow>,
+    pub stats: Stats,
+    pub outcome: Option<Outcome>,
+    pub narration: Option<(usize, u32)>,
+    pub hijacked: u16,
+    mutant: Option<Mutant>,
+    grid: Grid,
+    near: Vec<u32>,
+    hij: Vec<u32>,
+    auras: Vec<(i32, i32, i32, u8)>,
+    trig: Vec<(i32, i32)>,
+    rng_spawn: Xo,
+    rng_combat: Xo,
+    rng_picks: Xo,
+    next_id: u32,
+    last_hit: Option<(Cause, bool)>,
+}
+
+impl<'c> Sim<'c> {
+    pub fn new(c: &'c Content, seed: u64, mutant: Option<Mutant>) -> Sim<'c> {
+        let cap = c.spawn.live_cap + 64;
+        let p = &c.player;
+        let mut s = Sim {
+            c,
+            tick: 0,
+            p: Player {
+                x: 0,
+                y: 0,
+                hp: p.hp,
+                max_hp: p.hp,
+                flux: p.flux,
+                xp: 0,
+                level: 1,
+                face: (1, 0),
+                iframes: 0,
+                dodge_cd: 0,
+                dash_left: 0,
+                dash_dir: (0, 0),
+            },
+            e: Enemies::with_capacity(cap),
+            bolts: Bolts::default(),
+            shots: Shots::default(),
+            drops: Drops::default(),
+            mines: Vec::with_capacity(64),
+            fx: Vec::with_capacity(256),
+            blades: Vec::with_capacity(64),
+            arena: crate::floorgen::arena(seed, 0, c),
+            tele: Vec::with_capacity(64),
+            owned: Vec::with_capacity(MAX_SKILLS),
+            offer: None,
+            pending: 0,
+            pending_chest: 0,
+            since_rare: 0,
+            boss: None,
+            log: Vec::with_capacity(1 << 16),
+            stats: Stats {
+                kills: 0,
+                dealt: [0; MAX_SKILLS],
+                output: [0; MAX_SKILLS],
+                dealt_hijack: 0,
+                taken: 0,
+                win_spawned: 0,
+                rho: Vec::with_capacity(256),
+                picks: Vec::with_capacity(256),
+                first_pick: None,
+                boss_kill_ticks: Vec::with_capacity(4),
+                hijacked_peak: 0,
+            },
+            outcome: None,
+            narration: None,
+            hijacked: 0,
+            mutant,
+            grid: Grid::new(cap),
+            near: Vec::with_capacity(cap),
+            hij: Vec::with_capacity(256),
+            auras: Vec::with_capacity(256),
+            trig: (0..TRIG_N).map(|a| (crate::trig::cos(a), crate::trig::sin(a))).collect(),
+            rng_spawn: Xo::stream(seed, Stream::Spawn),
+            rng_combat: Xo::stream(seed, Stream::Combat),
+            rng_picks: Xo::stream(seed, Stream::Picks),
+            next_id: 0,
+            last_hit: None,
+        };
+        let cap_side = 4096;
+        macro_rules! res { ($($v:expr),*) => { $( $v.reserve_exact(cap_side); )* } }
+        res!(s.bolts.x, s.bolts.y, s.bolts.vx, s.bolts.vy, s.bolts.ttl, s.bolts.pierce, s.bolts.dmg, s.bolts.last, s.bolts.skill, s.bolts.gl);
+        res!(s.shots.x, s.shots.y, s.shots.vx, s.shots.vy, s.shots.ttl, s.shots.age, s.shots.dmg, s.shots.fam);
+        res!(s.drops.x, s.drops.y, s.drops.kind, s.drops.pulled);
+        for &id in &c.player.skills {
+            s.owned.push(Owned { id, rank: 1, power: 1000, cd: 0, phase: 0 });
+        }
+        s
+    }
+
+    pub fn secs(&self) -> u32 {
+        self.tick / self.c.hz().get()
+    }
+
+    fn sec_ix(&self) -> usize {
+        (self.secs() as usize).min(self.c.spawn.hp_mult.len() - 1)
+    }
+
+    pub fn live(&self) -> usize {
+        self.e.len()
+    }
+
+    pub fn boss_ix(&self) -> Option<usize> {
+        let id = self.boss.as_ref()?.id;
+        self.e.id.iter().position(|&x| x == id)
+    }
+
+    pub fn rank_of(&self, s: SkillId) -> u8 {
+        self.owned.iter().find(|o| o.id == s).map_or(0, |o| o.rank)
+    }
+
+    // ---------- commands ----------
+
+    pub fn validate(&self, cmd: &Cmd) -> Result<(), Reject> {
+        let cap = self.c.spawn.live_cap;
+        match *cmd {
+            Cmd::Spawn { fam, n, tier, .. } => {
+                if tier == Tier::Boss {
+                    return Err(Reject::BossTier);
+                }
+                if !matches!(self.c.fam(fam).kind, FamKind::Mob(_)) {
+                    return Err(Reject::NotMob);
+                }
+                if self.live() + usize::from(n.get()) > cap {
+                    return Err(Reject::LiveCap { live: self.live(), n: n.get(), cap });
+                }
+                Ok(())
+            }
+            Cmd::Boss { fam } => {
+                if self.boss.is_some() {
+                    return Err(Reject::BossActive);
+                }
+                if self.c.boss_of(fam).is_none() {
+                    return Err(Reject::NotBoss);
+                }
+                if self.live() + 1 > cap + 64 {
+                    return Err(Reject::LiveCap { live: self.live(), n: 1, cap });
+                }
+                Ok(())
+            }
+            Cmd::Flee => Ok(()),
+            Cmd::Narrate { ev } => match self.c.waves.get(ev) {
+                Some(WaveEv::Narrate { .. }) => Ok(()),
+                _ => Err(Reject::NoText),
+            },
+        }
+    }
+
+    fn apply(&mut self, cmd: Cmd) {
+        match cmd {
+            Cmd::Spawn { fam, n, tier, form } => {
+                let base = self.rng_spawn.below(NonZeroU32::MIN.saturating_add(TRIG_N - 1));
+                for k in 0..n.get() {
+                    let (x, y) = self.place(form, base, k, n.get());
+                    self.spawn_mob(fam, tier, x, y);
+                }
+            }
+            Cmd::Boss { fam } => self.spawn_boss(fam),
+            Cmd::Flee => {
+                let mut i = 0;
+                while i < self.e.len() {
+                    if self.e.tier[i] == Tier::Trash && self.e.side[i] == Side::Hostile {
+                        self.e.remove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            Cmd::Narrate { ev } => self.narration = Some((ev, self.tick)),
+        }
+    }
+
+    pub fn command(&mut self, src: Src, cmd: Cmd) -> Result<(), Reject> {
+        let ok = self.validate(&cmd);
+        if ok.is_ok() {
+            self.apply(cmd);
+        }
+        self.log.push(LogRow { tick: self.tick, src, cmd, ok });
+        ok
+    }
+
+    /// Ring position outside view, never inside the player's motion cone (design sec 8.4).
+    fn place(&mut self, form: Formation, base: u32, k: u16, n: u16) -> (i32, i32) {
+        let sp = &self.c.spawn;
+        let one = NonZeroU32::MIN;
+        let span = (sp.ring_max - sp.ring_min).max(0) as u32;
+        let (ang, r, off) = match form {
+            Formation::Scatter => (self.rng_spawn.below(one.saturating_add(TRIG_N - 1)), sp.ring_min + self.rng_spawn.below(one.saturating_add(span)) as i32, 0),
+            Formation::Ring => (base + u32::from(k) * TRIG_N / u32::from(n), sp.ring_min, 0),
+            Formation::Spiral => (base + u32::from(k) * TRIG_N * 2 / u32::from(n), sp.ring_min + (span as i32) * i32::from(k) / i32::from(n), 0),
+            Formation::Wall => (base, sp.ring_min, (i32::from(k) - i32::from(n) / 2) * 1000),
+        };
+        let mut a = ang % TRIG_N;
+        let (fx, fy) = toward(self.p.face.0, self.p.face.1, 1000);
+        let (cx, cy) = self.trig[a as usize];
+        if form != Formation::Ring && i64::from(cx) * i64::from(fx) + i64::from(cy) * i64::from(fy) > i64::from(sp.cone_cos) * 1000 {
+            a = (a + TRIG_N / 2) % TRIG_N;
+        }
+        let (cx, cy) = self.trig[a as usize];
+        (self.p.x + scale(cx, i64::from(r)) - scale(cy, i64::from(off)), self.p.y + scale(cy, i64::from(r)) + scale(cx, i64::from(off)))
+    }
+
+    fn spawn_mob(&mut self, fam: FamId, tier: Tier, x: i32, y: i32) {
+        let c = self.c;
+        let FamKind::Mob(m) = &c.fam(fam).kind else { return };
+        let sp = &c.spawn;
+        let mut hp = i64::from(sp.trash_hp) * i64::from(sp.hp_mult[self.sec_ix()]) / 1000 * i64::from(m.hp) / 1000;
+        if self.mutant == Some(Mutant::DoubleTrashHp) {
+            hp *= 2;
+        }
+        let (mult, purger, swift) = match tier {
+            Tier::Trash | Tier::Boss => (1000, false, false),
+            Tier::Elite => {
+                let p = self.rng_spawn.chance(500);
+                (sp.elite_hp, p, !p)
+            }
+            Tier::Champion => (sp.champion_hp, true, true),
+        };
+        let hp = (hp * i64::from(mult) / 1000).clamp(1, i64::from(i32::MAX)) as i32;
+        self.stats.win_spawned += i64::from(hp);
+        self.push_enemy(fam, tier, (x, y), hp, (purger, swift));
+    }
+
+
+    fn push_enemy(&mut self, fam: FamId, tier: Tier, (x, y): (i32, i32), hp: i32, (purger, swift): (bool, bool)) {
+        let e = &mut self.e;
+        e.x.push(x);
+        e.y.push(y);
+        e.hp.push(hp);
+        e.max.push(hp);
+        e.fam.push(fam);
+        e.tier.push(tier);
+        e.side.push(Side::Hostile);
+        e.timer.push(0);
+        e.glitch.push(0);
+        e.seen.push(u32::MAX);
+        e.id.push(self.next_id);
+        e.rad.push(self.c.fam(fam).radius);
+        e.vx.push(0);
+        e.vy.push(0);
+        e.purger.push(purger);
+        e.swift.push(swift);
+        e.hit_cd.push(0);
+        e.orb_cd.push(0);
+        e.cd.push(self.c.spawn.purge_every);
+        self.next_id += 1;
+    }
+
+    fn spawn_boss(&mut self, fam: FamId) {
+        let FamKind::Boss { hp } = self.c.fam(fam).kind else { return };
+        let (x, y) = self.place(Formation::Scatter, 0, 0, 1);
+        let last = self.c.waves.iter().any(|w| matches!(w, WaveEv::Boss { fam: f, last: true, .. } if *f == fam));
+        self.boss = Some(BossState { id: self.next_id, fam, phase: 0, timers: [0; 4], hard_t: 0, age: 0, last });
+        self.stats.win_spawned += i64::from(hp);
+        self.push_enemy(fam, Tier::Boss, (x, y), hp, (false, false));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::tests::{content, texts};
+    use crate::director::Director;
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+    use std::time::Instant;
+
+    // Counting allocator (tests only): per-thread count, so parallel tests do not interfere.
+    struct Counting;
+    thread_local! { static ALLOCS: Cell<u64> = const { Cell::new(0) }; }
+    // SAFETY: forwards to System unchanged; only adds a thread-local counter.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+            ALLOCS.with(|a| a.set(a.get() + 1));
+            unsafe { System.alloc(l) }
+        }
+        unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+            unsafe { System.dealloc(p, l) }
+        }
+        unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+            ALLOCS.with(|a| a.set(a.get() + 1));
+            unsafe { System.realloc(p, l, n) }
+        }
+    }
+    #[global_allocator]
+    static A: Counting = Counting;
+    fn allocs() -> u64 {
+        ALLOCS.with(Cell::get)
+    }
+
+    /// Scripted input: circle walk + periodic dodge; picks the first card.
+    fn script(t: u32) -> Input {
+        let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, pick: Some(PickChoice::Card(0)) }
+    }
+
+    fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {
+        let mut sim = Sim::new(c, seed, None);
+        let mut d = Director::new(seed);
+        for t in 0..ticks {
+            d.tick(&mut sim);
+            sim.step(&script(t));
+        }
+        sim.hash()
+    }
+
+    #[test]
+    fn same_seed_same_hash_other_seed_differs() {
+        let c = content();
+        let a = run_hash(&c, 42, 900);
+        assert_eq!(a, run_hash(&c, 42, 900), "O-hash: replay must match");
+        assert_ne!(a, run_hash(&c, 43, 900), "negative control: other seed must differ");
+    }
+
+    /// Pinned before the iso renderer landed (2026-11-03): render/data view knobs never touch sim state.
+    #[test]
+    fn iso_render_leaves_sim_hash_unchanged() {
+        let h = run_hash(&content(), 7, 900);
+        assert_eq!(h, 0x4e15_0460_130e_c301, "sim hash {h:#x}");
+    }
+
+    #[test]
+    fn zero_heap_allocs_per_tick() {
+        let c = content();
+        let mut sim = Sim::new(&c, 5, None);
+        let mut d = Director::new(5);
+        for t in 0..5400 {
+            d.tick(&mut sim);
+            sim.step(&script(t));
+        }
+        assert!(sim.live() > 10 && sim.owned.len() > 2, "armed: real load ({} live)", sim.live());
+        let kills = sim.stats.kills;
+        let before = allocs();
+        for t in 5400..7200 {
+            d.tick(&mut sim);
+            sim.step(&script(t));
+        }
+        assert_eq!(allocs() - before, 0, "allocs in 1800 ticks");
+        assert!(sim.stats.kills - kills > 50, "armed: spawns + kills + drops ran ({} kills)", sim.stats.kills - kills);
+        // negative control: the counter sees an allocation
+        let v: Vec<u8> = Vec::with_capacity(16);
+        assert!(allocs() > before, "{}", v.capacity());
+    }
+
+    #[test]
+    fn tick_p99_under_4ms_at_20k_entities() {
+        let mut t = texts();
+        t[1] = t[1].replacen("\"live_cap\":600", "\"live_cap\":20000", 1).replacen("\"despawn_m\":40", "\"despawn_m\":400", 1);
+        let c = Content::parse(&t).unwrap();
+        let mut sim = Sim::new(&c, 9, None);
+        let fam = c.fam_ids().next().unwrap();
+        let mut rng = Xo::seeded(9);
+        let n60 = NonZeroU32::new(120_000).unwrap();
+        for _ in 0..20_000 {
+            let (x, y) = (rng.below(n60) as i32 - 60_000, rng.below(n60) as i32 - 60_000);
+            sim.push_enemy(fam, Tier::Trash, (x, y), 1_000_000, (false, false));
+        }
+        let mut times = Vec::with_capacity(100);
+        let before = allocs();
+        for k in 0..100 {
+            let s = Instant::now();
+            sim.step(&script(k));
+            times.push(s.elapsed().as_micros());
+        }
+        let allocated = allocs() - before;
+        times.sort_unstable();
+        let p99 = times[98];
+        assert!(sim.live() >= 19_000, "load held: {}", sim.live());
+        eprintln!("PERF 20k: tick p50 {} us p99 {p99} us max {} us", times[50], times[99]);
+        assert!(p99 <= 4000, "p99 {p99} us (p50 {} us)", times[50]);
+        assert_eq!(allocated, 0);
+    }
+
+    #[test]
+    fn shapes_contain() {
+        assert!(Shape::Band { along_x: true, at: 0, half: 500 }.contains(9000, 400));
+        assert!(!Shape::Band { along_x: true, at: 0, half: 500 }.contains(0, 600));
+        let l = Shape::Lattice { x: 0, y: 0, pitch: 6000, half: 1000 };
+        assert!(l.contains(6500, 3000) && l.contains(3000, -5500) && !l.contains(3000, 3000));
+        assert!(Shape::Circle { x: 0, y: 0, r: 1000 }.contains(700, 700) && !Shape::Circle { x: 0, y: 0, r: 1000 }.contains(800, 800));
+    }
+
+    #[test]
+    fn hack_flips_trash_and_cap_bursts_oldest() {
+        let c = content();
+        let mut sim = Sim::new(&c, 1, None);
+        let fam = c.fam_ids().next().unwrap();
+        for k in 0..12 {
+            sim.push_enemy(fam, Tier::Trash, (1500 + k * 100, 0), 1_000_000, (false, false));
+        }
+        sim.p.face = (1, 0);
+        sim.step(&Input { hack: true, ..Input::default() });
+        // 12 flip (3 GLITCH >= ICE 3); cap 8 + 2 x rank 1 = 10: the 2 oldest burst at once
+        assert_eq!(sim.hijack_cap(), 10);
+        assert_eq!(sim.hijacked, 10);
+        assert_eq!(sim.e.side.iter().filter(|s| **s == Side::Hijacked).count(), 10);
+    }
+}

@@ -1,0 +1,4 @@
+{"enemies":1000,"glyphs":13719,"present":"mailbox","px":[1920,1080],"fps":334.0,"cpu_sim_build_ms":2.12}
+{"enemies":5000,"glyphs":46906,"present":"mailbox","px":[1920,1080],"fps":125.1,"cpu_sim_build_ms":6.93}
+{"enemies":20000,"glyphs":193903,"present":"mailbox","px":[1920,1080],"fps":17.9,"cpu_sim_build_ms":47.85}
+{"enemies":50000,"glyphs":495603,"present":"mailbox","px":[1920,1080],"fps":3.4,"cpu_sim_build_ms":263.24}

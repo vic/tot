@@ -1,0 +1,2 @@
+{"t":"head","schema_version":1,"file":"options"}
+{"t":"options","pick_pauses":true,"tick_hz":30,"rewind":"off","rewind_charges":1,"backend":"terminal","hot_numbers":"F-only","whichkey_ms":250,"autofire":true}

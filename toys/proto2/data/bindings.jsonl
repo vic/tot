@@ -1,0 +1,46 @@
+{"t":"head","schema_version":1,"file":"bindings"}
+{"t":"bind","mode":"play","keys":["w"],"action":"up","label":"up"}
+{"t":"bind","mode":"play","keys":["k"],"action":"up","label":"up"}
+{"t":"bind","mode":"play","keys":["up"],"action":"up","label":"up"}
+{"t":"bind","mode":"play","keys":["s"],"action":"down","label":"down"}
+{"t":"bind","mode":"play","keys":["j"],"action":"down","label":"down"}
+{"t":"bind","mode":"play","keys":["down"],"action":"down","label":"down"}
+{"t":"bind","mode":"play","keys":["a"],"action":"left","label":"left"}
+{"t":"bind","mode":"play","keys":["h"],"action":"left","label":"left"}
+{"t":"bind","mode":"play","keys":["left"],"action":"left","label":"left"}
+{"t":"bind","mode":"play","keys":["d"],"action":"right","label":"right"}
+{"t":"bind","mode":"play","keys":["l"],"action":"right","label":"right"}
+{"t":"bind","mode":"play","keys":["right"],"action":"right","label":"right"}
+{"t":"bind","mode":"play","keys":["shift"],"action":"dodge","label":"dodge (tap)"}
+{"t":"bind","mode":"play","keys":["x"],"action":"hack","label":"hack"}
+{"t":"bind","mode":"play","keys":["q"],"action":"rot_left","label":"rotate left"}
+{"t":"bind","mode":"play","keys":["e"],"action":"rot_right","label":"rotate right"}
+{"t":"bind","mode":"play","keys":[":"],"action":"cmd","label":"command"}
+{"t":"group","mode":"play","keys":["space"],"label":"leader"}
+{"t":"bind","mode":"play","keys":["space","a"],"action":"autofire","label":"autofire"}
+{"t":"bind","mode":"play","keys":["space","l"],"action":"look","label":"look"}
+{"t":"bind","mode":"play","keys":["space",":"],"action":"cmd","label":"command"}
+{"t":"group","mode":"play","keys":["space","c"],"label":"camera"}
+{"t":"bind","mode":"play","keys":["space","c","q"],"action":"rot_left","label":"left"}
+{"t":"bind","mode":"play","keys":["space","c","e"],"action":"rot_right","label":"right"}
+{"t":"bind","mode":"play","keys":["space","q"],"action":"quit","label":"quit"}
+{"t":"bind","mode":"pick","keys":["h"],"action":"prev","label":"prev"}
+{"t":"bind","mode":"pick","keys":["left"],"action":"prev","label":"prev"}
+{"t":"bind","mode":"pick","keys":["l"],"action":"next","label":"next"}
+{"t":"bind","mode":"pick","keys":["right"],"action":"next","label":"next"}
+{"t":"bind","mode":"pick","keys":["enter"],"action":"confirm","label":"take"}
+{"t":"bind","mode":"pick","keys":["1"],"action":"card1","label":"card 1"}
+{"t":"bind","mode":"pick","keys":["2"],"action":"card2","label":"card 2"}
+{"t":"bind","mode":"pick","keys":["3"],"action":"card3","label":"card 3"}
+{"t":"bind","mode":"pick","keys":["s"],"action":"skip","label":"skip"}
+{"t":"bind","mode":"pick","keys":["w"],"action":"up","label":"up"}
+{"t":"bind","mode":"pick","keys":["a"],"action":"left","label":"left"}
+{"t":"bind","mode":"pick","keys":["d"],"action":"right","label":"right"}
+{"t":"bind","mode":"pick","keys":["up"],"action":"up","label":"up"}
+{"t":"bind","mode":"pick","keys":["down"],"action":"down","label":"down"}
+{"t":"bind","mode":"look","keys":["h"],"action":"cur_left","label":"left"}
+{"t":"bind","mode":"look","keys":["j"],"action":"cur_down","label":"down"}
+{"t":"bind","mode":"look","keys":["k"],"action":"cur_up","label":"up"}
+{"t":"bind","mode":"look","keys":["l"],"action":"cur_right","label":"right"}
+{"t":"bind","mode":"look","keys":["esc"],"action":"back","label":"back"}
+{"t":"bind","mode":"cmd","keys":["esc"],"action":"back","label":"back"}

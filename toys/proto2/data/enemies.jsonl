@@ -1,0 +1,9 @@
+{"t":"head","schema_version":1,"file":"enemies"}
+{"t":"family","id":"scrapper","name":"SCRAPPER","glyph":"x","hue":"kin","role":"melee","hp":1.0,"speed_mps":3.4,"dmg":1.0,"cost":1.0,"ice":3,"hijack_s":12,"radius_m":0.35,"unlock_s":0,"weight":10}
+{"t":"family","id":"skitter","name":"SKITTER","glyph":"v","hue":"emp","role":"melee","hp":0.6,"speed_mps":4.0,"dmg":0.8,"cost":1.5,"ice":2,"hijack_s":12,"radius_m":0.3,"unlock_s":45,"weight":5}
+{"t":"family","id":"pinger","name":"PINGER","glyph":"p","hue":"therm","role":{"ranged":{"range_m":9,"shot_mps":6,"every_s":2.5,"dmg":1.5}},"hp":0.8,"speed_mps":2.8,"dmg":0.6,"cost":2,"ice":3,"hijack_s":12,"radius_m":0.35,"unlock_s":120,"weight":4}
+{"t":"family","id":"brute","name":"BRUTE","glyph":"B","hue":"therm","role":"melee","hp":4.0,"speed_mps":2.8,"dmg":1.6,"cost":4,"ice":6,"hijack_s":9,"radius_m":0.5,"unlock_s":180,"weight":3}
+{"t":"family","id":"firewall","name":"FIREWALL","glyph":"%","hue":"code","role":{"aura":{"radius_m":4,"ice":5}},"hp":1.5,"speed_mps":2.5,"dmg":1.0,"cost":1.5,"ice":4,"hijack_s":9,"radius_m":0.4,"unlock_s":300,"weight":2}
+{"t":"family","id":"cleaner","name":"CLEANER","glyph":"c","hue":"emp","role":"melee","hp":2.4,"speed_mps":3.2,"dmg":2.0,"cost":4,"ice":4,"hijack_s":9,"radius_m":0.4,"unlock_s":0,"weight":0}
+{"t":"family","id":"kiosk","name":"KIOSK HIVEMIND","glyph":"K","hue":"code","role":"boss","hp_abs":4000,"speed_mps":1.5,"dmg":3.0,"radius_m":1.6}
+{"t":"family","id":"sweeper","name":"SWEEPER-9","glyph":"S","hue":"kin","role":"boss","hp_abs":40000,"speed_mps":2.0,"dmg":4.0,"radius_m":2.0}

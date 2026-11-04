@@ -1,0 +1,11 @@
+1s | 114x59 asp 2.15 k 2.00 | live 3000 onscreen 1538 kills/s 2 | 3.8 KB/f render 0.41 ms sim 0.44 ms/tick | 61 fps
+2s | 114x59 asp 2.15 k 2.00 | live 2999 onscreen 1828 kills/s 2 | 4.1 KB/f render 0.46 ms sim 0.55 ms/tick | 60 fps
+3s | 114x59 asp 2.15 k 2.00 | live 3000 onscreen 1377 kills/s 11 | 4.7 KB/f render 0.44 ms sim 0.56 ms/tick | 60 fps
+4s | 114x59 asp 2.15 k 2.00 | live 2999 onscreen 1556 kills/s 66 | 4.5 KB/f render 0.46 ms sim 0.64 ms/tick | 60 fps
+5s | 114x59 asp 2.15 k 2.00 | live 3000 onscreen 1551 kills/s 51 | 3.7 KB/f render 0.45 ms sim 0.59 ms/tick | 60 fps
+6s | 114x59 asp 2.15 k 2.00 | live 2999 onscreen 2072 kills/s 67 | 3.2 KB/f render 0.49 ms sim 0.54 ms/tick | 60 fps
+7s | 114x59 asp 2.15 k 2.00 | live 2996 onscreen 2016 kills/s 295 | 3.2 KB/f render 0.44 ms sim 0.48 ms/tick | 60 fps
+8s | 114x59 asp 2.15 k 2.00 | live 2995 onscreen 2030 kills/s 78 | 2.6 KB/f render 0.47 ms sim 0.51 ms/tick | 60 fps
+9s | 114x59 asp 2.15 k 2.00 | live 2998 onscreen 2109 kills/s 75 | 7.2 KB/f render 0.49 ms sim 0.57 ms/tick | 60 fps
+10s | 114x59 asp 2.15 k 2.00 | live 2996 onscreen 1506 kills/s 223 | 8.1 KB/f render 0.48 ms sim 0.60 ms/tick | 60 fps
+11s | 114x59 asp 2.15 k 2.00 | live 2998 onscreen 1520 kills/s 85 | 2.2 KB/f render 0.42 ms sim 0.46 ms/tick | 60 fps
