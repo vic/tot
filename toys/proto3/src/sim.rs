@@ -179,6 +179,23 @@ pub struct Fx {
     pub skill: SkillId,
 }
 
+/// What happened, for the view's floating text. Ages out after BARK_TICKS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BarkKind {
+    /// a thief ate loot and grew; `power` = its loot after the bite
+    Stole { power: u16 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Bark {
+    pub tick: u32,
+    pub x: i32,
+    pub y: i32,
+    /// enemy id (stable), so the view can pick a line per actor
+    pub id: u32,
+    pub kind: BarkKind,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drop {
     Xp(u16),
@@ -216,6 +233,8 @@ pub struct Player {
     pub face: (i32, i32),
     pub iframes: u16,
     pub dodge_cd: u16,
+    /// ticks since the player last took damage (confidence grows with it)
+    pub unhurt: u32,
     dash_left: u16,
     dash_dir: (i32, i32),
 }
@@ -241,6 +260,10 @@ pub struct Enemies {
     pub side: Vec<Side>,
     pub timer: Vec<u16>,
     pub glitch: Vec<u8>,
+    /// loot value a thief ate: raises its max HP and contact damage, drawn as a gold aura
+    pub loot: Vec<u16>,
+    /// panicked by a confident hero: flees and steals like a thief
+    pub panic: Vec<bool>,
     pub seen: Vec<u32>,
     pub id: Vec<u32>,
     pub rad: Vec<i32>,
@@ -259,7 +282,7 @@ macro_rules! each_col {
     ($e:expr, $f:ident $(, $a:expr)*) => {{
         let e = $e;
         e.x.$f($($a),*); e.y.$f($($a),*); e.hp.$f($($a),*); e.max.$f($($a),*); e.fam.$f($($a),*);
-        e.tier.$f($($a),*); e.side.$f($($a),*); e.timer.$f($($a),*); e.glitch.$f($($a),*); e.seen.$f($($a),*);
+        e.tier.$f($($a),*); e.side.$f($($a),*); e.timer.$f($($a),*); e.glitch.$f($($a),*); e.loot.$f($($a),*); e.panic.$f($($a),*); e.seen.$f($($a),*);
         e.rad.$f($($a),*); e.vx.$f($($a),*); e.vy.$f($($a),*); e.id.$f($($a),*); e.purger.$f($($a),*); e.swift.$f($($a),*); e.hit_cd.$f($($a),*); e.orb_cd.$f($($a),*);
         e.cd.$f($($a),*);
     }};
@@ -397,6 +420,24 @@ const MOB_R_MAX: i32 = 600;
 const TRIG_N: u32 = crate::trig::TURN;
 /// Treasures scattered per run. shortcut: fixed count, upgrade to data when treasure density gets tuning.
 const TREASURES: u32 = 10;
+/// Thief growth: loot per XP drop / chest, damage +permille per loot point and cap, bark lifetime (ticks).
+pub const LOOT_XP: u16 = 1;
+pub const LOOT_CHEST: u16 = 8;
+const LOOT_DMG_PER: i64 = 100;
+const LOOT_DMG_CAP: i64 = 3000;
+pub const BARK_TICKS: u32 = 90;
+/// Morale: seconds unhurt to full confidence, confidence (permille) where trash starts to panic,
+/// 1-in-N trash in view panics per second, flee radius of a panicked foe (mm).
+const CONF_FULL_S: u32 = 20;
+pub const CONF_PANIC: u32 = 600;
+const PANIC_ODDS: u32 = 20;
+const PANIC_FLEE: i32 = 6_000;
+/// Picker time limits (ms): start, per-level cut, cap with a boss near or live, floor. Boss "near" = within this many s.
+const PICK_MAX_MS: u64 = 15_000;
+const PICK_STEP_MS: u64 = 500;
+const PICK_BOSS_MS: u64 = 7_000;
+const PICK_MIN_MS: u64 = 5_000;
+const BOSS_NEAR_S: u32 = 60;
 const JUMP_R: i32 = 4000;
 const CHAIN_FALLOFF: i64 = 850;
 const FX_TICKS: u8 = 6;
@@ -503,6 +544,8 @@ pub struct Sim<'c> {
     pub stats: Stats,
     pub outcome: Option<Outcome>,
     pub narration: Option<(usize, u32)>,
+    /// short-lived world events the view shows as floating text (sim stays text-free)
+    pub barks: Vec<Bark>,
     pub hijacked: u16,
     mutant: Option<Mutant>,
     grid: Grid,
@@ -535,6 +578,7 @@ impl<'c> Sim<'c> {
                 face: (1, 0),
                 iframes: 0,
                 dodge_cd: 0,
+                unhurt: 0,
                 dash_left: 0,
                 dash_dir: (0, 0),
             },
@@ -571,6 +615,7 @@ impl<'c> Sim<'c> {
             },
             outcome: None,
             narration: None,
+            barks: Vec::with_capacity(64),
             hijacked: 0,
             mutant,
             grid: Grid::new(cap),
@@ -617,6 +662,15 @@ impl<'c> Sim<'c> {
 
     pub fn secs(&self) -> u32 {
         self.tick / self.c.hz().get()
+    }
+
+    /// Upgrade picker time limit: 15 s at level 1, 0.5 s less per level, capped near a boss, never under 5 s.
+    pub fn pick_timeout_ms(&self) -> u64 {
+        let by_level = PICK_MAX_MS.saturating_sub(u64::from(self.p.level.saturating_sub(1)) * PICK_STEP_MS);
+        let hz = self.c.hz().get();
+        let boss_soon = self.c.waves.iter().any(|w| matches!(w, WaveEv::Boss { at, .. } if *at > self.tick && *at - self.tick <= BOSS_NEAR_S * hz));
+        let t = if boss_soon || self.boss_ix().is_some() { by_level.min(PICK_BOSS_MS) } else { by_level };
+        t.max(PICK_MIN_MS)
     }
 
     fn sec_ix(&self) -> usize {
@@ -760,6 +814,8 @@ impl<'c> Sim<'c> {
         e.side.push(Side::Hostile);
         e.timer.push(0);
         e.glitch.push(0);
+        e.loot.push(0);
+        e.panic.push(false);
         e.seen.push(u32::MAX);
         e.id.push(self.next_id);
         e.rad.push(self.c.fam(fam).radius);
@@ -838,6 +894,60 @@ mod tests {
     }
 
     #[test]
+    fn confident_hero_panics_trash_and_hurt_hero_does_not() {
+        let c = content();
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        let panics = |unhurt: u32| {
+            let mut s = Sim::new(&c, 7, None);
+            for k in 0..60 {
+                s.push_enemy(fam, Tier::Trash, (s.p.x + 3_000 + k * 100, s.p.y), 1000, (false, false));
+            }
+            s.p.unhurt = unhurt;
+            let hz = c.hz().get();
+            for sec in 1..=PANIC_ODDS {
+                s.tick = sec * hz;
+                s.morale_step();
+            }
+            s.e.panic.iter().filter(|&&p| p).count()
+        };
+        assert!(panics(u32::MAX) > 0, "full confidence: some trash panics");
+        assert_eq!(panics(0), 0, "NEG: just hurt, nobody panics");
+    }
+
+    #[test]
+    fn thief_eats_chest_grows_hp_and_damage_and_barks() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "thief").unwrap();
+        let (x, y) = (s.p.x + 20_000, s.p.y);
+        s.push_enemy(fam, Tier::Trash, (x, y), 1000, (false, false));
+        let j = s.e.len() - 1;
+        let (max0, dmg0) = (s.e.max[j], s.contact_dmg(j));
+        s.drops.x.push(x);
+        s.drops.y.push(y);
+        s.drops.kind.push(Drop::Chest);
+        s.drops.pulled.push(false);
+        s.grid.build(s.p.x, s.p.y, &s.e.x, &s.e.y, &s.e.rad);
+        s.thieves_steal();
+        assert!(s.drops.x.is_empty(), "chest eaten");
+        assert_eq!(s.e.loot[j], LOOT_CHEST);
+        assert!(s.e.max[j] > max0, "max HP grew {} -> {}", max0, s.e.max[j]);
+        assert!(s.contact_dmg(j) > dmg0, "damage grew {} -> {}", dmg0, s.contact_dmg(j));
+        assert!(matches!(s.barks.last().map(|b| b.kind), Some(BarkKind::Stole { power }) if power == LOOT_CHEST));
+    }
+
+    #[test]
+    fn pick_timeout_15s_at_start_shrinks_with_level_floor_5s() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        assert_eq!(s.pick_timeout_ms(), 15_000);
+        s.p.level = 5;
+        assert_eq!(s.pick_timeout_ms(), 13_000);
+        s.p.level = 200;
+        assert_eq!(s.pick_timeout_ms(), 5_000);
+    }
+
+    #[test]
     fn treasure_taken_on_touch_becomes_one_chest() {
         let c = content();
         let mut s = Sim::new(&c, 7, None);
@@ -871,10 +981,11 @@ mod tests {
     }
 
     /// Pinned before the iso renderer landed (2026-11-03): render/data view knobs never touch sim state.
+    /// Re-pinned 2026-11-08: sim changed on purpose (hero confidence makes trash panic).
     #[test]
     fn iso_render_leaves_sim_hash_unchanged() {
         let h = run_hash(&content(), 7, 900);
-        assert_eq!(h, 0x4e15_0460_130e_c301, "sim hash {h:#x}");
+        assert_eq!(h, 0xf131_2eb5_7fef_f6f2, "sim hash {h:#x}");
     }
 
     #[test]

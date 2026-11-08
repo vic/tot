@@ -4,9 +4,6 @@ use crate::data::Content;
 use crate::iso::{Heading, screen_dir};
 use crate::sim::{Cmd, Input, PickChoice};
 
-/// Upgrade picker timeout: no choice in this time = the highlighted card is taken.
-pub const PICK_TIMEOUT_MS: u64 = 5000;
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Key {
     Char(char),
@@ -594,8 +591,14 @@ mod tests {
         ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
         let i = ui.input(true);
         assert_eq!(i.pick, Some(PickChoice::Card(1)));
+        // direction keys move the selection in PICK (a/w/h/k/left/up = prev, d/s/j/l/right/down = next), never the hero
+        ui.sel = 1;
         ui.key(press('w'), &c, 0);
+        assert_eq!(ui.sel, 0);
+        ui.key(press('s'), &c, 0);
+        ui.key(press('j'), &c, 0);
+        assert_eq!(ui.sel, 2);
         assert_eq!(ui.input(true).mv, (0, 0));
-        assert_ne!(ui.input(false).mv, (0, 0));
+        assert_eq!(ui.input(false).mv, (0, 0));
     }
 }

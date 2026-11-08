@@ -26,6 +26,8 @@ impl<'c> Sim<'c> {
         }
         self.tick += 1;
         self.player_step(inp);
+        self.p.unhurt = self.p.unhurt.saturating_add(1);
+        self.morale_step();
         self.grid.build(self.p.x, self.p.y, &self.e.x, &self.e.y, &self.e.rad);
         self.lists();
         self.enemies_move();
@@ -98,7 +100,7 @@ impl<'c> Sim<'c> {
         h.cap_base + h.cap_per_rank * rank
     }
 
-    fn contact_dmg(&self, i: usize) -> i32 {
+    pub(super) fn contact_dmg(&self, i: usize) -> i32 {
         let sp = &self.c.spawn;
         let tier = match self.e.tier[i] {
             Tier::Elite => sp.elite_dmg,
@@ -106,7 +108,9 @@ impl<'c> Sim<'c> {
             Tier::Trash | Tier::Boss => 1000,
         };
         let d = i64::from(sp.dmg0) * i64::from(sp.dmg_mult[self.sec_ix()]) / 1000 * i64::from(self.c.fam(self.e.fam[i]).dmg) / 1000;
-        (d * i64::from(tier) / 1000) as i32
+        // thieves that ate loot hit harder: +10% per loot point, at most x3
+        let fed = (1000 + LOOT_DMG_PER * i64::from(self.e.loot[i])).min(LOOT_DMG_CAP);
+        (d * i64::from(tier) / 1000 * fed / 1000) as i32
     }
 
     /// Analytic single-target build DPS, HP/s (the D of rho = H/D, design sec 11.4).
@@ -169,6 +173,7 @@ impl<'c> Sim<'c> {
         let a = i64::from(self.c.player.armour) * 1000;
         let dd = i64::from(d);
         let taken = dd - dd * a / (a + 5 * dd);
+        self.p.unhurt = 0;
         self.p.hp -= taken as i32;
         self.stats.taken += taken;
         self.last_hit = Some((cause, foreseen));
@@ -235,10 +240,19 @@ impl<'c> Sim<'c> {
                     chase = td2 > i64::from(*range).pow(2) * 3 / 4;
                 }
                 // thief: runs from the player inside its flee radius, else dives for the nearest loot
-                if let FamKind::Mob(Mob { role: MobRole::Thief { flee }, .. }) = &fam.kind {
-                    if dp2 <= i64::from(*flee).pow(2) {
+                let flee = match &fam.kind {
+                    FamKind::Mob(Mob { role: MobRole::Thief { flee }, .. }) => Some(*flee),
+                    _ if e.panic[i] => Some(PANIC_FLEE),
+                    _ => None,
+                };
+                if let Some(flee) = flee {
+                    if dp2 <= i64::from(flee).pow(2) {
                         (tx, ty, td2) = (x + (x - px), y + (y - py), dp2);
-                    } else if let Some(k) = (0..self.drops.x.len()).min_by_key(|&k| dist2(self.drops.x[k] - x, self.drops.y[k] - y)) {
+                    } else if let Some(k) = (0..self.drops.x.len()).max_by_key(|&k| {
+                        // best loot first: value squared over distance squared (a chest is worth a detour)
+                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) => LOOT_XP, Drop::Chest => LOOT_CHEST });
+                        v * v * 1_000_000_000 / (dist2(self.drops.x[k] - x, self.drops.y[k] - y) + 1)
+                    }) {
                         (tx, ty) = (self.drops.x[k], self.drops.y[k]);
                         td2 = dist2(tx - x, ty - y);
                     }
@@ -1010,8 +1024,10 @@ impl<'c> Sim<'c> {
 
     /// Thieves eat loot they reach before the player does: loot gone, thief healed by a fifth of its max
     /// (chest: half). shortcut: fixed heal shares, upgrade to per-family data when thieves get tuning.
-    fn thieves_steal(&mut self) {
+    pub(super) fn thieves_steal(&mut self) {
         let c = self.c;
+        let now = self.tick;
+        self.barks.retain(|b| now.saturating_sub(b.tick) < BARK_TICKS);
         let mut near = std::mem::take(&mut self.near);
         let mut k = self.drops.x.len();
         while k > 0 {
@@ -1020,14 +1036,24 @@ impl<'c> Sim<'c> {
             self.grid.query(dx, dy, 500, &mut near);
             // the grid can hold indices from earlier this tick (kills swap-remove): bounds-check them
             let thief = near.iter().map(|&j| j as usize).find(|&j| {
-                j < self.e.len() && self.e.side[j] == Side::Hostile && matches!(c.fam(self.e.fam[j]).kind, FamKind::Mob(Mob { role: MobRole::Thief { .. }, .. }))
+                j < self.e.len()
+                    && self.e.side[j] == Side::Hostile
+                    && (self.e.panic[j] || matches!(c.fam(self.e.fam[j]).kind, FamKind::Mob(Mob { role: MobRole::Thief { .. }, .. })))
             });
             let Some(j) = thief else { continue };
-            let heal = match self.drops.kind[k] {
-                Drop::Xp(_) => self.e.max[j] / 5,
-                Drop::Chest => self.e.max[j] / 2,
+            // eat it: loot grows max HP by a tenth per point (and heals that much), contact damage grows in contact_dmg
+            let bite = match self.drops.kind[k] {
+                Drop::Xp(_) => LOOT_XP,
+                Drop::Chest => LOOT_CHEST,
             };
-            self.e.hp[j] = (self.e.hp[j] + heal).min(self.e.max[j]);
+            self.e.loot[j] = self.e.loot[j].saturating_add(bite);
+            let grow = self.e.max[j] / 10 * i32::from(bite);
+            self.e.max[j] = self.e.max[j].saturating_add(grow);
+            self.e.hp[j] = (self.e.hp[j].saturating_add(grow)).min(self.e.max[j]);
+            if self.barks.len() >= self.barks.capacity() {
+                self.barks.remove(0);
+            }
+            self.barks.push(Bark { tick: self.tick, x: self.e.x[j], y: self.e.y[j], id: self.e.id[j], kind: BarkKind::Stole { power: self.e.loot[j] } });
             let d = &mut self.drops;
             d.x.swap_remove(k);
             d.y.swap_remove(k);
@@ -1035,6 +1061,28 @@ impl<'c> Sim<'c> {
             d.pulled.swap_remove(k);
         }
         self.near = near;
+    }
+
+    /// Hero confidence, permille: 0 just after a hit, full after CONF_FULL_S seconds unhurt.
+    pub fn confidence(&self) -> u32 {
+        let full = CONF_FULL_S * self.c.hz().get();
+        (u64::from(self.p.unhurt) * 1000 / u64::from(full.max(1))).min(1000) as u32
+    }
+
+    /// A confident hero scares weak foes: once a second, some trash in view panics (flees, then steals).
+    pub(super) fn morale_step(&mut self) {
+        let hz = self.c.hz().get();
+        if self.confidence() < CONF_PANIC || !self.tick.is_multiple_of(hz) {
+            return;
+        }
+        let r2 = i64::from(self.c.view.view_r).pow(2);
+        let beat = self.tick / hz;
+        for i in 0..self.e.len() {
+            let e = &mut self.e;
+            if e.side[i] == Side::Hostile && e.tier[i] == Tier::Trash && !e.panic[i] && dist2(e.x[i] - self.p.x, e.y[i] - self.p.y) <= r2 && (e.id[i] + beat).is_multiple_of(PANIC_ODDS) {
+                e.panic[i] = true;
+            }
+        }
     }
 
     /// Touching a treasure takes it: one chest pick (the upgrade offer) per treasure.

@@ -1,11 +1,11 @@
 //! Pure render: sim state -> cell grid -> diff bytes (design sec 5). One buffer per frame, diff
 //! against the front buffer, hand decimal writer (no core::fmt in the frame path, PF sec 1c).
 use crate::data::{Content, Glyph, Hue, Rgb};
-use crate::input::{Mode, PICK_TIMEOUT_MS, Ui};
+use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
 use crate::iso::Proj;
-use crate::sim::{FxShape, Shape, Side, Sim, TeleKind, Tier, dist2};
+use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, FxShape, Shape, Side, Sim, TeleKind, Tier, dist2};
 use std::collections::HashSet;
 
 /// Map box (top-left of the play area): cols x rows of the map.
@@ -15,7 +15,34 @@ const MAP_H: u16 = 11;
 const MAP_K: i32 = 4;
 /// Stats panel (bottom-right of the play area).
 const PANEL_W: u16 = 36;
-const PANEL_H: u16 = 12;
+const PANEL_H: u16 = 18;
+/// Stats panel: power rows shown, first row of the foe list, XP bar width.
+const PANEL_POWERS: usize = 5;
+const MORALE_BAR_W: u16 = 10;
+const PANEL_FOES_ROW: u16 = 12;
+const XP_BAR_W: u16 = 18;
+/// Chest sprite (3x2, centred on the chest cell) and its glow pulse period (ticks).
+const CHEST: [&str; 2] = ["▛▀▜", "▙▄▟"];
+const CHEST_PULSE: u32 = 8;
+/// Bottom bar: size, orb width, face width, HP percent under which the face suffers, faces (3 rows x FACE_W).
+const BAR_W: u16 = 76;
+const BAR_H: u16 = 5;
+const ORB_W: u16 = 9;
+const FACE_W: u16 = 7;
+const FACE_HURT_PCT: i32 = 35;
+const FACE_CALM: [&str; 3] = [" .---. ", " (o o) ", "  \\_/  "];
+const FACE_RAGE: [&str; 3] = [" \\---/ ", " (>.<) ", "  /W\\  "];
+const FACE_HURT: [&str; 3] = [" .~~~. ", " (x x) ", "  /~\\  "];
+/// Fed-thief gold glow strength (permille toward gold): base, per loot point, max.
+const FED_GLOW_MIN: u32 = 250;
+/// Fear tint strength on panicked foes (permille toward the fear colour).
+const FEAR_TINT: u32 = 450;
+const FED_GLOW_PER: u32 = 60;
+const FED_GLOW_MAX: u32 = 800;
+/// Thief bite lines. shortcut: fixed English set, upgrade to profile data when presets carry narration.
+const STOLE_LINES: [&str; 4] = ["MINE NOW!", "yoink!", "tasty loot", "I grow STRONGER"];
+/// Top-centre boss health bar width (cells).
+const BOSS_BAR_W: u16 = 30;
 /// Upgrade popup size (cells).
 const POPUP_W: u16 = 64;
 const POPUP_H: u16 = 16;
@@ -55,7 +82,7 @@ enum Prio {
 }
 
 /// Bottom strip rows, always reserved (design sec 5.9).
-pub const STRIP: u16 = 3;
+pub const STRIP: u16 = 2;
 const LUT_STEP: i32 = 250;
 
 pub struct Frame {
@@ -321,16 +348,21 @@ impl Frame {
         // 4. drops (no id: drawn at the current tick)
         for k in 0..sim.drops.x.len() {
             let (x, y) = (f64::from(sim.drops.x[k]), f64::from(sim.drops.y[k]));
+            if let crate::sim::Drop::Chest = sim.drops.kind[k] {
+                self.chest(sim, x, y);
+                continue;
+            }
             if let Some(i) = self.cell_of(x, y) {
-                let (ch, fg) = match sim.drops.kind[k] {
-                    crate::sim::Drop::Xp(_) => ('◇', pal.xp),
-                    crate::sim::Drop::Chest => ('✦', if (sim.tick / 8).is_multiple_of(2) { pal.chest } else { pal.dim }),
-                };
-                let ch = Glyph::of(ch).unwrap_or(Glyph::SPACE);
-                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch, fg, bg: None });
+                let ch = Glyph::of('◇').unwrap_or(Glyph::SPACE);
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch, fg: pal.xp, bg: None });
             }
         }
+        for k in 0..sim.treasures.len() {
+            let (x, y) = sim.treasures[k];
+            self.chest(sim, f64::from(x), f64::from(y));
+        }
         self.enemies(sim);
+        self.fed(sim);
         // 6. enemy shots (no id: drawn at the current tick)
         for k in 0..sim.shots.x.len() {
             let (x, y) = (f64::from(sim.shots.x[k]), f64::from(sim.shots.y[k]));
@@ -702,7 +734,8 @@ impl Frame {
         };
         edge(self, y0, '─', pal.of(Hue::Kin));
         edge(self, y0 + h - 1, '─', pal.of(Hue::Kin));
-        let left_ms = PICK_TIMEOUT_MS.saturating_sub(now_ms.saturating_sub(ui.pick_open_ms));
+        let limit = sim.pick_timeout_ms();
+        let left_ms = limit.saturating_sub(now_ms.saturating_sub(ui.pick_open_ms));
         let x = self.text(y0 + 1, x0 + 2, "UPGRADE  choose before ", pal.alarm);
         self.num(y0 + 1, x, (left_ms / 1000) as i64, pal.alarm);
         for (k, card) in offer.cards.iter().enumerate() {
@@ -716,7 +749,8 @@ impl Frame {
             let rar = [("common", pal.text), ("RARE", pal.of(Hue::Kin)), ("EPIC", pal.of(Hue::Therm)), ("LEGEND", pal.chest)][usize::from(card.rarity.min(3))];
             let mut x = self.text(row, x0 + 2, if sel { "> " } else { "  " }, pal.alarm);
             x = self.num(row, x, k as i64 + 1, pal.dim);
-            x = self.text(row, x + 1, &s.name, if sel { pal.player } else { pal.text });
+            // power type colour: same as the stats pane
+            x = self.text(row, x + 1, &s.name, pal.of(s.hue));
             x = self.text(row, x + 2, rar.0, rar.1);
             x = self.text(row, x + 2, if card.new_rank == 1 { "NEW" } else { "rank" }, pal.dim);
             if card.new_rank > 1 {
@@ -731,14 +765,162 @@ impl Frame {
         }
         // timer bar: shrinks to empty at the timeout
         let bar_w = w.saturating_sub(4);
-        let fill = (left_ms * u64::from(bar_w) / PICK_TIMEOUT_MS) as u16;
+        let fill = (left_ms * u64::from(bar_w) / limit.max(1)) as u16;
         for k in 0..bar_w {
             let ch = if k < fill { '█' } else { '░' };
             self.text(y0 + h - 2, x0 + 2 + k, &ch.to_string(), if k < fill { pal.alarm } else { pal.dim });
         }
     }
 
+    /// Bottom bar origin (col, row) in play-area cells; None when the screen is too small.
+    fn bar_origin(&self) -> Option<(u16, u16)> {
+        (self.cols >= BAR_W && self.play_rows() >= BAR_H + MAP_H).then(|| ((self.cols - BAR_W) / 2, self.play_rows() - BAR_H))
+    }
+
+    /// Diablo/Doom bottom bar: blood orb | hotkeys 1,2 / 5,6 | face | hotkeys 3,4 / 7,8 | magic orb.
+    fn hud_bar(&mut self, sim: &Sim) {
+        let Some((x0, y0)) = self.bar_origin() else { return };
+        let c = sim.c;
+        let pal = &c.pal;
+        let cols = usize::from(self.cols);
+        for r in 0..BAR_H {
+            for col in 0..BAR_W {
+                self.cells[usize::from(y0 + r) * cols + usize::from(x0 + col)] = Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.hud_bg };
+            }
+        }
+        // orbs fill from the bottom; the top row shows the number
+        let orb = |f: &mut Self, ox: u16, val: i64, max: i64, fg: Rgb| {
+            let fill = (val.max(0) * i64::from(BAR_H - 1) * 2 / max.max(1)) as u16; // half-rows
+            for r in 0..BAR_H - 1 {
+                let from_bottom = BAR_H - 2 - r;
+                let ch = if fill >= (from_bottom + 1) * 2 { '█' } else if fill == from_bottom * 2 + 1 { '▄' } else { '░' };
+                for col in 0..ORB_W {
+                    let i = usize::from(y0 + 1 + r) * cols + usize::from(ox + col);
+                    f.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: if ch == '░' { pal.dim } else { fg }, bg: pal.hud_bg };
+                }
+            }
+            let n = (val.max(0) / 1000).to_string();
+            f.text(y0, ox + (ORB_W - n.len() as u16) / 2, &n, fg);
+        };
+        orb(self, x0, i64::from(sim.p.hp), i64::from(sim.p.max_hp), pal.alarm);
+        orb(self, x0 + BAR_W - ORB_W, i64::from(sim.p.flux), i64::from(c.player.flux.max(1)), pal.of(Hue::Code));
+        // hotkeys: slot k shows the k-th owned power in its type colour
+        let half = (BAR_W - 2 * ORB_W - FACE_W - 4) / 2;
+        let left = x0 + ORB_W + 1;
+        let right = left + half + 1 + FACE_W + 1;
+        for k in 0..8u16 {
+            let (hx, row) = match k {
+                0 | 1 => (left + (k % 2) * (half / 2), y0 + 1),
+                2 | 3 => (right + (k % 2) * (half / 2), y0 + 1),
+                4 | 5 => (left + (k % 2) * (half / 2), y0 + 3),
+                _ => (right + (k % 2) * (half / 2), y0 + 3),
+            };
+            let x = self.text(row, hx, &(k + 1).to_string(), pal.dim);
+            match sim.owned.get(usize::from(k)) {
+                Some(o) => {
+                    let s = c.skill(o.id);
+                    let name: String = s.name.chars().take(usize::from(half / 2 - 3)).collect();
+                    self.text(row, x + 1, &name, pal.of(s.hue));
+                    self.bar(row + 1, hx + 2, i64::from(o.rank), 5, half / 2 - 4, pal.of(s.hue));
+                }
+                None => {
+                    self.text(row, x + 1, "-", pal.dim);
+                }
+            }
+        }
+        // face: suffering when low, rage in a crowd, calm otherwise
+        let crowd = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile && dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y) <= i64::from(c.view.crowd_r).pow(2)).count();
+        let (face, fg) = if sim.p.hp * 100 < sim.p.max_hp * FACE_HURT_PCT {
+            (FACE_HURT, pal.alarm)
+        } else if crowd >= usize::from(c.view.crowd_n) {
+            (FACE_RAGE, pal.of(Hue::Therm))
+        } else {
+            (FACE_CALM, pal.player)
+        };
+        let fx = left + half + 1;
+        for (r, line) in face.iter().enumerate() {
+            self.text(y0 + 1 + r as u16, fx, line, fg);
+        }
+    }
+
+    /// Fed thieves glow gold (stronger the more loot they ate); recent bites float a line above them.
+    fn fed(&mut self, sim: &Sim) {
+        let pal = &sim.c.pal;
+        for k in 0..sim.e.len() {
+            let loot = sim.e.loot[k];
+            if loot == 0 && sim.e.panic[k] {
+                // fear: a cold tint on foes that turned tail
+                if let Some(i) = self.cell_of(f64::from(sim.e.x[k]), f64::from(sim.e.y[k])) {
+                    self.cells[i].bg = mix(pal.bg, pal.of(Hue::Emp), FEAR_TINT);
+                }
+                continue;
+            }
+            if loot == 0 {
+                continue;
+            }
+            let Some(i) = self.cell_of(f64::from(sim.e.x[k]), f64::from(sim.e.y[k])) else { continue };
+            let f = (FED_GLOW_MIN + u32::from(loot) * FED_GLOW_PER).min(FED_GLOW_MAX);
+            self.cells[i].bg = mix(pal.bg, pal.chest, f);
+        }
+        for b in &sim.barks {
+            if sim.tick.saturating_sub(b.tick) >= BARK_TICKS || self.cell_of(f64::from(b.x), f64::from(b.y)).is_none() {
+                continue;
+            }
+            let BarkKind::Stole { power } = b.kind;
+            let line = STOLE_LINES[b.id as usize % STOLE_LINES.len()];
+            let text = format!("{line} +{power}");
+            let (col, row) = self.scr(f64::from(b.x), f64::from(b.y));
+            // rise one row per third of the lifetime, like a speech bubble floating off
+            let up = 2 + (sim.tick - b.tick) * 3 / BARK_TICKS;
+            let r = row - up as i32;
+            let c0 = col - text.chars().count() as i32 / 2;
+            if r < 0 || r >= i32::from(self.play_rows()) || c0 < 0 {
+                continue;
+            }
+            self.text(r as u16, c0 as u16, &text, pal.chest);
+        }
+    }
+
+    /// Chest: 3x2 gold sprite on a pulsing gold glow, centred on the chest's cell.
+    fn chest(&mut self, sim: &Sim, x: f64, y: f64) {
+        let pal = &sim.c.pal;
+        if self.cell_of(x, y).is_none() {
+            return;
+        }
+        let (col, row) = self.scr(x, y);
+        let d = self.vd(x, y);
+        let pulse = if (sim.tick / CHEST_PULSE).is_multiple_of(2) { 550 } else { 750 };
+        let glow = mix(pal.chest, pal.bg, pulse);
+        for (dr, line) in CHEST.iter().enumerate() {
+            for (dc, ch) in line.chars().enumerate() {
+                let (c2, r2) = (col + dc as i32 - 1, row + dr as i32 - 1);
+                if c2 < 0 || r2 < 0 || c2 >= i32::from(self.cols) || r2 >= i32::from(self.play_rows()) {
+                    continue;
+                }
+                let i = r2 as usize * usize::from(self.cols) + c2 as usize;
+                self.put(i, Prio::Pickup, d, Ink { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: pal.chest, bg: Some(glow) });
+            }
+        }
+    }
+
+    /// Live boss: name + health bar, top centre between the map and the stats pane.
+    fn boss_bar(&mut self, sim: &Sim) {
+        let Some(b) = sim.boss_ix() else { return };
+        let c = sim.c;
+        let pal = &c.pal;
+        let (left, right) = (MAP_W + 1, self.cols.saturating_sub(PANEL_W + 1));
+        if right <= left + BOSS_BAR_W {
+            return;
+        }
+        let name = &c.fam(sim.e.fam[b]).name;
+        let w = BOSS_BAR_W + name.chars().count() as u16 + 1;
+        let x0 = left + (right - left).saturating_sub(w) / 2;
+        let x = self.text(0, x0, name, pal.alarm);
+        self.bar(0, x + 1, i64::from(sim.e.hp[b]), i64::from(sim.e.max[b]), BOSS_BAR_W, pal.alarm);
+    }
+
     fn overlays(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
+        self.boss_bar(sim);
         self.popup(sim, ui, now_ms);
         let c = sim.c;
         let unit = c.view.floor_cell.max(1) * MAP_K;
@@ -751,6 +933,7 @@ impl Frame {
         }
         self.map(sim, unit, (px, py), &t, &sim.treasures);
         self.panel(sim);
+        self.hud_bar(sim);
         for &(x, y, _) in &t {
             self.pointer(sim, x, y, c.pal.alarm);
         }
@@ -773,7 +956,7 @@ impl Frame {
                 let (ch, fg) = if (cx, cy) == (px, py) {
                     ('@', pal.player)
                 } else if treasures.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
-                    ('T', pal.chest)
+                    ('■', pal.chest)
                 } else if t.iter().any(|&(x, y, _)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
                     ('B', pal.alarm)
                 } else if self.seen.contains(&(cx, cy)) {
@@ -828,10 +1011,12 @@ impl Frame {
         x = self.text(r, x, "/", pal.dim);
         self.num(r, x, i64::from(sim.p.max_hp / 1000), pal.dim);
         r += 1;
+        // XP: the bar that drives "one more level" (wide, with numbers to go)
         let mut x = self.text(r, x0 + 1, "LV ", pal.text);
-        x = self.num(r, x, i64::from(sim.p.level), pal.text);
-        x = self.text(r, x + 2, "XP ", pal.text);
-        self.bar(r, x, i64::from(sim.p.xp), i64::from(sim.xp_need()), 12, pal.xp);
+        x = self.num(r, x, i64::from(sim.p.level), pal.xp);
+        x = self.bar(r, x + 1, i64::from(sim.p.xp), i64::from(sim.xp_need()), XP_BAR_W, pal.xp);
+        x = self.num(r, x + 1, i64::from(sim.xp_need().saturating_sub(sim.p.xp)), pal.xp);
+        self.text(r, x, " to go", pal.dim);
         r += 1;
         let mut x = self.text(r, x0 + 1, "FLUX ", pal.text);
         x = self.num(r, x, i64::from(sim.p.flux / 1000), pal.of(Hue::Code));
@@ -839,30 +1024,53 @@ impl Frame {
         x = self.num(r, x, i64::from(sim.stats.kills), pal.text);
         x = self.text(r, x + 2, "HIJACK ", pal.dim);
         self.num(r, x, i64::from(sim.hijacked), pal.of(Hue::Code));
+        r += 1;
+        // morale: hero NERVE (grows while unhurt) vs foe PANIC (share of foes fleeing)
+        let hostile = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile).count();
+        let panicked = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile && sim.e.panic[k]).count();
+        let nerve = sim.confidence();
+        let mut x = self.text(r, x0 + 1, "NERVE ", pal.text);
+        x = self.bar(r, x, i64::from(nerve), 1000, MORALE_BAR_W, if nerve >= CONF_PANIC { pal.player } else { pal.dim });
+        x = self.text(r, x + 2, "PANIC ", pal.text);
+        self.bar(r, x, panicked as i64, hostile.max(1) as i64, MORALE_BAR_W, pal.of(Hue::Emp));
         r += 2;
+        // powers: name in the power's type colour (same colour as the picker popup)
         self.text(r, x0 + 1, "POWERS", pal.dim);
         r += 1;
-        for o in sim.owned.iter().take(4) {
-            let mut x = self.text(r, x0 + 2, &c.skill(o.id).name, pal.text);
+        for o in sim.owned.iter().take(PANEL_POWERS) {
+            let s = c.skill(o.id);
+            let mut x = self.text(r, x0 + 2, &s.name, pal.of(s.hue));
             x = self.text(r, x + 1, "r", pal.dim);
             self.num(r, x, i64::from(o.rank), pal.dim);
             r += 1;
         }
-        r = y0 + 10;
-        self.text(r, x0 + 1, "ENEMIES", pal.dim);
-        let mut cnt = vec![0u32; c.fams.len()];
+        // foes: one row per (family, tier), glyph + name in the foe's own render colour
+        r = y0 + PANEL_FOES_ROW;
+        self.text(r, x0 + 1, "FOES", pal.dim);
+        let tiers = [Tier::Trash, Tier::Elite, Tier::Champion, Tier::Boss];
+        let mut cnt = vec![0u32; c.fams.len() * tiers.len()];
         for k in 0..sim.e.len() {
             if sim.e.side[k] == Side::Hostile {
-                cnt[sim.e.fam[k].ix()] += 1;
+                let t = tiers.iter().position(|&t| t == sim.e.tier[k]).unwrap_or(0);
+                cnt[sim.e.fam[k].ix() * tiers.len() + t] += 1;
             }
         }
         let mut top: Vec<(u32, usize)> = cnt.iter().enumerate().filter(|&(_, &n)| n > 0).map(|(i, &n)| (n, i)).collect();
         top.sort_by(|a, b| b.cmp(a));
-        let mut x = x0 + 2;
-        for &(n, i) in top.iter().take(3) {
-            x = self.num(r + 1, x, i64::from(n), pal.text);
-            x = self.text(r + 1, x + 1, &c.fams[i].name, pal.dim);
-            x += 2;
+        for (row, &(n, i)) in top.iter().take(PANEL_H.saturating_sub(PANEL_FOES_ROW + 1).into()).enumerate() {
+            let (f, t) = (&c.fams[i / tiers.len()], tiers[i % tiers.len()]);
+            let fg = pal.of(f.hue);
+            let rr = r + 1 + row as u16;
+            let mut x = self.text(rr, x0 + 2, &f.glyph.ch().to_string(), fg);
+            x = self.num(rr, x + 1, i64::from(n), pal.text);
+            x = self.text(rr, x + 1, &f.name, fg);
+            let (tag, tc) = match t {
+                Tier::Trash => ("", pal.dim),
+                Tier::Elite => (" ELITE", pal.of(Hue::Kin)),
+                Tier::Champion => (" CHAMPION", pal.of(Hue::Therm)),
+                Tier::Boss => (" BOSS", pal.alarm),
+            };
+            self.text(rr, x, tag, tc);
         }
     }
 
@@ -877,7 +1085,8 @@ impl Frame {
     fn boxed(&self, col: u16, row: u16) -> bool {
         let in_map = col < MAP_W && row < MAP_H;
         let in_panel = col >= self.cols.saturating_sub(PANEL_W) && row < PANEL_H;
-        in_map || in_panel
+        let in_bar = self.bar_origin().is_some_and(|(bx, by)| col >= bx && col < bx + BAR_W && row >= by);
+        in_map || in_panel || in_bar
     }
 
     /// Arrow on the screen edge toward an off-screen world point (mm). On-screen points get none.
@@ -919,48 +1128,32 @@ impl Frame {
             ARROW_N
         };
         let i = usize::from(row) * usize::from(self.cols) + usize::from(col);
-        self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: pal.hud_bg };
+        // glow: the arrow's own colour lifted off the background (gold for treasure, red for bosses)
+        let glow = mix(fg, pal.hud_bg, 700);
+        self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: glow };
+        // distance in metres beside the arrow, clear of both boxes
+        let m = (dist2(wx - sim.p.x, wy - sim.p.y) as f64).sqrt() / 1000.0;
+        let label = format!("{}m", m as i64);
+        let n = label.chars().count() as u16;
+        let start = if col + 2 + n < self.cols { col + 2 } else { col.saturating_sub(n + 1) };
+        for (k, lc) in label.chars().enumerate() {
+            let pos = start + k as u16;
+            if pos < self.cols && !self.boxed(pos, row) {
+                let j = usize::from(row) * usize::from(self.cols) + usize::from(pos);
+                self.cells[j] = Cell { ch: Glyph::of(lc).unwrap_or(Glyph::SPACE), fg, bg: pal.hud_bg };
+            }
+        }
     }
 
     fn strip(&mut self, sim: &Sim, v: &View) {
         self.overlays(sim, v.ui, v.now_ms);
         let c = sim.c;
         let pal = &c.pal;
-        let (ra, rb, rcm) = (self.rows - 3, self.rows - 2, self.rows - 1);
+        let (rb, rcm) = (self.rows - 2, self.rows - 1);
         let ui = v.ui;
-        // row A: HUD
-        let mut x = self.text(ra, 1, "HP ", pal.text);
-        x = self.bar(ra, x, i64::from(sim.p.hp), i64::from(sim.p.max_hp), 16, pal.of(Hue::Kin));
-        x = self.num(ra, x + 1, i64::from(sim.p.hp.max(0) / 1000), pal.text);
-        x = self.text(ra, x, "/", pal.dim);
-        x = self.num(ra, x, i64::from(sim.p.max_hp / 1000), pal.dim);
-        x = self.text(ra, x + 2, "FLUX ", pal.text);
-        x = self.num(ra, x, i64::from(sim.p.flux / 1000), pal.of(Hue::Code));
-        x = self.text(ra, x + 2, "LV ", pal.text);
-        x = self.num(ra, x, i64::from(sim.p.level), pal.text);
-        x = self.text(ra, x + 1, "", pal.text);
-        x = self.bar(ra, x, i64::from(sim.p.xp), i64::from(sim.xp_need()), 10, pal.xp);
-        let s = sim.secs();
-        x = self.text(ra, x + 2, "", pal.text);
-        x = self.num(ra, x, i64::from(s / 60), pal.text);
-        x = self.text(ra, x, if s % 60 < 10 { ":0" } else { ":" }, pal.text);
-        x = self.num(ra, x, i64::from(s % 60), pal.text);
-        x = self.text(ra, x + 2, "KILLS ", pal.dim);
-        x = self.num(ra, x, i64::from(sim.stats.kills), pal.text);
-        x = self.text(ra, x + 2, "HIJACK ", pal.dim);
-        x = self.num(ra, x, i64::from(sim.hijacked), pal.of(Hue::Code));
-        x = self.text(ra, x, "/", pal.dim);
-        x = self.num(ra, x, i64::from(sim.hijack_cap()), pal.dim);
-        x = self.text(ra, x + 2, "DODGE ", pal.dim);
-        x = self.text(ra, x, if sim.p.dodge_cd == 0 { "ready" } else { "..." }, pal.text);
-        if let Some(b) = sim.boss_ix() {
-            x = self.text(ra, x + 2, &c.fam(sim.e.fam[b]).name, pal.alarm);
-            x = self.bar(ra, x + 1, i64::from(sim.e.hp[b]), i64::from(sim.e.max[b]), 20, pal.alarm);
-        }
-        let _ = x;
         // row B: pick cards | which-key | look tooltip | narration
         if let (Mode::Pick, Some(_)) = (ui.mode, sim.offer) {
-            self.text(rb, 1, "PICK  1-3 choose  enter confirm  s skip  (popup above)", pal.alarm);
+            self.text(rb, 1, "PICK  wasd/hjkl/arrows move  1-3 or enter take  backspace skip  (popup above)", pal.alarm);
         } else if let Some((prefix, items)) = ui.whichkey(c, v.now_ms) {
             let mut x = self.text(rb, 1, &prefix, pal.alarm);
             x = self.text(rb, x, ":", pal.dim);
@@ -1153,8 +1346,8 @@ mod tests {
     use crate::iso::Heading;
     use crate::sim::{Input, PickChoice};
 
-    // re-pinned 2026-11-08: treasures (T) + thief family + cadence changes (reviewed in snapshot)
-    const GOLDEN: u64 = 0xca8b_4183_da0c_5506;
+    // re-pinned 2026-11-08: arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
+    const GOLDEN: u64 = 0x24a8_f76b_50d4_6263;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -1299,7 +1492,7 @@ mod tests {
         let n = usize::from(c.view.actor_rows[0]);
         let pi = (rc as usize - n) * 120 + cc as usize;
         assert_eq!(f.cells[pi].ch.ch(), '@');
-        assert!(f.cells[(40 - 3) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg));
+        assert!(f.cells[(40 - 2) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg));
     }
 
     fn headings() -> [Heading; 4] {

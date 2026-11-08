@@ -2,7 +2,7 @@
 use crate::bot::{Autopilot, MoveBot, PickBot, cause_name};
 use crate::data::Content;
 use crate::director::Director;
-use crate::input::{Event, Mode, PICK_TIMEOUT_MS, Ui};
+use crate::input::{Event, Mode, Ui};
 use crate::render::{Frame, View};
 use crate::sim::{Outcome, PickChoice, Sim};
 use crate::tty::Tty;
@@ -164,8 +164,8 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
                     Some(p) => p.input(&sim),
                     None => ui.input(c.opt.pick_pauses),
                 };
-                // upgrade timeout: no choice inside PICK_TIMEOUT_MS takes the highlighted card
-                if ui.mode == Mode::Pick && sim.offer.is_some() && inp.pick.is_none() && now_ms().saturating_sub(ui.pick_open_ms) >= PICK_TIMEOUT_MS {
+                // upgrade timeout: no choice inside the time limit takes the highlighted card
+                if ui.mode == Mode::Pick && sim.offer.is_some() && inp.pick.is_none() && now_ms().saturating_sub(ui.pick_open_ms) >= sim.pick_timeout_ms() {
                     inp.pick = Some(PickChoice::Card(ui.sel));
                 }
                 if let (Some(ch), Some(offer)) = (inp.pick, sim.offer) {
