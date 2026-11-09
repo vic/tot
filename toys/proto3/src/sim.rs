@@ -31,6 +31,8 @@ pub enum PickChoice {
 pub struct Input {
     /// World direction signs, each -1..=1.
     pub mv: (i32, i32),
+    /// the shop popup is open: the tick only applies purchases, the world stands still
+    pub shopping: bool,
     pub dodge: bool,
     pub hack: bool,
     pub autofire: bool,
@@ -1302,7 +1304,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false, shopping: false }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {

@@ -1507,9 +1507,17 @@ impl Frame {
         for g in &w.goblins {
             at(self, g.x, g.y, Prio::EliteBoss, sim.c.texts.glyph(g::GOBLIN), pal.chest);
         }
+        // a persona stands as tall as an elite foe, its head on a glow of its own colour and its body glowing
+        // fainter, so a pal or a keeper reads at a glance in a crowd
+        let n = sim.c.view.actor_rows[2].max(1);
         for p in &w.npcs {
             let (ch, fg) = npc_ink(sim.c, p.npc);
-            at(self, p.x, p.y, Prio::EliteBoss, ch, fg);
+            let (x, y) = (f64::from(p.x), f64::from(p.y));
+            let Some(i) = self.cell_of(x, y) else { continue };
+            let head = Ink { ch, fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
+            let body = Ink { ch: pal.body, fg, bg: Some(mix(fg, pal.bg, NPC_BODY_GLOW)) };
+            let shadow = Ink { ch: pal.shadow, fg: mix(pal.floor, pal.bg, 300), bg: None };
+            self.stand(i, self.vd(x, y), n, Prio::EliteBoss, [head, body, shadow]);
         }
     }
 
@@ -2428,6 +2436,10 @@ const POWER_GLOW: u32 = 700;
 const POWER_GLOW_HI: u32 = 450;
 /// Wall lore shadow: a marked lit-face cell darkens this far (permille) toward the background.
 const WALL_LORE_SHADE: u32 = 250;
+/// Personas (NPCs): the glow under the head and under the body, the own colour mixed this far (permille) toward
+/// the background.
+const NPC_GLOW: u32 = 550;
+const NPC_BODY_GLOW: u32 = 780;
 /// Compass world directions (y grows south), in `t::DIR` order: N, E, S, W.
 const COMPASS: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
@@ -3083,6 +3095,26 @@ mod tests {
         let (col, row) = f.scr(f64::from(x), f64::from(y));
         let cell = f.cells[row as usize * 120 + col as usize];
         assert_eq!((cell.ch.ch(), cell.fg, cell.bg), ('$', c.pal.chest, chest_glow(&c.pal, sim.tick)), "gold glows");
+    }
+
+    #[test]
+    fn personas_stand_as_tall_as_elites_and_glow() {
+        use crate::sim::{Npc, Placed};
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let glowing = |npcs: Vec<Placed>| {
+            let mut sim = Sim::new(&c, 7, None);
+            sim.world.npcs = npcs.into_iter().map(|p| Placed { x: sim.p.x + 4_000, y: sim.p.y + 3_000, ..p }).collect();
+            let mut f = Frame::new(&c, 120, 40);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.cells.iter().map(|cl| cl.bg).collect::<Vec<_>>()
+        };
+        let fg = npc_ink(&c, Npc::Merchant { honest: true }).1;
+        let (bare, with) = (glowing(vec![]), glowing(vec![Placed { npc: Npc::Merchant { honest: true }, x: 0, y: 0 }]));
+        let new = |col: Rgb| bare.iter().zip(&with).filter(|(a, b)| *a != *b && **b == col).count();
+        let (head, body) = (new(mix(fg, c.pal.bg, NPC_GLOW)), new(mix(fg, c.pal.bg, NPC_BODY_GLOW)));
+        assert!(head == 1 && body >= usize::from(c.view.actor_rows[2]) - 1, "a glowing head over a glowing body as tall as an elite: {head} {body}");
+        assert_eq!(bare, glowing(vec![]), "control: the same frame without the persona");
     }
 
     #[test]

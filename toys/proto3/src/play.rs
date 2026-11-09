@@ -218,7 +218,8 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
         // shortcut: points = levels gained, owned nodes live in Ui until the sim holds them
         ui.tree_earned = sim.p.level.saturating_sub(1);
         ui.sync(sim.offer.is_some());
-        ui.sync_shop(sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map(Vec::len));
+        // the demo (--auto) has nobody to leave a shop, so it never opens the (pausing) shop popup
+        ui.sync_shop(sim.world.open_shop.filter(|_| auto.is_none()).and_then(|i| sim.world.shops.get(i)).map(Vec::len));
         if Instant::now() >= next {
             next += tick;
             if Instant::now() > next + tick * 4 {

@@ -876,6 +876,26 @@ mod tests {
     }
 
     #[test]
+    fn an_open_shop_pauses_the_world_but_still_sells() {
+        let c = content();
+        let mut s = sim_with(&c, Npc::Merchant { honest: true });
+        s.world.stock_shops(&c);
+        s.p.x += 4500;
+        s.world_step();
+        assert!(s.world.open_shop.is_some(), "control: at the counter");
+        let price = s.world.shops[0][0].price;
+        s.p.gold = price;
+        let (tick, food) = (s.tick, s.p.food);
+        let shop = crate::sim::Input { shopping: true, buy: Some(0), mv: (1, 0), ..crate::sim::Input::default() };
+        s.step(&shop);
+        assert_eq!((s.tick, s.p.food, s.p.gold), (tick, food, 0), "time stands still, the sale goes through");
+        s.step(&crate::sim::Input { shopping: true, ..crate::sim::Input::default() });
+        assert_eq!(s.tick, tick, "still paused while shopping");
+        s.step(&crate::sim::Input::default());
+        assert_eq!(s.tick, tick + 1, "control: out of the popup the world runs");
+    }
+
+    #[test]
     fn deceiver_keeper_stocks_trash_and_non_keepers_have_no_shop() {
         let c = content();
         let mut s = sim_with(&c, Npc::Witch { honest: false });

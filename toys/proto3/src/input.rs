@@ -826,6 +826,7 @@ impl Ui {
             learn: self.learn.take(),
             forge: std::mem::take(&mut self.forge),
             special: self.special.take(),
+            shopping: self.mode == Mode::Shop,
         }
     }
 }

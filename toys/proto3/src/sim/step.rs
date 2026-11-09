@@ -52,7 +52,7 @@ impl<'c> Sim<'c> {
         {
             self.bag.push(id);
         }
-        if self.offer.is_some() && self.c.opt.pick_pauses {
+        if (self.offer.is_some() && self.c.opt.pick_pauses) || (inp.shopping && self.world.open_shop.is_some()) {
             return;
         }
         self.tick += 1;
