@@ -6,7 +6,7 @@ use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
 use crate::iso::{Heading, Proj};
-use crate::sim::{BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
+use crate::sim::{Ability, BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 #[cfg(test)]
 use crate::sim::ItemId;
 use std::collections::HashSet;
@@ -17,6 +17,12 @@ mod heropane;
 /// shortcut: fixed in code, move to tuning data when a profile wants its own.
 const HERO_TIERS: [u16; 3] = [5, 10, 20];
 const SHOULDERS: [[char; 2]; 3] = [['▗', '▖'], ['▟', '▙'], ['█', '█']];
+
+/// Shoulder glyphs (left, right) of `tier` (0 = none, past the last = the last).
+fn shoulders(tier: usize, fg: Rgb) -> [Option<(Glyph, Rgb)>; 2] {
+    let pair = tier.checked_sub(1).map(|t| SHOULDERS[t.min(SHOULDERS.len() - 1)]);
+    [0, 1].map(|s| pair.and_then(|p| Glyph::of(p[s])).map(|g| (g, fg)))
+}
 /// Map box (top-left of the play area): cols x rows of the map.
 const MAP_W: u16 = 26;
 const MAP_H: u16 = 11;
@@ -344,6 +350,15 @@ impl Frame {
         }
     }
 
+    /// Left and right neighbours of the cell `up` rows above foot cell `i`.
+    fn flank(&mut self, i: usize, up: u8, sides: [Option<(Glyph, Rgb)>; 2], p: Prio, d: i32) {
+        let cols = usize::from(self.cols);
+        let Some(row) = (i / cols).checked_sub(usize::from(up)) else { return };
+        for ((ch, fg), x) in sides.into_iter().zip([(i % cols).checked_sub(1), Some(i % cols + 1).filter(|&x| x < cols)]).filter_map(|(s, x)| s.zip(x)) {
+            self.put(row * cols + x, p, d, Ink { ch, fg, bg: None });
+        }
+    }
+
     fn tint(&mut self, i: usize, bg: Rgb) {
         if self.z[i] <= Prio::PlayerFx {
             self.z[i] = Prio::PlayerFx;
@@ -486,15 +501,8 @@ impl Frame {
         self.stand(pi, i32::MAX, n, Prio::PlayerCore, [head, body, shadow]);
         // beside the stack: weapon in the right hand, charm in the left, shoulders that grow per level tier
         if n > 0 {
-            let tier = HERO_TIERS.iter().filter(|&&l| sim.p.level >= l).count();
-            let shoulders = tier.checked_sub(1).map(|t| SHOULDERS[t].map(|ch| (Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.player)));
-            let side = [(1, 1, worn(Slot::Weapon)), (-1, 1, worn(Slot::Charm)), (-1, i32::from(n), shoulders.map(|s| s[0])), (1, i32::from(n), shoulders.map(|s| s[1]))];
-            for (dx, up, ink) in side {
-                let (x, y) = (pcol + dx, prow - up);
-                if let Some((ch, fg)) = ink.filter(|_| x >= 0 && y >= 0 && x < i32::from(self.cols)) {
-                    self.put(y as usize * cols + x as usize, Prio::PlayerCore, i32::MAX, Ink { ch, fg, bg: None });
-                }
-            }
+            self.flank(pi, 1, [worn(Slot::Charm), worn(Slot::Weapon)], Prio::PlayerCore, i32::MAX);
+            self.flank(pi, n, shoulders(HERO_TIERS.iter().filter(|&&l| sim.p.level >= l).count(), pal.player), Prio::PlayerCore, i32::MAX);
         }
         if self.level.is_some_and(|l| sim.p.level > l) {
             self.level_flash = Some((v.now_ms, sim.p.level));
@@ -706,6 +714,8 @@ impl Frame {
             };
             let shadow = Ink { ch: pal.shadow, fg: mix(pal.floor, pal.bg, 300), bg: None };
             let body = mk(pal.body, mix(hue, pal.bg, 300));
+            // a foe that ate loot wears it: shoulders per ability owned, as the hero's per level tier (tot-76k)
+            let fed = Ability::ALL.iter().filter(|a| a.owned_at(e.loot[k])).count();
             match e.tier[k] {
                 Tier::Trash => {
                     let ch = match (e.side[k], self.dens[i]) {
@@ -715,6 +725,7 @@ impl Frame {
                         _ => fam.glyph,
                     };
                     self.stand(i, d, c.view.actor_rows[1], Prio::Trash, [mk(ch, hue), body, shadow]);
+                    self.flank(i, c.view.actor_rows[1], shoulders(fed, hue), Prio::Trash, d);
                 }
                 Tier::Elite | Tier::Champion => {
                     let n = c.view.actor_rows[2];
@@ -730,6 +741,7 @@ impl Frame {
                         }
                     }
                     self.stand(i, d, n, Prio::EliteBoss, [mk(fam.glyph, hue), body, shadow]);
+                    self.flank(i, n, shoulders(fed, hue), Prio::EliteBoss, d);
                 }
                 Tier::Boss => self.boss(sim, k, i, d, hue),
             }
@@ -2907,6 +2919,26 @@ mod tests {
         assert_eq!(geared[0], Some(('█', ink(armor).1)), "armour plates the torso");
         assert_eq!((geared[1], geared[2]), (Some(ink(weapon)), Some(ink(charm))), "weapon right, charm left");
         assert_eq!((geared[3].map(|t| t.0), geared[4].map(|t| t.0)), (Some('▟'), Some('▙')), "tier-2 shoulders");
+    }
+
+    #[test]
+    fn a_foe_that_ate_loot_grows_shoulders_per_ability() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        sim.world.npcs.clear();
+        sim.push_enemy(fam, Tier::Trash, (sim.p.x + 3_000, sim.p.y + 2_000), 1_000_000, (false, false));
+        // glyphs beside the foe's head
+        let flanks = |sim: &Sim| {
+            let mut f = Frame::new(&c, 160, 50);
+            f.compose(sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let head = (0..f.cells.len()).find(|&j| f.z[j] == Prio::Trash && f.cells[j].ch == c.fam(fam).glyph).unwrap();
+            [head - 1, head + 1].map(|j| f.cells[j].ch.ch())
+        };
+        assert!(!flanks(&sim).contains(&'▟'), "control: a foe that ate nothing");
+        sim.e.loot[0] = Ability::Rage.loot_needed();
+        assert_eq!(flanks(&sim), ['▟', '▙'], "two abilities owned = tier-2 shoulders");
     }
 
     #[test]
