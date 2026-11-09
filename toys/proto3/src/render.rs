@@ -7,7 +7,11 @@ use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
 use crate::iso::{Heading, Proj};
 use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
+#[cfg(test)]
+use crate::sim::ItemId;
 use std::collections::HashSet;
+
+mod heropane;
 
 /// Map box (top-left of the play area): cols x rows of the map.
 const MAP_W: u16 = 26;
@@ -139,6 +143,10 @@ pub struct Frame {
     /// weather last frame, and the change banner (weather, frame clock ms it turned)
     sky: Option<Weather>,
     sky_banner: Option<(Weather, u64)>,
+    /// the hero pane's tab shown when no tab key has the focus
+    pane_tab: heropane::Tab,
+    /// where the hero pane is drawn this frame (left col, top row); pointers keep off it
+    pane_at: Option<(u16, u16)>,
     /// clickable cell spans this frame: [start, end) cell index and the URL (OSC 8 in `emit`)
     links: Vec<(usize, usize, &'static str)>,
 }
@@ -220,6 +228,8 @@ impl Frame {
             died_ms: None,
             sky: None,
             sky_banner: None,
+            pane_tab: heropane::Tab::default(),
+            pane_at: None,
             links: Vec::new(),
             pops: Vec::with_capacity(POPS_MAX),
             roars: Vec::new(),
@@ -860,35 +870,19 @@ impl Frame {
         Some((x0, y0, w, h))
     }
 
-    /// Skill tree, gear and shop: plain-text lists in the popup box, cursor row marked with `>`.
+    /// The shop: a plain-text list in the popup box.
     fn menu(&mut self, sim: &Sim, ui: &Ui) {
         let c = sim.c;
         let pal = &c.pal;
         // (title, rows of (text, colour)), cursor
         let (title, rows, sel): (String, Vec<(String, Rgb)>, Option<usize>) = match ui.mode {
-            Mode::Tree => {
-                let Some(t) = crate::input::hero_tree(c) else { return };
-                let class = c.classes.get(t.class.ix()).map_or("", |k| k.name.as_str());
-                let title = format!("{} ({class}, {:?})  points {}  learned {}", t.name, t.tag, ui.tree_points(), ui.tree_owned.count());
-                let rows = t.nodes.iter().enumerate().map(|(i, n)| {
-                    let mark = if ui.tree_owned.has(i) { "*" } else { " " };
-                    (format!("{mark} {}  {:?}  cost {}  grants {}", n.name, n.tag, n.cost, c.skill(n.effect).name), if ui.tree_owned.has(i) { pal.xp } else { pal.text })
-                });
-                (title, rows.collect(), Some(ui.tree_sel))
-            }
-            Mode::Gear => {
-                let rows = crate::data::Slot::ALL.iter().map(|&slot| match sim.gear.worn(slot).and_then(|id| c.items.get(usize::from(id.0))) {
-                    Some(it) => (format!("{slot:?}: {} {}  {}", it.glyph.ch(), it.name, it.desc), pal.role(it.rarity.role())),
-                    None => (format!("{slot:?}: -"), pal.dim),
-                });
-                ("GEAR".into(), rows.collect(), Some(ui.gear_sel))
-            }
             Mode::Shop => {
                 let deals = sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map_or(&[][..], Vec::as_slice);
                 let rows = deals.iter().zip(1..).filter_map(|(d, k)| c.items.get(usize::from(d.item.0)).map(|it| (format!("{k} {} {}  {} gold", it.glyph.ch(), it.name, d.price), pal.role(it.rarity.role()))));
                 (format!("SHOP  gold {}   1-4 buy, walk on to leave", sim.p.gold), rows.collect(), None)
             }
-            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd => return,
+            // the skill tree and the gear live in the hero pane, not in a popup
+            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear => return,
         };
         let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
         self.text(y0 + 1, x0 + 2, &title, pal.alarm);
@@ -1511,6 +1505,7 @@ impl Frame {
         self.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures);
         self.loot_panes(sim, ui);
         self.panel(sim, v.phase, v.last_bytes);
+        self.hero_pane(sim, ui);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
             self.pointer(sim, x, y, c.pal.alarm);
@@ -1790,7 +1785,8 @@ impl Frame {
         let in_map = col < MAP_W && row < MAP_H;
         let in_panel = col >= self.cols.saturating_sub(PANEL_W) && row < PANEL_H;
         let in_bar = self.bar_origin().is_some_and(|(bx, by)| col >= bx && col < bx + BAR_W && row >= by);
-        in_map || in_panel || in_bar
+        let in_pane = self.pane_at.is_some_and(|(px, py)| col >= px && row >= py && row < py + heropane::PANE_H);
+        in_map || in_panel || in_bar || in_pane
     }
 
     /// Arrow on the screen edge toward an off-screen world point (mm). On-screen points get none.
@@ -3005,6 +3001,30 @@ mod tests {
         assert!(top(&mut f, &sim).contains(text.as_str()), "typed out whole");
         sim.tick = at + c.hz().get() * STORY_S;
         assert!(!top(&mut f, &sim).contains("◆ STORY"), "gone after its time");
+    }
+
+    #[test]
+    fn hero_pane_shows_the_hero_and_the_tree() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 200, 60);
+        let mut show = |ui: &Ui, sim: &Sim| {
+            f.compose(sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        ui.mode = Mode::Tree;
+        let tree = show(&ui, &sim);
+        let root = &crate::input::hero_tree(&c).unwrap().nodes[0].name;
+        assert!(tree.contains("SKILLS") && tree.contains(&format!("◇{root}")), "tree grid in the pane");
+        let worn = ItemId(0);
+        sim.gear.wear(&c, worn);
+        ui.mode = Mode::Gear;
+        let armor = show(&ui, &sim);
+
+        assert!(armor.contains("(◉ ◉)") && armor.contains(&c.items[0].name), "the hero and its gear");
+        ui.mode = Mode::Play;
+        assert!(show(&ui, &sim).contains("(◉ ◉)"), "out of the tab modes the pane keeps the last tab");
     }
 
     #[test]
