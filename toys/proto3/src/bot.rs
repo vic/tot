@@ -227,12 +227,14 @@ impl Autopilot {
         Autopilot { bot: Bot { rng: Xo::stream(seed, Stream::Bot), dir: (0, 0) }, mv, pk }
     }
 
-    pub fn input(&mut self, sim: &Sim) -> Input {
-        let mut inp = self.bot.input(sim, self.mv);
-        if sim.offer.is_some() {
-            inp.pick = Some(self.bot.pick(sim, self.pk));
-        }
-        inp
+    /// Movement only: (world move, dodge).
+    pub fn walk(&mut self, sim: &Sim) -> ((i32, i32), bool) {
+        let inp = self.bot.input(sim, self.mv);
+        (inp.mv, inp.dodge)
+    }
+
+    pub fn choose(&mut self, sim: &Sim) -> PickChoice {
+        self.bot.pick(sim, self.pk)
     }
 }
 

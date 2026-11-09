@@ -1175,6 +1175,8 @@ impl Frame {
             Mode::Pick => "-- PICK --",
             Mode::Look => "-- LOOK --",
             Mode::Cmd => ":",
+            Mode::Tree => "-- TREE --",
+            Mode::Gear => "-- GEAR --",
         };
         let mut x = self.text(rcm, 1, mode, pal.player);
         match ui.mode {

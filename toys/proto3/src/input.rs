@@ -78,10 +78,22 @@ pub enum Mode {
     Pick,
     Look,
     Cmd,
+    /// skill tree screen
+    Tree,
+    /// worn items popup
+    Gear,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
+    OpenGear,
+    GearPrev,
+    GearNext,
+    GearDrop,
+    OpenTree,
+    TreePrev,
+    TreeNext,
+    TreeSpend,
     Up,
     Down,
     Left,
@@ -91,6 +103,8 @@ pub enum Action {
     RotLeft,
     RotRight,
     Autofire,
+    Autowalk,
+    Fire,
     Look,
     Cmd,
     Quit,
@@ -119,6 +133,16 @@ impl Action {
             "rot_left" => RotLeft,
             "rot_right" => RotRight,
             "autofire" => Autofire,
+            "gear" => OpenGear,
+            "gear_prev" => GearPrev,
+            "gear_next" => GearNext,
+            "gear_drop" => GearDrop,
+            "tree" => OpenTree,
+            "tree_prev" => TreePrev,
+            "tree_next" => TreeNext,
+            "tree_spend" => TreeSpend,
+            "autowalk" => Autowalk,
+            "fire" => Fire,
             "look" => Look,
             "cmd" => Cmd,
             "quit" => Quit,
@@ -261,6 +285,19 @@ pub struct Ui {
     held: [Option<(i32, i32)>; 4],
     pub heading: Heading,
     pub autofire: bool,
+    /// hero walks by itself (bot::Autopilot movement); a held direction key overrides
+    pub autowalk: bool,
+    /// attack key held (manual fire while autofire is off)
+    pub fire: bool,
+    /// skill tree cursor (node index) and node count; play.rs sets `tree_len` from the tree data
+    pub tree_sel: usize,
+    pub tree_len: usize,
+    /// one-shot: node the human asked to spend a point on (taken by play.rs)
+    pub tree_spend: Option<usize>,
+    /// worn-items cursor and slot count (play.rs sets `gear_len`); `gear_drop` is the one-shot drop request
+    pub gear_sel: usize,
+    pub gear_len: usize,
+    pub gear_drop: Option<usize>,
     pub cmdline: String,
     pub msg: String,
     pub quit: bool,
@@ -284,6 +321,14 @@ impl Ui {
             held: [None; 4],
             heading: Heading::default(),
             autofire,
+            autowalk: false,
+            fire: false,
+            tree_sel: 0,
+            tree_len: 0,
+            tree_spend: None,
+            gear_sel: 0,
+            gear_len: 0,
+            gear_drop: None,
             cmdline: String::new(),
             msg: String::new(),
             quit: false,
@@ -296,6 +341,11 @@ impl Ui {
             pick_open_ms: 0,
             human: None,
         }
+    }
+
+    /// New run: clean state, same settings (the toggles).
+    pub fn fresh(&self) -> Ui {
+        Ui { autowalk: self.autowalk, ..Ui::new(self.autofire) }
     }
 
     /// Enter / leave PICK when the sim opens / closes an offer.
@@ -318,6 +368,9 @@ impl Ui {
             for b in c.binds.iter().filter(|b| b.keys == [ev.key] && matches!(b.mode, Mode::Play | Mode::Pick)) {
                 if let Some(d) = b.action.dir() {
                     self.held[d] = None;
+                }
+                if b.action == Action::Fire {
+                    self.fire = false;
                 }
             }
             return;
@@ -379,6 +432,9 @@ impl Ui {
             ["autofire", "on"] => self.set_autofire(true),
             ["autofire", "off"] => self.set_autofire(false),
             ["autofire"] => self.set_autofire(!self.autofire),
+            ["autowalk", "on"] => self.set_autowalk(true),
+            ["autowalk", "off"] => self.set_autowalk(false),
+            ["autowalk"] => self.set_autowalk(!self.autowalk),
             ["cam", "left"] | ["cam"] => {
                 self.heading = self.heading.left();
                 format!("camera {}", self.heading.name())
@@ -404,13 +460,18 @@ impl Ui {
             },
             ["director"] => "director: builtin (no agent attached; MCP is FP2)".into(),
             [w @ ("prompt" | "edit" | "save" | "vcs" | "keep" | "feed"), ..] => format!(":{w} is FP2, not in FP1"),
-            _ => format!("unknown :{line}  (autofire on|off, cam left|right, look, spawn, director, quit)"),
+            _ => format!("unknown :{line}  (autofire on|off, autowalk on|off, cam left|right, look, spawn, director, quit)"),
         };
     }
 
     fn set_autofire(&mut self, on: bool) -> String {
         self.autofire = on;
         format!("autofire {}", if on { "on" } else { "off (aim = facing, x = hack)" })
+    }
+
+    fn set_autowalk(&mut self, on: bool) -> String {
+        self.autowalk = on;
+        format!("autowalk {}", if on { "on" } else { "off" })
     }
 
     fn act(&mut self, a: Action, c: &Content) {
@@ -425,6 +486,16 @@ impl Ui {
             Action::RotLeft => self.heading = self.heading.left(),
             Action::RotRight => self.heading = self.heading.right(),
             Action::Autofire => self.msg = self.set_autofire(!self.autofire),
+            Action::OpenGear => self.mode = Mode::Gear,
+            Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
+            Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(self.gear_len.saturating_sub(1)),
+            Action::GearDrop => self.gear_drop = (self.gear_sel < self.gear_len).then_some(self.gear_sel),
+            Action::OpenTree => self.mode = Mode::Tree,
+            Action::TreePrev => self.tree_sel = self.tree_sel.saturating_sub(1),
+            Action::TreeNext => self.tree_sel = (self.tree_sel + 1).min(self.tree_len.saturating_sub(1)),
+            Action::TreeSpend => self.tree_spend = (self.tree_sel < self.tree_len).then_some(self.tree_sel),
+            Action::Autowalk => self.msg = self.set_autowalk(!self.autowalk),
+            Action::Fire => self.fire = true,
             Action::Look => {
                 self.mode = Mode::Look;
                 self.cursor = (0, 0);
@@ -478,6 +549,11 @@ impl Ui {
 
     /// Per-tick sim input; one-shot actions are consumed.
     pub fn input(&mut self, pick_pauses: bool) -> Input {
+        // fire is a PLAY hold: any mode change drops it. The kitty protocol is required (NoKitty
+        // otherwise), so release events always arrive; without them fire would stick until a mode change.
+        if self.mode != Mode::Play {
+            self.fire = false;
+        }
         let moving = matches!(self.mode, Mode::Play | Mode::Look | Mode::Cmd) || (self.mode == Mode::Pick && !pick_pauses);
         let (mut x, mut y) = (0, 0);
         for (dx, dy) in self.held.iter().flatten() {
@@ -536,7 +612,74 @@ mod tests {
         assert_ne!(ui.input(true).mv, before, "new press uses new heading");
     }
 
+    fn release(c: char) -> KeyEv {
+        KeyEv { key: Key::Char(c), kind: Kind::Release, text: None }
+    }
+
     #[test]
+    fn autowalk_toggles_by_leader_and_cmd_fire_key_is_held() {
+        let c = content();
+        let mut ui = Ui::new(false);
+        assert!(!ui.autowalk && !ui.fire);
+        ui.key(press(' '), &c, 0);
+        ui.key(press('w'), &c, 0);
+        assert!(ui.autowalk);
+        ui.run_cmd("autowalk off", &c);
+        assert!(!ui.autowalk);
+        ui.key(press('f'), &c, 0);
+        assert!(ui.fire);
+        ui.key(release('f'), &c, 0);
+        assert!(!ui.fire);
+        // negative controls: other key release keeps it, a direction key never sets it
+        ui.key(press('f'), &c, 0);
+        ui.key(release('d'), &c, 0);
+        assert!(ui.fire);
+        ui.key(release('f'), &c, 0);
+        ui.key(press('d'), &c, 0);
+        assert!(!ui.fire);
+        // mode change drops a held fire even without its release
+        ui.key(press('f'), &c, 0);
+        ui.key(press('t'), &c, 0);
+        let _ = ui.input(true);
+        assert!(!ui.fire);
+    }
+
+    #[test]
+    fn tree_mode_navigates_clamped_spends_and_esc_returns() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        ui.tree_len = 3;
+        ui.key(press('t'), &c, 0);
+        assert_eq!(ui.mode, Mode::Tree);
+        for _ in 0..5 {
+            ui.key(press('l'), &c, 0);
+        }
+        assert_eq!(ui.tree_sel, 2);
+        ui.key(press('k'), &c, 0);
+        ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
+        assert_eq!(ui.tree_spend, Some(1));
+        assert_eq!(ui.input(true).mv, (0, 0));
+        ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
+        assert_eq!(ui.mode, Mode::Play);
+    }
+
+    #[test]
+    fn gear_mode_navigates_drops_and_esc_returns() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        ui.key(press('i'), &c, 0);
+        assert_eq!(ui.mode, Mode::Gear);
+        ui.key(press('x'), &c, 0);
+        assert_eq!(ui.gear_drop, None, "empty gear: nothing to drop");
+        ui.gear_len = 2;
+        ui.key(press('j'), &c, 0);
+        ui.key(press('j'), &c, 0);
+        ui.key(press('x'), &c, 0);
+        assert_eq!(ui.gear_drop, Some(1));
+        ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
+        assert_eq!(ui.mode, Mode::Play);
+    }
+
     fn whichkey_waits_then_lists_group_and_never_fires_early() {
         let c = content();
         let mut ui = Ui::new(true);

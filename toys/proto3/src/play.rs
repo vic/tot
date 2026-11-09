@@ -90,7 +90,10 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
     let mut dir = Director::new(seed);
     let mut ui = Ui::new(c.opt.autofire);
     // demo: `--auto` plays itself, restarts a new run 4 s after each end
-    let mut pilot = auto.map(|(mv, pk)| Autopilot::new(seed, mv, pk));
+    let (auto_mv, auto_pk) = auto.unwrap_or((MoveBot::Kiter, PickBot::Skip));
+    let mut pilot = Autopilot::new(seed, auto_mv, auto_pk);
+    ui.autowalk = auto.is_some();
+    ui.autofire |= auto.is_some();
     let mut ended_at = Instant::now();
     let mut frame = Frame::new(c, size.0, size.1);
     let mut next = Instant::now();
@@ -103,7 +106,7 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
     let mut pending: Vec<Event> = Vec::new();
     loop {
         pending.extend(tty.events());
-        let mut restart = pilot.is_some() && ended && ended_at.elapsed() > Duration::from_secs(4);
+        let mut restart = auto.is_some() && ended && ended_at.elapsed() > Duration::from_secs(4);
         for e in pending.drain(..) {
             if let Event::Key(k) = e {
                 if ended && k.kind == crate::input::Kind::Press {
@@ -123,9 +126,8 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
             tel.line(&json!({"t": "seed", "run": run, "run_seed": format!("{seed:016x}")}))?;
             sim = Sim::new(c, seed, None);
             dir = Director::new(seed);
-            let af = ui.autofire;
-            ui = Ui::new(af);
-            pilot = auto.map(|(mv, pk)| Autopilot::new(seed, mv, pk));
+            ui = ui.fresh();
+            pilot = Autopilot::new(seed, auto_mv, auto_pk);
             ended = false;
             frame.invalidate();
             tty.send(b"\x1b[2J")?;
@@ -160,10 +162,16 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
                 }
                 let pick_open = ui.pick_open_ms;
                 dir.tick(&mut sim);
-                let mut inp = match pilot.as_mut() {
-                    Some(p) => p.input(&sim),
-                    None => ui.input(c.opt.pick_pauses),
-                };
+                let mut inp = ui.input(c.opt.pick_pauses);
+                // autowalk: bot movement unless the human holds a direction
+                if ui.autowalk && inp.mv == (0, 0) {
+                    let (mv, dodge) = pilot.walk(&sim);
+                    inp.mv = mv;
+                    inp.dodge |= dodge;
+                }
+                if auto.is_some() && sim.offer.is_some() {
+                    inp.pick = Some(pilot.choose(&sim));
+                }
                 // upgrade timeout: no choice inside the time limit takes the highlighted card
                 if ui.mode == Mode::Pick && sim.offer.is_some() && inp.pick.is_none() && now_ms().saturating_sub(ui.pick_open_ms) >= sim.pick_timeout_ms() {
                     inp.pick = Some(PickChoice::Card(ui.sel));

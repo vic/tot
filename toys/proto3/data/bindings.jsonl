@@ -47,3 +47,37 @@
 {"t":"bind","mode":"pick","keys":["right"],"action":"next","label":"next"}
 {"t":"bind","mode":"pick","keys":["down"],"action":"next","label":"next"}
 {"t":"bind","mode":"pick","keys":["backspace"],"action":"skip","label":"skip"}
+{"t":"bind","mode":"play","keys":["f"],"action":"fire","label":"fire (hold)"}
+{"t":"bind","mode":"play","keys":["space","w"],"action":"autowalk","label":"autowalk"}
+{"t":"bind","mode":"play","keys":["t"],"action":"tree","label":"skill tree"}
+{"t":"bind","mode":"play","keys":["space","t"],"action":"tree","label":"skill tree"}
+{"t":"bind","mode":"tree","keys":["esc"],"action":"back","label":"back"}
+{"t":"bind","mode":"tree","keys":["t"],"action":"back","label":"back"}
+{"t":"bind","mode":"tree","keys":["enter"],"action":"tree_spend","label":"spend point"}
+{"t":"bind","mode":"tree","keys":["h"],"action":"tree_prev","label":"prev node"}
+{"t":"bind","mode":"tree","keys":["k"],"action":"tree_prev","label":"prev node"}
+{"t":"bind","mode":"tree","keys":["up"],"action":"tree_prev","label":"prev node"}
+{"t":"bind","mode":"tree","keys":["a"],"action":"tree_prev","label":"prev node"}
+{"t":"bind","mode":"tree","keys":["w"],"action":"tree_prev","label":"prev node"}
+{"t":"bind","mode":"tree","keys":["l"],"action":"tree_next","label":"next node"}
+{"t":"bind","mode":"tree","keys":["j"],"action":"tree_next","label":"next node"}
+{"t":"bind","mode":"tree","keys":["down"],"action":"tree_next","label":"next node"}
+{"t":"bind","mode":"tree","keys":["d"],"action":"tree_next","label":"next node"}
+{"t":"bind","mode":"tree","keys":["s"],"action":"tree_next","label":"next node"}
+{"t":"bind","mode":"tree","keys":["right"],"action":"tree_next","label":"next node"}
+{"t":"bind","mode":"tree","keys":["left"],"action":"tree_prev","label":"prev node"}
+{"t":"bind","mode":"play","keys":["i"],"action":"gear","label":"worn items"}
+{"t":"bind","mode":"play","keys":["space","i"],"action":"gear","label":"worn items"}
+{"t":"bind","mode":"gear","keys":["esc"],"action":"back","label":"back"}
+{"t":"bind","mode":"gear","keys":["i"],"action":"back","label":"back"}
+{"t":"bind","mode":"gear","keys":["x"],"action":"gear_drop","label":"drop item"}
+{"t":"bind","mode":"gear","keys":["k"],"action":"gear_prev","label":"prev"}
+{"t":"bind","mode":"gear","keys":["up"],"action":"gear_prev","label":"prev"}
+{"t":"bind","mode":"gear","keys":["w"],"action":"gear_prev","label":"prev"}
+{"t":"bind","mode":"gear","keys":["h"],"action":"gear_prev","label":"prev"}
+{"t":"bind","mode":"gear","keys":["left"],"action":"gear_prev","label":"prev"}
+{"t":"bind","mode":"gear","keys":["j"],"action":"gear_next","label":"next"}
+{"t":"bind","mode":"gear","keys":["down"],"action":"gear_next","label":"next"}
+{"t":"bind","mode":"gear","keys":["s"],"action":"gear_next","label":"next"}
+{"t":"bind","mode":"gear","keys":["l"],"action":"gear_next","label":"next"}
+{"t":"bind","mode":"gear","keys":["right"],"action":"gear_next","label":"next"}
