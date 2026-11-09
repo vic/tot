@@ -14,3 +14,96 @@
 {"t":"bark","id":"frozen","shout":"BRR!","lines":["B-b-brr!","Who left the door open?","C-can't feel my t-toes."]}
 {"t":"bark","id":"hungry","shout":"FOOD!","lines":["My stomach is louder than the boss.","Is that a sandwich? Please be a sandwich.","Hero needs food, badly.","I could eat a mimic."]}
 {"t":"bark","id":"gold","shout":"SHINY!","lines":["Shiny!","Cha-ching.","Retirement fund +1.","Mine. All mine.","Coin! My one true love.","The merchant will hear about this."]}
+{"t":"text","id":"pick_title","text":"UPGRADE  choose before "}
+{"t":"text","id":"pick_none","text":"(empty)"}
+{"t":"text","id":"pick_cursor","text":"> "}
+{"t":"text","id":"pick_new","text":"NEW"}
+{"t":"text","id":"pick_rank","text":"rank"}
+{"t":"text","id":"rarity_common","text":"common"}
+{"t":"text","id":"rarity_rare","text":"RARE"}
+{"t":"text","id":"rarity_epic","text":"EPIC"}
+{"t":"text","id":"rarity_legend","text":"LEGEND"}
+{"t":"text","id":"shop_title","text":"SHOP  gold {gold}   1-4 buy{forge}"}
+{"t":"text","id":"shop_forge","text":"   5 forge ({ore} of {need} ore)"}
+{"t":"text","id":"shop_row","text":"{key} {glyph} {name}  {price} gold"}
+{"t":"text","id":"special_passive","text":"passive"}
+{"t":"text","id":"special_empty","text":"empty"}
+{"t":"text","id":"death_keys","text":"r new run   q quit"}
+{"t":"text","id":"slain_by","text":"slain by {killer}"}
+{"t":"text","id":"hero_slayer","text":"{foe} THE HERO-SLAYER"}
+{"t":"text","id":"pal_help","text":"HELP!"}
+{"t":"text","id":"roar_quote","text":"\"{word}\""}
+{"t":"text","id":"thief_stole","text":"{line} +{power}"}
+{"t":"text","id":"thief_learned","text":"learned {ability}!"}
+{"t":"text","id":"ability_fast","text":"Fast"}
+{"t":"text","id":"ability_rage","text":"Rage"}
+{"t":"text","id":"ability_shot","text":"Shot"}
+{"t":"text","id":"power_up","text":" ✦ POWER-UP"}
+{"t":"text","id":"power_more","text":"+{n} more"}
+{"t":"text","id":"clock_day","text":"🌞 "}
+{"t":"text","id":"clock_night","text":"🌙 "}
+{"t":"text","id":"panel_next","text":"NEXT "}
+{"t":"text","id":"panel_no_boss","text":"NO BOSS LEFT"}
+{"t":"text","id":"panel_flux","text":"FLUX "}
+{"t":"text","id":"panel_kills","text":"KILLS "}
+{"t":"text","id":"panel_hijack","text":"HIJACK "}
+{"t":"text","id":"panel_nerve","text":"NERVE "}
+{"t":"text","id":"panel_panic","text":"PANIC "}
+{"t":"text","id":"panel_gold","text":"GOLD "}
+{"t":"text","id":"panel_pals","text":"PALS "}
+{"t":"text","id":"panel_food","text":"FOOD "}
+{"t":"text","id":"panel_sky","text":"SKY "}
+{"t":"text","id":"panel_powers","text":"POWERS"}
+{"t":"text","id":"panel_foes","text":"FOES  "}
+{"t":"text","id":"panel_net","text":"NET "}
+{"t":"text","id":"panel_cast","text":"CAST"}
+{"t":"text","id":"cast_hero","text":"HERO hp"}
+{"t":"text","id":"cast_ally","text":"HIJACKED allies"}
+{"t":"text","id":"cast_panic","text":"PANICKED foes"}
+{"t":"text","id":"cast_thief","text":"FED thieves"}
+{"t":"text","id":"tier_trash","text":" trash"}
+{"t":"text","id":"tier_elite","text":" ELITE"}
+{"t":"text","id":"tier_champion","text":" CHAMPION"}
+{"t":"text","id":"tier_boss","text":" BOSS"}
+{"t":"text","id":"hue_kin","text":"KIN"}
+{"t":"text","id":"hue_therm","text":"THERM"}
+{"t":"text","id":"hue_emp","text":"EMP"}
+{"t":"text","id":"hue_code","text":"CODE"}
+{"t":"text","id":"story","text":"◆ STORY"}
+{"t":"text","id":"look_help","text":"LOOK: move cursor with h j k l, esc back. nothing under cursor"}
+{"t":"text","id":"look_glitch","text":"glitch "}
+{"t":"text","id":"look_hijacked","text":"HIJACKED (yours)"}
+{"t":"text","id":"look_hostile","text":"hostile"}
+{"t":"text","id":"look_purger","text":"PURGER: kills your hijacked"}
+{"t":"text","id":"look_ate","text":"UPGRADED: ate {n} loot"}
+{"t":"text","id":"support_label","text":"support tot <3"}
+{"t":"text","id":"support_plea","text":"if you liked this game, help me make it better and sponsor me"}
+{"t":"text","id":"support_url","text":"https://github.com/sponsors/vic"}
+{"t":"text","id":"level_line","text":"LEVEL {level}. {taunt}"}
+{"t":"text","id":"mode_end","text":"-- END --"}
+{"t":"text","id":"mode_play","text":"-- PLAY --"}
+{"t":"text","id":"mode_pick","text":"-- PICK --"}
+{"t":"text","id":"mode_look","text":"-- LOOK --"}
+{"t":"text","id":"mode_cmd","text":"-- CMD --"}
+{"t":"text","id":"mode_tree","text":"-- TREE --"}
+{"t":"text","id":"mode_gear","text":"-- GEAR --"}
+{"t":"text","id":"mode_shop","text":"-- SHOP --"}
+{"t":"text","id":"mode_bags","text":"-- BAGS --"}
+{"t":"text","id":"mode_start","text":"-- START --"}
+{"t":"text","id":"hint_move","text":"move"}
+{"t":"text","id":"hint_turn","text":"turn"}
+{"t":"text","id":"hint_special","text":"special"}
+{"t":"text","id":"hint_take","text":"take"}
+{"t":"text","id":"hint_buy","text":"buy"}
+{"t":"text","id":"hint_new_run","text":"new run"}
+{"t":"text","id":"hint_quit","text":"quit"}
+{"t":"pool","id":"thief_stole","lines":["MINE NOW!","yoink!","tasty loot","I grow STRONGER"]}
+{"t":"pool","id":"level_taunt","lines":["they should run.","bring more.","still not dead.","you call that a swarm?"]}
+{"t":"pool","id":"roar_champion","lines":["OI!","MINE!","BONK?","FITE ME","HEY YOU"]}
+{"t":"pool","id":"roar_mini","lines":["GRR!","SQUEAK!","BEHOLD","BOO!","TINY BUT MAD"]}
+{"t":"pool","id":"roar_super","lines":["KNEEL!","FEAR ME","OBEY!","DOOM!","BOW!"]}
+{"t":"pool","id":"roar_uber","lines":["YOUR BUILD IS MID","I EAT HEROES FOR BREAKFAST","THIS IS MY DUNGEON","RESPAWN TIMER: YES"]}
+{"t":"pool","id":"foe_quip","lines":["it got ideas.","it is not the same foe anymore.","it eats like you do. worse.","you fed this. you.","it remembers your loot fondly."]}
+{"t":"pool","id":"cheer","lines":["HA!","GG","WOO!","EZ","LOL","YAY"]}
+{"t":"pool","id":"death_taunt","lines":["The horde sends its regards.","They are already telling the story wrong.","Your loot looks better on them.","Respawn, rematch, revenge.","Even the trash is dancing."]}
+{"t":"text","id":"look_hp","text":"hp {hp}/{max}"}

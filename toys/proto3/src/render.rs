@@ -9,6 +9,7 @@ use crate::iso::{Heading, Proj};
 use crate::sim::{Ability, BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 #[cfg(test)]
 use crate::sim::ItemId;
+use crate::text::t;
 use std::collections::HashSet;
 
 mod heropane;
@@ -57,8 +58,6 @@ const FED_GLOW_MIN: u32 = 250;
 const FEAR_TINT: u32 = 450;
 const FED_GLOW_PER: u32 = 60;
 const FED_GLOW_MAX: u32 = 800;
-/// Thief bite lines. shortcut: fixed English set, upgrade to profile data when presets carry narration.
-const STOLE_LINES: [&str; 4] = ["MINE NOW!", "yoink!", "tasty loot", "I grow STRONGER"];
 /// Top-centre boss health bar width (cells).
 const BOSS_BAR_W: u16 = 30;
 /// Upgrade popup size (cells).
@@ -159,7 +158,7 @@ pub struct Frame {
     /// where the hero pane is drawn this frame (left col, top row); pointers keep off it
     pane_at: Option<(u16, u16)>,
     /// clickable cell spans this frame: [start, end) cell index and the URL (OSC 8 in `emit`)
-    links: Vec<(usize, usize, &'static str)>,
+    links: Vec<(usize, usize, String)>,
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
@@ -855,17 +854,18 @@ impl Frame {
         let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
         let limit = sim.pick_timeout_ms();
         let left_ms = limit.saturating_sub(now_ms.saturating_sub(ui.pick_open_ms));
-        let x = self.text(y0 + 1, x0 + 2, "UPGRADE  choose before ", pal.alarm);
+        let x = self.text(y0 + 1, x0 + 2, c.texts.get(t::PICK_TITLE), pal.alarm);
         self.num(y0 + 1, x, (left_ms / 1000) as i64, pal.alarm);
         for (k, card) in offer.cards.iter().enumerate() {
             let row = y0 + 3 + 4 * k as u16;
             let sel = k as u8 == ui.sel;
             let Some(card) = card else {
-                self.text(row, x0 + 2, "(empty)", pal.dim);
+                self.text(row, x0 + 2, c.texts.get(t::PICK_NONE), pal.dim);
                 continue;
             };
             let s = c.skill(card.skill);
-            let rar = [("common", pal.text), ("RARE", pal.of(Hue::Kin)), ("EPIC", pal.of(Hue::Therm)), ("LEGEND", pal.chest)][usize::from(card.rarity.min(3))];
+            let rk = usize::from(card.rarity.min(3));
+            let rar = (c.texts.get(t::RARITY[rk]), [pal.text, pal.of(Hue::Kin), pal.of(Hue::Therm), pal.chest][rk]);
             // the card reads in a glance: its rows tinted by rarity, a kind icon in the power colour, then the name
             if card.rarity > 0 {
                 let i = usize::from(row) * usize::from(self.cols) + usize::from(x0 + 1);
@@ -876,13 +876,15 @@ impl Frame {
                     }
                 }
             }
-            let mut x = self.text(row, x0 + 2, if sel { "> " } else { "  " }, pal.alarm);
+            let cursor = c.texts.get(t::PICK_CURSOR);
+            let blank = " ".repeat(cursor.chars().count());
+            let mut x = self.text(row, x0 + 2, if sel { cursor } else { &blank }, pal.alarm);
             x = self.num(row, x, k as i64 + 1, key_fg(pal));
             x = self.text(row, x + 1, kind_icon(s.kind), pal.of(s.hue));
             // power type colour: same as the stats pane
             x = self.text(row, x + 1, &s.name, pal.of(s.hue));
             x = self.text(row, x + 2, rar.0, rar.1);
-            x = self.text(row, x + 2, if card.new_rank == 1 { "NEW" } else { "rank" }, pal.dim);
+            x = self.text(row, x + 2, c.texts.get(if card.new_rank == 1 { t::PICK_NEW } else { t::PICK_RANK }), pal.dim);
             if card.new_rank > 1 {
                 self.num(row, x + 1, i64::from(card.new_rank), pal.dim);
             }
@@ -927,10 +929,10 @@ impl Frame {
         let (title, rows, sel): (String, Vec<(String, Rgb)>, Option<usize>) = match ui.mode {
             Mode::Shop => {
                 let deals = sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map_or(&[][..], Vec::as_slice);
-                let rows = deals.iter().zip(1..).filter_map(|(d, k)| c.items.get(usize::from(d.item.0)).map(|it| (format!("{k} {} {}  {} gold", it.glyph.ch(), it.name, d.price), pal.role(it.rarity.role()))));
+                let rows = deals.iter().zip(1..).filter_map(|(d, k)| c.items.get(usize::from(d.item.0)).map(|it| (c.texts.fill(t::SHOP_ROW, [&k.to_string(), &it.glyph.ch().to_string(), &it.name, &d.price.to_string()]), pal.role(it.rarity.role()))));
                 let smith = sim.world.open_shop.and_then(|i| sim.world.npcs.get(i)).is_some_and(|p| matches!(p.npc, crate::sim::Npc::Blacksmith { .. }));
-                let forge = if smith { format!("   5 forge ({} of {} ore)", sim.p.ore, crate::sim::FORGE_ORE) } else { String::new() };
-                (format!("SHOP  gold {}   1-4 buy{forge}", sim.p.gold), rows.collect(), None)
+                let forge = if smith { c.texts.fill(t::SHOP_FORGE, [&sim.p.ore.to_string(), &crate::sim::FORGE_ORE.to_string()]) } else { String::new() };
+                (c.texts.fill(t::SHOP_TITLE, [&sim.p.gold.to_string(), &forge]), rows.collect(), None)
             }
             // the skill tree and the gear live in the hero pane, not in a popup
             Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear | Mode::Bags | Mode::Start => return,
@@ -943,7 +945,9 @@ impl Frame {
         let first = sel.unwrap_or(0).saturating_sub(shown - 1);
         for (k, (s, fg)) in rows.iter().enumerate().skip(first).take(shown) {
             let row = y0 + 3 + (k - first) as u16;
-            let line: String = format!("{}{s}", if Some(k) == sel { "> " } else { "  " }).chars().take(fit).collect();
+            let cursor = c.texts.get(t::PICK_CURSOR);
+            let mark = if Some(k) == sel { cursor.to_string() } else { " ".repeat(cursor.chars().count()) };
+            let line: String = format!("{mark}{s}").chars().take(fit).collect();
             self.text(row, x0 + 2, &line, *fg);
         }
     }
@@ -1004,11 +1008,11 @@ impl Frame {
                         let ready = o.sp == 0;
                         self.bar(row + 1, hx + 2, full - i64::from(o.sp), full, half / 2 - 4, if ready { pal.of(s.hue) } else { pal.dim });
                     } else {
-                        self.text(row + 1, hx + 2, "passive", pal.dim);
+                        self.text(row + 1, hx + 2, c.texts.get(t::SPECIAL_PASSIVE), pal.dim);
                     }
                 }
                 None => {
-                    self.text(row, x + 1, "empty", pal.dim);
+                    self.text(row, x + 1, c.texts.get(t::SPECIAL_EMPTY), pal.dim);
                 }
             }
         }
@@ -1059,7 +1063,7 @@ impl Frame {
                 self.cells[y as usize * cols as usize + x as usize] = Cell { ch: star, fg, bg: mix(fg, pal.bg, LEVEL_GLOW_BG) };
             }
         }
-        let line = level_line(level);
+        let line = level_line(sim.c, level);
         // below the feet: the hero's own LEVEL UP! shout and bubble take the space above its head
         let top = prow + LEVEL_LINE_GAP;
         let c0 = (pcol - line.chars().count() as i32 / 2).max(0);
@@ -1158,7 +1162,7 @@ impl Frame {
             let Some(loud) = Roar::of(sim, k) else { continue };
             let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
             let h = c.boss_of(sim.e.fam[k]).map_or(i32::from(c.view.actor_rows[0]), |d| i32::from(d.h));
-            let word = loud.words()[(id as usize).wrapping_mul(7) % loud.words().len()];
+            let word = sim.c.texts.pick(loud.pool(), (id as usize).wrapping_mul(7));
             let lines: Vec<String> = match loud {
                 Roar::Uber => crate::bigtext::double(&ROAR.map(String::from)),
                 _ => crate::bigtext::rows(word).to_vec(),
@@ -1182,9 +1186,9 @@ impl Frame {
             }
             // the uber's taunt, under its ROAR
             if loud == Roar::Uber {
-                let t = format!("\"{word}\"");
-                let tl = col - t.chars().count() as i32 / 2;
-                for (i, ch) in t.chars().enumerate() {
+                let quote = sim.c.texts.fill(t::ROAR_QUOTE, [word]);
+                let tl = col - quote.chars().count() as i32 / 2;
+                for (i, ch) in quote.chars().enumerate() {
                     self.flash_cell(tl + i as i32, top + lines.len() as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.text);
                 }
             }
@@ -1195,7 +1199,7 @@ impl Frame {
     /// rippling out from the pal. Drawn last, like every shout.
     fn pal_calls(&mut self, sim: &Sim) {
         let pal = &sim.c.pal;
-        let big = crate::bigtext::rows("HELP!");
+        let big = crate::bigtext::rows(sim.c.texts.get(t::PAL_HELP));
         let bw = big[0].chars().count() as i32;
         let (blink, wave) = ((sim.tick / PAL_BLINK).is_multiple_of(2), (sim.tick / PAL_WAVE % 3) as i32 + 1);
         let fg = if blink { pal.player } else { pal.xp };
@@ -1309,7 +1313,7 @@ impl Frame {
             let hop = (now_ms / CHEER_HOP_MS + id).is_multiple_of(2);
             self.flash_cell(col, row - 1 - i32::from(hop), Glyph::of('^').unwrap_or(Glyph::SPACE), pal.alarm);
             if id.is_multiple_of(3) && hop {
-                let word = CHEERS[(id / 3) as usize % CHEERS.len()];
+                let word = sim.c.texts.pick(t::CHEERS, (id / 3) as usize);
                 for (i, ch) in word.chars().enumerate() {
                     self.flash_cell(col - 1 + i as i32, row - 3, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.chest);
                 }
@@ -1318,7 +1322,7 @@ impl Frame {
         if let Some(k) = killer {
             let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
             let gold = if (now_ms / CHEER_HOP_MS).is_multiple_of(2) { pal.chest } else { pal.xp };
-            let title = format!("{} THE HERO-SLAYER", sim.c.fam(sim.e.fam[k]).name);
+            let title = sim.c.texts.fill(t::HERO_SLAYER, [&sim.c.fam(sim.e.fam[k]).name]);
             for (i, ch) in "\\^/".chars().enumerate() {
                 self.flash_cell(col - 1 + i as i32, row - 2, Glyph::of(ch).unwrap_or(Glyph::SPACE), gold);
             }
@@ -1336,7 +1340,8 @@ impl Frame {
         let top = i32::from(self.play_rows()) / 4;
         // a dark red plate behind banner and text, so it reads over anything
         let plate = mix(pal.alarm, pal.hud_bg, 820);
-        let (pw, ph) = (SUPPORT_PLEA.chars().count() as i32 + 8, YOU_DIED.len() as i32 + 9);
+        let plea = sim.c.texts.get(t::SUPPORT_PLEA);
+        let (pw, ph) = (plea.chars().count() as i32 + 8, YOU_DIED.len() as i32 + 9);
         let pl = i32::from(self.cols) / 2 - pw / 2;
         self.plate(pl, top - 1, pw, ph, plate);
         for (r, line) in YOU_DIED.iter().enumerate() {
@@ -1346,9 +1351,10 @@ impl Frame {
                 }
             }
         }
-        let by = format!("slain by {}", crate::bot::cause_name(sim.c, &o));
-        let taunt = DEATH_TAUNTS[(sim.tick as usize).wrapping_mul(31) % DEATH_TAUNTS.len()];
-        for (dr, (line, fg)) in [(by.as_str(), pal.text), (taunt, pal.dim), ("r new run   q quit", pal.player)].into_iter().enumerate() {
+        let tx = &sim.c.texts;
+        let by = tx.fill(t::SLAIN_BY, [&crate::bot::cause_name(sim.c, &o)]);
+        let taunt = tx.pick(t::DEATH_TAUNTS, (sim.tick as usize).wrapping_mul(31));
+        for (dr, (line, fg)) in [(by.as_str(), pal.text), (taunt, pal.dim), (tx.get(t::DEATH_KEYS), pal.player)].into_iter().enumerate() {
             let w = line.chars().count() as i32;
             let col = i32::from(self.cols) / 2 - w / 2;
             for (i, ch) in line.chars().enumerate() {
@@ -1356,16 +1362,16 @@ impl Frame {
             }
         }
         // the plea: below the plate, a clickable sponsor link
-        let w = SUPPORT_PLEA.chars().count() as i32 + 4;
+        let w = plea.chars().count() as i32 + 4;
         let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + YOU_DIED.len() as i32 + 6);
         if col >= 0 && row >= 1 && row + 1 < i32::from(self.play_rows()) {
-            self.button((row as u16, col as u16), SUPPORT_PLEA, (pal.chest, pal.bg), true, SUPPORT_URL);
+            self.button((row as u16, col as u16), plea, (pal.chest, pal.bg), true, sim.c.texts.get(t::SUPPORT_URL));
         }
     }
 
     /// A clickable button: ` label ` filled with `bg`, rounded by half blocks (`▐ … ▌`); `tall` adds rims above and
     /// below in quadrant blocks so it reads as a raised key. Returns its width. Off-screen parts are clipped.
-    fn button(&mut self, (row, col): (u16, u16), label: &str, (bg, fg): (Rgb, Rgb), tall: bool, url: &'static str) -> u16 {
+    fn button(&mut self, (row, col): (u16, u16), label: &str, (bg, fg): (Rgb, Rgb), tall: bool, url: &str) -> u16 {
         let w = label.chars().count() as u16 + 4;
         let rows = if tall { 3 } else { 1 };
         let r0 = if tall { row.saturating_sub(1) } else { row };
@@ -1392,7 +1398,7 @@ impl Frame {
             }
         }
         let i = usize::from(row) * usize::from(self.cols) + usize::from(col);
-        self.links.push((i, i + usize::from(w), url));
+        self.links.push((i, i + usize::from(w), url.to_string()));
         w
     }
 
@@ -1438,8 +1444,8 @@ impl Frame {
                 continue;
             }
             let text = match b.kind {
-                BarkKind::Stole { power } => format!("{} +{power}", STOLE_LINES[b.id as usize % STOLE_LINES.len()]),
-                BarkKind::Learned { ability } => format!("learned {ability:?}!"),
+                BarkKind::Stole { power } => sim.c.texts.fill(t::THIEF_STOLE, [sim.c.texts.pick(t::STOLE_LINES, b.id as usize), &power.to_string()]),
+                BarkKind::Learned { ability } => sim.c.texts.fill(t::THIEF_LEARNED, [sim.c.texts.get(t::ABILITY[ability as usize])]),
             };
             let (col, row) = self.scr(f64::from(b.x), f64::from(b.y));
             // rise one row per third of the lifetime, like a speech bubble floating off
@@ -1650,7 +1656,7 @@ impl Frame {
             let w = LOOT_PANE_W as usize - 2;
             self.text(top as u16, 0, &format!("╭{}╮", "─".repeat(w)), fg);
             self.text(top as u16 + 1, 0, "│", fg);
-            self.text(top as u16 + 1, 1, &format!("{:<w$}", " ✦ POWER-UP"), pal.text);
+            self.text(top as u16 + 1, 1, &format!("{:<w$}", sim.c.texts.get(t::POWER_UP)), pal.text);
             self.text(top as u16 + 1, w as u16 + 1, "│", fg);
             self.text(top as u16 + 2, 0, &format!("╰{}╯", "─".repeat(w)), fg);
             if k == 0 {
@@ -1659,7 +1665,7 @@ impl Frame {
             }
         }
         if n > LOOT_PANES {
-            self.text((i32::from(MAP_H) + 1 + i32::from(LOOT_PANES) * 3) as u16, 1, &format!("+{} more", n - LOOT_PANES), pal.dim);
+            self.text((i32::from(MAP_H) + 1 + i32::from(LOOT_PANES) * 3) as u16, 1, &sim.c.texts.fill(t::POWER_MORE, [&(n - LOOT_PANES).to_string()]), pal.dim);
         }
     }
 
@@ -1695,7 +1701,7 @@ impl Frame {
         let hz = u64::from(c.hz().get());
         let mut r = y0;
         // the clock wears the time of day: sun by day, moon by night
-        let mut x = self.text(r, x0 + 1, if sim.night() { "🌙 " } else { "🌞 " }, pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(if sim.night() { t::CLOCK_NIGHT } else { t::CLOCK_DAY }), pal.text);
         x = self.clock(r, x, sim.secs(), pal.text);
         // next boss: first scheduled boss event after now
         let next = c.waves.iter().filter_map(|w| match w {
@@ -1705,12 +1711,12 @@ impl Frame {
         match next {
             Some((at, fam)) => {
                 let left = (u64::from(at - sim.tick) / hz) as u32;
-                x = self.text(r, x + 2, "NEXT ", pal.dim);
+                x = self.text(r, x + 2, c.texts.get(t::PANEL_NEXT), pal.dim);
                 x = self.text(r, x, &c.fam(fam).name, pal.alarm);
                 self.clock(r, x + 1, left, pal.alarm);
             }
             None => {
-                self.text(r, x + 2, "NO BOSS LEFT", pal.dim);
+                self.text(r, x + 2, c.texts.get(t::PANEL_NO_BOSS), pal.dim);
             }
         }
         r += 1;
@@ -1727,43 +1733,43 @@ impl Frame {
         x = self.num(r, x + 1, i64::from(sim.xp_need().saturating_sub(sim.p.xp)), pal.xp);
         self.text(r, x, " to go", pal.dim);
         r += 1;
-        let mut x = self.text(r, x0 + 1, "FLUX ", pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_FLUX), pal.text);
         x = self.num(r, x, i64::from(sim.p.flux / 1000), pal.of(Hue::Code));
-        x = self.text(r, x + 2, "KILLS ", pal.dim);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_KILLS), pal.dim);
         x = self.num(r, x, i64::from(sim.stats.kills), pal.text);
-        x = self.text(r, x + 2, "HIJACK ", pal.dim);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_HIJACK), pal.dim);
         self.num(r, x, i64::from(sim.hijacked), pal.of(Hue::Code));
         r += 1;
         // morale: hero NERVE (grows while unhurt) vs foe PANIC (share of foes fleeing)
         let hostile = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile).count();
         let panicked = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile && sim.e.panic[k]).count();
         let nerve = sim.confidence();
-        let mut x = self.text(r, x0 + 1, "NERVE ", pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_NERVE), pal.text);
         x = self.bar(r, x, i64::from(nerve), 1000, MORALE_BAR_W, if nerve >= CONF_PANIC { pal.player } else { pal.dim });
-        x = self.text(r, x + 2, "PANIC ", pal.text);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_PANIC), pal.text);
         self.bar(r, x, panicked as i64, hostile.max(1) as i64, MORALE_BAR_W, pal.of(Hue::Emp));
         r += 1;
         // purse (shops take it) and pals won (rescued or befriended)
-        let mut x = self.text(r, x0 + 1, "GOLD ", pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_GOLD), pal.text);
         x = self.num(r, x, i64::from(sim.p.gold), pal.chest);
-        x = self.text(r, x + 2, "PALS ", pal.text);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_PALS), pal.text);
         x = self.num(r, x, i64::from(sim.world.pals), pal.player);
         // the belly: green when fed, red when hungry
-        x = self.text(r, x + 2, "FOOD ", pal.text);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_FOOD), pal.text);
         let fed = sim.p.food >= crate::sim::FOOD_LOW;
         self.bar(r, x, i64::from(sim.p.food), i64::from(crate::sim::FOOD_FULL), FOOD_BAR_W, pal.role(if fed { Role::Heal } else { Role::Danger }));
         r += 1;
         // sky: weather now, what comes next and when (a full or blood moon is the threat)
         let fc = sim.world.forecast(sim.tick);
         let sky_fg = |w: Weather| sky_fg(pal, w);
-        let mut x = self.text(r, x0 + 1, "SKY ", pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_SKY), pal.text);
         x = self.text(r, x, &format!("{} {}", fc.now.icon(), fc.now.name()), sky_fg(fc.now));
         x = self.text(r, x + 1, ">", pal.dim);
         x = self.text(r, x + 1, &format!("{} {}", fc.next.icon(), fc.next.name()), sky_fg(fc.next));
         self.clock(r, x + 1, fc.ticks_to_next / c.hz().get(), pal.dim);
         r += 1;
         // powers: name in the power's type colour (same colour as the picker popup)
-        self.text(r, x0 + 1, "POWERS", pal.dim);
+        self.text(r, x0 + 1, c.texts.get(t::PANEL_POWERS), pal.dim);
         r += 1;
         for o in sim.owned.iter().take(PANEL_POWERS) {
             let s = c.skill(o.id);
@@ -1774,10 +1780,10 @@ impl Frame {
         }
         // foes: one row per (family, tier), glyph + name in the foe's own render colour
         r = y0 + PANEL_FOES_ROW;
-        let x = self.text(r, x0 + 1, "FOES  ", pal.dim);
+        let x = self.text(r, x0 + 1, c.texts.get(t::PANEL_FOES), pal.dim);
         // director phase and the last frame size (kB): status numbers live here, not on the key rows
         let x = self.text(r, x, phase, pal.text);
-        let x = self.text(r, x + 2, "NET ", pal.dim);
+        let x = self.text(r, x + 2, c.texts.get(t::PANEL_NET), pal.dim);
         let x = self.num(r, x, (bytes / 1024) as i64, pal.dim);
         self.text(r, x, "k", pal.dim);
         let tiers = [Tier::Trash, Tier::Elite, Tier::Champion, Tier::Boss];
@@ -1800,15 +1806,15 @@ impl Frame {
             x = self.text(rr, x + 1, &f.name, fg);
             let (tag, tc) = match t {
                 Tier::Trash => ("", pal.dim),
-                Tier::Elite => (" ELITE", pal.of(Hue::Kin)),
-                Tier::Champion => (" CHAMPION", pal.of(Hue::Therm)),
-                Tier::Boss => (" BOSS", pal.alarm),
+                Tier::Elite => (c.texts.get(t::TIER[1]), pal.of(Hue::Kin)),
+                Tier::Champion => (c.texts.get(t::TIER[2]), pal.of(Hue::Therm)),
+                Tier::Boss => (c.texts.get(t::TIER[3]), pal.alarm),
             };
             self.text(rr, x, tag, tc);
         }
         // cast: hero, hijacked allies, panicked foes, fed thieves; glyph drawn as on the map screen
         r = y0 + PANEL_CAST_ROW;
-        self.text(r, x0 + 1, "CAST", pal.dim);
+        self.text(r, x0 + 1, c.texts.get(t::PANEL_CAST), pal.dim);
         let tally = cast_tally(sim);
         for (row, kind) in Cast::ALL.into_iter().enumerate() {
             let (n, rep) = tally[kind as usize];
@@ -1830,7 +1836,7 @@ impl Frame {
                 Cast::Panic | Cast::Thief => (i64::from(n), hostile.max(1) as i64),
             };
             x = self.bar(rr, x + 1, val, max, MINI_BAR_W, if n == 0 { pal.dim } else if kind == Cast::Hero { pal.player } else { hue });
-            self.text(rr, x + 1, kind.label(), pal.dim);
+            self.text(rr, x + 1, c.texts.get(t::CAST[kind as usize]), pal.dim);
         }
     }
 
@@ -1930,7 +1936,7 @@ impl Frame {
             ModeInk::Dim => pal.dim,
             ModeInk::Role(r) => pal.role(r),
         };
-        let tag_end = self.text(rcm, 1, tag, tag_fg);
+        let tag_end = self.text(rcm, 1, c.texts.get(tag), tag_fg);
         if ui.mode == Mode::Cmd {
             let x = self.text(rcm, tag_end + 1, ":", pal.player);
             let x = self.text(rcm, x, &ui.cmdline, pal.player);
@@ -1939,12 +1945,12 @@ impl Frame {
         if let Some((prefix, items)) = ui.whichkey(c, v.now_ms) {
             self.whichkey_popup(pal, &prefix, &items);
         }
-        let entries = if ended { vec![Hint { keys: "r".into(), label: "new run".into(), on: None }, Hint { keys: "q".into(), label: "quit".into(), on: None }] } else { hints(c, ui) };
+        let entries = if ended { vec![Hint { keys: "r".into(), label: c.texts.get(t::HINT_NEW_RUN).into(), on: None }, Hint { keys: "q".into(), label: c.texts.get(t::HINT_QUIT).into(), on: None }] } else { hints(c, ui) };
         // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
         let key = key_fg(pal);
         // the sponsor button owns the right end of row C; hints never cover it
-        let sx = self.cols.saturating_sub(SUPPORT_LABEL.chars().count() as u16 + 5);
-        self.button((rcm, sx), SUPPORT_LABEL, (pal.alarm, pal.bg), false, SUPPORT_URL);
+        let sx = self.cols.saturating_sub(c.texts.get(t::SUPPORT_LABEL).chars().count() as u16 + 5);
+        self.button((rcm, sx), c.texts.get(t::SUPPORT_LABEL), (pal.alarm, pal.bg), false, c.texts.get(t::SUPPORT_URL));
         let limit = [self.cols, sx.saturating_sub(1)];
         let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
         for h in &entries {
@@ -2015,7 +2021,8 @@ impl Frame {
         let left = lo + (hi - lo - w) / 2;
         self.plate(left, 0, w, 3, pal.hud_bg);
         let edge = pal.of(Hue::Therm);
-        self.text(0, left as u16, &format!("╭─ ◆ STORY {}╮", "─".repeat((w as usize).saturating_sub(13))), edge);
+        let story = sim.c.texts.get(t::STORY);
+        self.text(0, left as u16, &format!("╭─ {story} {}╮", "─".repeat((w as usize).saturating_sub(story.chars().count() + 6))), edge);
         self.text(1, left as u16, "│", edge);
         self.text(1, (left + w - 1) as u16, "│", edge);
         self.text(2, left as u16, &format!("╰{}╯", "─".repeat(w as usize - 2)), edge);
@@ -2061,40 +2068,29 @@ impl Frame {
         let (ax, ay) = (wx.round() as i32, wy.round() as i32);
         let best = (0..sim.e.len()).map(|k| (dist2(sim.e.x[k] - ax, sim.e.y[k] - ay), k)).min().filter(|(d2, _)| *d2 <= 2_250_000);
         let pal = &c.pal;
+        let tx = &c.texts;
         let Some((_, k)) = best else {
-            self.text(row, x0, "LOOK: move cursor with h j k l, esc back. nothing under cursor", pal.dim);
+            self.text(row, x0, tx.get(t::LOOK_HELP), pal.dim);
             return;
         };
         let fam = c.fam(sim.e.fam[k]);
         let mut x = self.text(row, x0, &fam.name, pal.of(fam.hue));
-        let tier = match sim.e.tier[k] {
-            Tier::Trash => " trash",
-            Tier::Elite => " ELITE",
-            Tier::Champion => " CHAMPION",
-            Tier::Boss => " BOSS",
-        };
-        x = self.text(row, x, tier, pal.text);
-        x = self.text(row, x + 2, ["KIN", "THERM", "EMP", "CODE"][fam.hue as usize], pal.of(fam.hue));
-        x = self.text(row, x + 2, "hp ", pal.dim);
-        x = self.num(row, x, i64::from(sim.e.hp[k] / 1000), pal.text);
-        x = self.text(row, x, "/", pal.dim);
-        x = self.num(row, x, i64::from(sim.e.max[k] / 1000), pal.dim);
-        x = self.text(row, x + 2, "glitch ", pal.dim);
+        x = self.text(row, x, tx.get(t::TIER[sim.e.tier[k] as usize]), pal.text);
+        x = self.text(row, x + 2, tx.get(t::HUE[fam.hue as usize]), pal.of(fam.hue));
+        x = self.text(row, x + 2, &tx.fill(t::LOOK_HP, [&(sim.e.hp[k] / 1000).to_string(), &(sim.e.max[k] / 1000).to_string()]), pal.dim);
+        x = self.text(row, x + 2, tx.get(t::LOOK_GLITCH), pal.dim);
         x = self.num(row, x, i64::from(sim.e.glitch[k]), pal.of(Hue::Code));
-        x = self.text(row, x + 2, if sim.e.side[k] == Side::Hijacked { "HIJACKED (yours)" } else { "hostile" }, pal.text);
+        x = self.text(row, x + 2, tx.get(if sim.e.side[k] == Side::Hijacked { t::LOOK_HIJACKED } else { t::LOOK_HOSTILE }), pal.text);
         if sim.e.purger[k] {
-            self.text(row, x + 2, "PURGER: kills your hijacked", pal.alarm);
+            self.text(row, x + 2, tx.get(t::LOOK_PURGER), pal.alarm);
         }
         // what it has gained, with a line to match: fed thieves grow and learn tricks
         let loot = sim.e.loot[k];
         if loot > 0 && usize::from(row) + 1 < usize::from(self.play_rows()) {
-            let tricks: Vec<String> = crate::sim::Ability::ALL.iter().filter(|a| a.owned_at(loot)).map(|a| format!("{a:?}").to_uppercase()).collect();
-            let x = self.text(row + 1, x0, "UPGRADED: ate ", pal.alarm);
-            let x = self.num(row + 1, x, i64::from(loot), pal.chest);
-            let x = self.text(row + 1, x + 1, "loot", pal.alarm);
+            let tricks: Vec<&str> = crate::sim::Ability::ALL.iter().filter(|a| a.owned_at(loot)).map(|&a| tx.get(t::ABILITY[a as usize])).collect();
+            let x = self.text(row + 1, x0, &tx.fill(t::LOOK_ATE, [&loot.to_string()]), pal.alarm);
             let x = if tricks.is_empty() { x } else { self.text(row + 1, x + 2, &tricks.join(" "), pal.of(Hue::Therm)) };
-            let quip = FOE_QUIPS[usize::from(loot) % FOE_QUIPS.len()];
-            self.text(row + 1, x + 2, quip, pal.dim);
+            self.text(row + 1, x + 2, tx.pick(t::FOE_QUIPS, usize::from(loot)), pal.dim);
         }
     }
 
@@ -2132,7 +2128,7 @@ impl Frame {
                 _ => sgr(&mut self.out, b"\x1b[38;2;", b.fg, Some(b.bg)),
             }
             pen = Some((b.fg, b.bg));
-            let link = self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2);
+            let link = self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2.as_str());
             if let Some(url) = link {
                 self.out.extend_from_slice(b"\x1b]8;id=tot;");
                 self.out.extend_from_slice(url.as_bytes());
@@ -2158,9 +2154,9 @@ impl Frame {
     }
 
     /// URL of the clickable span under screen cell (col, row), if any.
-    pub fn link_at(&self, col: u16, row: u16) -> Option<&'static str> {
+    pub fn link_at(&self, col: u16, row: u16) -> Option<&str> {
         let i = usize::from(row) * usize::from(self.cols) + usize::from(col);
-        self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2)
+        self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2.as_str())
     }
 
     /// Glyphs only, one line per row (for `proto2 snapshot`).
@@ -2298,8 +2294,6 @@ const LEVEL_SPIN_MS: u64 = 60;
 const LEVEL_GLOW_BG: u32 = 450;
 /// Rows between the hero's head and the level-up line.
 const LEVEL_LINE_GAP: i32 = 2;
-/// Taunts after a level up; picked by level so the same level always says the same thing.
-const LEVEL_LINES: [&str; 4] = ["they should run.", "bring more.", "still not dead.", "you call that a swarm?"];
 
 /// Kill burst life in sim ticks, split evenly over POP_FRAMES (a few frames at 30 Hz).
 const POP_TICKS: u32 = 9;
@@ -2337,12 +2331,12 @@ impl Roar {
     }
 
     /// What it shouts (the uber's is the taunt under its ROAR).
-    fn words(self) -> &'static [&'static str] {
+    fn pool(self) -> crate::text::Pool {
         match self {
-            Roar::Champion => &["OI!", "MINE!", "BONK?", "FITE ME", "HEY YOU"],
-            Roar::Mini => &["GRR!", "SQUEAK!", "BEHOLD", "BOO!", "TINY BUT MAD"],
-            Roar::Super => &["KNEEL!", "FEAR ME", "OBEY!", "DOOM!", "BOW!"],
-            Roar::Uber => &["YOUR BUILD IS MID", "I EAT HEROES FOR BREAKFAST", "THIS IS MY DUNGEON", "RESPAWN TIMER: YES"],
+            Roar::Champion => t::ROAR_CHAMPION,
+            Roar::Mini => t::ROAR_MINI,
+            Roar::Super => t::ROAR_SUPER,
+            Roar::Uber => t::ROAR_UBER,
         }
     }
 }
@@ -2359,16 +2353,11 @@ const CARD_TINT: u32 = 780;
 /// Story card: seconds it stays, letters typed per second.
 const STORY_S: u32 = 8;
 const STORY_CPS: usize = 40;
-/// What the look tooltip says about a foe that ate loot.
-const FOE_QUIPS: [&str; 5] = ["it got ideas.", "it is not the same foe anymore.", "it eats like you do. worse.", "you fed this. you.", "it remembers your loot fondly."];
 /// Floor loot: glow mix toward the background (permille), tallest beam (rows), pulse period (ticks).
 const LOOT_GLOW: u32 = 650;
 const LOOT_BEAM_MAX: i32 = 4;
 const LOOT_PULSE: u32 = 10;
 /// Sponsor link: always at the bottom right, and pleaded on the death screen.
-const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
-const SUPPORT_LABEL: &str = "support tot <3";
-const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and sponsor me";
 /// Sky: tint strength (permille) per weather, one streak cell in SKY_STREAK_1_IN, fall speed, banner life.
 const SKY_ACID_CAST: u32 = 90;
 const SKY_BLOOD_CAST: u32 = 160;
@@ -2382,8 +2371,6 @@ const SKY_FALL_TICKS: u32 = 2;
 const SKY_BANNER_MS: u64 = 2500;
 const DIED_SHAKE_MS: u64 = 1200;
 const CHEER_HOP_MS: u64 = 250;
-const CHEERS: [&str; 6] = ["HA!", "GG", "WOO!", "EZ", "LOL", "YAY"];
-const DEATH_TAUNTS: [&str; 5] = ["The horde sends its regards.", "They are already telling the story wrong.", "Your loot looks better on them.", "Respawn, rematch, revenge.", "Even the trash is dancing."];
 
 /// Positions of ids in `prev` that are gone from `cur` (both sorted by id): the foes that died this tick.
 fn vanished<'a>(prev: &'a [(u32, i32, i32)], cur: &'a [(u32, i32, i32)]) -> impl Iterator<Item = (i32, i32)> + 'a {
@@ -2394,8 +2381,8 @@ fn ring_radius(t_ms: u64) -> f64 {
     RING_R0 + (RING_R1 - RING_R0) * (t_ms.min(LEVEL_FLASH_MS) as f64) / LEVEL_FLASH_MS as f64
 }
 
-fn level_line(level: u16) -> String {
-    format!("LEVEL {level}. {}", LEVEL_LINES[usize::from(level) % LEVEL_LINES.len()])
+fn level_line(c: &Content, level: u16) -> String {
+    c.texts.fill(t::LEVEL_LINE, [&level.to_string(), c.texts.pick(t::LEVEL_TAUNTS, usize::from(level))])
 }
 
 /// Gold glow behind a chest, pulsing every CHEST_PULSE ticks; screen sprite and map marker share it.
@@ -2426,15 +2413,6 @@ enum Cast {
 
 impl Cast {
     const ALL: [Cast; 4] = [Cast::Hero, Cast::Ally, Cast::Panic, Cast::Thief];
-
-    fn label(self) -> &'static str {
-        match self {
-            Cast::Hero => "HERO hp",
-            Cast::Ally => "HIJACKED allies",
-            Cast::Panic => "PANICKED foes",
-            Cast::Thief => "FED thieves",
-        }
-    }
 }
 
 /// Per kind (indexed by `Cast as usize`): how many live, and one example entity to borrow its glyph and hue from.
@@ -2468,18 +2446,18 @@ enum ModeInk {
 }
 
 /// Vim-style mode tag for the status line. A finished run shows END whatever the mode was.
-fn mode_tag(mode: Mode, ended: bool) -> (&'static str, ModeInk) {
+fn mode_tag(mode: Mode, ended: bool) -> (crate::text::Txt<0>, ModeInk) {
     match (ended, mode) {
-        (true, _) => ("-- END --", ModeInk::Dim),
-        (_, Mode::Play) => ("-- PLAY --", ModeInk::Player),
-        (_, Mode::Pick) => ("-- PICK --", ModeInk::Alarm),
-        (_, Mode::Look) => ("-- LOOK --", ModeInk::Xp),
-        (_, Mode::Cmd) => ("-- CMD --", ModeInk::Code),
-        (_, Mode::Tree) => ("-- TREE --", ModeInk::Role(Role::Magic)),
-        (_, Mode::Gear) => ("-- GEAR --", ModeInk::Role(Role::Rare)),
-        (_, Mode::Shop) => ("-- SHOP --", ModeInk::Role(Role::Legendary)),
-        (_, Mode::Bags) => ("-- BAGS --", ModeInk::Role(Role::Rare)),
-        (_, Mode::Start) => ("-- START --", ModeInk::Player),
+        (true, _) => (t::MODE_END, ModeInk::Dim),
+        (_, Mode::Play) => (t::MODE_PLAY, ModeInk::Player),
+        (_, Mode::Pick) => (t::MODE_PICK, ModeInk::Alarm),
+        (_, Mode::Look) => (t::MODE_LOOK, ModeInk::Xp),
+        (_, Mode::Cmd) => (t::MODE_CMD, ModeInk::Code),
+        (_, Mode::Tree) => (t::MODE_TREE, ModeInk::Role(Role::Magic)),
+        (_, Mode::Gear) => (t::MODE_GEAR, ModeInk::Role(Role::Rare)),
+        (_, Mode::Shop) => (t::MODE_SHOP, ModeInk::Role(Role::Legendary)),
+        (_, Mode::Bags) => (t::MODE_BAGS, ModeInk::Role(Role::Rare)),
+        (_, Mode::Start) => (t::MODE_START, ModeInk::Player),
     }
 }
 
@@ -2494,7 +2472,7 @@ struct Hint {
 /// Movement, specials, cards and shop offers fold into one hint each; digit runs read "1-8". In a shop the play
 /// One key row when the widest mode (play) fits whole with the mode tag and the sponsor button, else two.
 fn strip_rows(c: &Content, cols: u16) -> u16 {
-    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + SUPPORT_LABEL.chars().count() + 6;
+    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + c.texts.get(t::SUPPORT_LABEL).chars().count() + 6;
     if need <= usize::from(cols) { 1 } else { STRIP }
 }
 
@@ -2516,11 +2494,11 @@ fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
                 Some(g) => (format!("+{}", g.label), None),
                 None => (b.label.clone(), None),
             },
-            Action::Up | Action::Down | Action::Left | Action::Right => ("move".to_string(), None),
-            Action::RotLeft | Action::RotRight => ("turn".into(), None),
-            Action::Special(_) => ("special".into(), None),
-            Action::Card(_) => ("take".into(), None),
-            Action::ShopTake(_) => ("buy".into(), None),
+            Action::Up | Action::Down | Action::Left | Action::Right => (c.texts.get(t::HINT_MOVE).to_string(), None),
+            Action::RotLeft | Action::RotRight => (c.texts.get(t::HINT_TURN).to_string(), None),
+            Action::Special(_) => (c.texts.get(t::HINT_SPECIAL).to_string(), None),
+            Action::Card(_) => (c.texts.get(t::HINT_TAKE).to_string(), None),
+            Action::ShopTake(_) => (c.texts.get(t::HINT_BUY).to_string(), None),
             Action::Autofire => (b.label.clone(), Some(ui.autofire)),
             Action::Autowalk => (b.label.clone(), Some(ui.autowalk)),
             _ => (b.label.clone(), None),
@@ -2537,7 +2515,7 @@ fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
         .into_iter()
         .map(|(label, keys, on)| {
             let digits = keys.iter().all(|k| k.len() == 1 && k.as_bytes()[0].is_ascii_digit());
-            let keys = if label == "move" {
+            let keys = if label == c.texts.get(t::HINT_MOVE) {
                 "wasd/hjkl".to_string()
             } else if digits && keys.len() > 2 {
                 format!("{}-{}", keys[0], keys[keys.len() - 1])
@@ -2659,10 +2637,6 @@ mod tests {
         // negative control: nobody died when the id sets match
         assert_eq!(vanished(&cur, &cur).count(), 0);
         assert!(ROAR.iter().all(|l| l.chars().count() == ROAR[0].chars().count()), "sign rows share one width");
-        // every roar word is drawable in block letters
-        for r in [Roar::Champion, Roar::Mini, Roar::Super, Roar::Uber] {
-            assert!(r.words().iter().flat_map(|w| w.chars()).all(|ch| ch == ' ' || ch.is_ascii_alphabetic() || "!?.:".contains(ch)), "{r:?}");
-        }
         assert!(ROAR.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()), "every sign glyph is in the font");
         assert!(POP_FRAMES.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()));
     }
@@ -2708,7 +2682,7 @@ mod tests {
         sim.p.level += 1;
         f.compose(&sim, &view(100));
         let t = text(&f);
-        assert!(t.contains(&level_line(sim.p.level)), "line shown on level up");
+        assert!(t.contains(&level_line(&c, sim.p.level)), "line shown on level up");
         // ring: stars in several bright colours, each on a glow of its own colour
         let ring: Vec<Rgb> = f.cells.iter().filter(|cl| cl.ch.ch() == '✦' && cl.bg == mix(cl.fg, c.pal.bg, LEVEL_GLOW_BG)).map(|cl| cl.fg).collect();
         assert!(ring.len() >= 8, "ring drawn with glow");
@@ -3005,7 +2979,7 @@ mod tests {
             let mut f = Frame::new(&c, 160, 50);
             f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
             let loud = Roar::of(&sim, 0).unwrap();
-            let word = loud.words()[(sim.e.id[0] as usize).wrapping_mul(7) % loud.words().len()];
+            let word = c.texts.pick(loud.pool(), (sim.e.id[0] as usize).wrapping_mul(7));
 
             (loud, painted(&f, &crate::bigtext::rows(word)))
         };
@@ -3183,7 +3157,7 @@ mod tests {
         assert!(look(&sim).contains("SCRAPPER") && !look(&sim).contains("UPGRADED"), "control: a foe that ate nothing");
         sim.e.loot[0] = 30;
         let s = look(&sim);
-        assert!(s.contains("UPGRADED: ate 30 loot") && FOE_QUIPS.iter().any(|q| s.contains(q)), "what it gained, with a line\n{s}");
+        assert!(s.contains("UPGRADED: ate 30 loot") && c.texts.pool(t::FOE_QUIPS).iter().any(|q| s.contains(q.as_str())), "what it gained, with a line\n{s}");
     }
 
     #[test]
@@ -3224,7 +3198,7 @@ mod tests {
         let s = f.plain();
         let art = base.texts.art(crate::data::Art::Title);
         assert!(art.iter().all(|r| s.contains(r.trim())), "title art\n{s}");
-        assert!(s.contains(base.texts.msg(crate::data::Msg::PickAdventure)) && advs.iter().all(|a| s.contains(&a.name) && s.contains(&a.blurb)));
+        assert!(s.contains(base.texts.get(crate::text::t::PICK_ADVENTURE)) && advs.iter().all(|a| s.contains(&a.name) && s.contains(&a.blurb)));
         assert!(f.cells.iter().any(|cl| cl.bg == base.pal.role(Role::Select)), "the cursor's entry is lit");
         // step 2: the dark adventure, loaded: its classes, in its colours
         let dark_ix = advs.iter().position(|a| a.id == "dark-fantasy").unwrap();
@@ -3233,10 +3207,28 @@ mod tests {
         let mut f = Frame::new(&dark, 120, 40);
         f.start(&dark, &ui, &advs);
         let s = f.plain();
-        assert!(s.contains(dark.texts.msg(crate::data::Msg::PickClass)) && dark.classes.iter().all(|k| s.contains(&k.name) && s.contains(&k.desc)), "{s}");
+        assert!(s.contains(dark.texts.get(crate::text::t::PICK_CLASS)) && dark.classes.iter().all(|k| s.contains(&k.name) && s.contains(&k.desc)), "{s}");
         assert!(!base.classes.iter().any(|k| s.contains(&k.name)), "control: not the base classes");
         assert_ne!(dark.pal.bg, base.pal.bg, "control: the adventures differ in colour");
         assert_eq!(f.cells[0].bg, dark.pal.bg, "painted in the adventure's colours");
+    }
+
+    #[test]
+    fn shown_words_come_from_the_adventure_texts() {
+        let at = texts().iter().position(|t| t.contains("\"pick_adventure\"")).unwrap();
+        let mut ts = texts();
+        ts[at] = ts[at].replace("\"text\":\"FLUX \"", "\"text\":\"MANA \"").replace("\"text\":\"-- PLAY --\"", "\"text\":\"~ ROAM ~\"");
+        let (base, mine) = (Content::parse(&texts()).unwrap(), Content::parse(&ts).unwrap());
+        let ui = Ui::new(true);
+        let shot = |c: &Content| {
+            let sim = Sim::new(c, 7, None);
+            let mut f = Frame::new(c, 120, 40);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let (a, b) = (shot(&base), shot(&mine));
+        assert!(a.contains("FLUX ") && a.contains("-- PLAY --") && !a.contains("MANA"), "control: the base words");
+        assert!(b.contains("MANA ") && b.contains("~ ROAM ~") && !b.contains("FLUX ") && !b.contains("-- PLAY --"), "the adventure's words\n{b}");
     }
 
     #[test]
@@ -3315,25 +3307,26 @@ mod tests {
     fn support_link_bottom_right_and_on_death() {
         use crate::sim::{Cause, Outcome};
         let c = Content::parse(&texts()).unwrap();
+        let (label, url) = (c.texts.get(t::SUPPORT_LABEL), c.texts.get(t::SUPPORT_URL));
         let mut sim = Sim::new(&c, 7, None);
         let ui = Ui::new(true);
         let mut f = Frame::new(&c, 120, 40);
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let last = f.plain().lines().nth(39).unwrap().to_string();
-        assert!(last.trim_end().ends_with(&format!("▐ {SUPPORT_LABEL} ▌")), "a pill button: {last}");
+        assert!(last.trim_end().ends_with(&format!("▐ {label} ▌")), "a pill button: {last}");
         let lx = last.chars().count() - last.chars().rev().position(|ch| ch == '▌').unwrap() - 1;
         assert_eq!(f.cells[39 * 120 + lx - 2].bg, c.pal.alarm, "filled");
         f.emit();
         let out = String::from_utf8_lossy(&f.out).to_string();
-        assert!(out.contains(&format!("\x1b]8;id=tot;{SUPPORT_URL}")), "OSC 8 link emitted");
-        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count() + 4, "each link cell closed");
+        assert!(out.contains(&format!("\x1b]8;id=tot;{url}")), "OSC 8 link emitted");
+        assert_eq!(out.matches("\x1b]8;;").count(), c.texts.get(t::SUPPORT_LABEL).chars().count() + 4, "each link cell closed");
         let fam = c.fam_ids().next().unwrap();
         sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
-        assert!(f.plain().contains(SUPPORT_PLEA), "death plea");
+        assert!(f.plain().contains(c.texts.get(t::SUPPORT_PLEA)), "death plea");
         assert_eq!(f.links.len(), 2, "button + plea are both links");
         let (fx, _) = (0..120u16).map(|x| (x, f.link_at(x, 39))).find(|p| p.1.is_some()).unwrap();
-        assert_eq!(f.link_at(fx, 39), Some(SUPPORT_URL), "click on the bottom button hits the link");
+        assert_eq!(f.link_at(fx, 39), Some(c.texts.get(t::SUPPORT_URL)), "click on the bottom button hits the link");
         assert_eq!(f.link_at(0, 0), None, "NEG: elsewhere no link");
     }
 
@@ -3351,7 +3344,7 @@ mod tests {
         for h in hints(&c, &ui) {
             assert!(last.contains(&format!("{} {}", h.keys, h.label)), "{} missing: {last}", h.label);
         }
-        assert!(last.contains("-- PLAY --") && last.contains(SUPPORT_LABEL));
+        assert!(last.contains("-- PLAY --") && last.contains(c.texts.get(t::SUPPORT_LABEL)));
     }
 
     #[test]
@@ -3392,10 +3385,11 @@ mod tests {
 
     #[test]
     fn status_line_tags_and_keys_follow_mode_and_end() {
+        let c = Content::parse(&texts()).unwrap();
         for (m, tag) in [(Mode::Play, "PLAY"), (Mode::Pick, "PICK"), (Mode::Look, "LOOK"), (Mode::Cmd, "CMD")] {
-            assert!(mode_tag(m, false).0.contains(tag));
+            assert!(c.texts.get(mode_tag(m, false).0).contains(tag));
         }
-        assert!(mode_tag(Mode::Play, true).0.contains("END"));
+        assert!(c.texts.get(mode_tag(Mode::Play, true).0).contains("END"));
         let inks = [Mode::Play, Mode::Pick, Mode::Look, Mode::Cmd].map(|m| mode_tag(m, false).1);
         assert!(inks.iter().enumerate().all(|(i, a)| inks.iter().skip(i + 1).all(|b| a != b)));
     }

@@ -2,6 +2,7 @@
 //! `data/*.jsonl`; seconds and metres are converted once here to ticks and milli-metres.
 use crate::input::{Action, Key, Mode};
 use crate::json::{Rec, records};
+use crate::text::{self, Font, Pool, Seg, Txt, POOLS, TXTS};
 use crate::{Error, Result};
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU8};
 use std::path::Path;
@@ -994,33 +995,6 @@ pub struct Class {
 
 // ---------- texts and art ----------
 
-/// Every message the game shows. Each has exactly one `text` record in texts.jsonl: a missing or unknown id fails
-/// the load, so a shown message always exists. Declaration order = `ALL` order (the index into `Texts`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Msg {
-    /// start screen, over the adventure list
-    PickAdventure,
-    /// start screen, over the class list
-    PickClass,
-}
-
-impl Msg {
-    pub const ALL: [Msg; 2] = [Msg::PickAdventure, Msg::PickClass];
-    fn id(self) -> &'static str {
-        match self {
-            Msg::PickAdventure => "pick_adventure",
-            Msg::PickClass => "pick_class",
-        }
-    }
-    /// Where the text is shown and how it is drawn (the schema doc an adventure author reads).
-    pub fn doc(self) -> &'static str {
-        match self {
-            Msg::PickAdventure => "Start screen, step 1: one header line centred under the title art, above the list of adventures. Text colour of the base palette.",
-            Msg::PickClass => "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure. Drawn in that adventure's palette.",
-        }
-    }
-}
-
 /// Every ascii art piece the game shows (`art` records: rows of glyphs), complete the same way as `Msg`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Art {
@@ -1054,9 +1028,20 @@ pub const SHOWN_FIELDS: [(&str, &str, &str, usize, &str); 4] = [
 
 /// The adventure schema docs as markdown: every message, art piece and shown field, where it shows, its limits.
 pub fn schema_doc() -> String {
-    let mut s = format!("# adventure schema: shown content\n\n## texts.jsonl `text` records (each id required once, 1..={TEXT_MAX} drawable chars)\n\n");
-    for m in Msg::ALL {
-        s += &format!("- `{}`: {}\n", m.id(), m.doc());
+    let font = |f: Font| match f {
+        Font::Line => "one line of drawable chars",
+        Font::Big => "big block font: letters ! ? . space",
+    };
+    let mut s = format!(
+        "# adventure schema: shown content\n\n## texts.jsonl `text` records (each id required once, 1..={TEXT_MAX} chars; `{{slot}}` marks are filled by the game and every listed slot must appear)\n\n"
+    );
+    for t in &TXTS {
+        let slots = if t.slots.is_empty() { String::new() } else { format!(" slots {}", t.slots.iter().map(|s| format!("{{{s}}}")).collect::<Vec<_>>().join(" ")) };
+        s += &format!("- `{}` ({}{slots}): {}\n", t.id, font(t.font), t.doc);
+    }
+    s += &format!("\n## texts.jsonl `pool` records (each id required once; `lines` = 1 or more lines of 1..={TEXT_MAX} chars, one picked per use)\n\n");
+    for p in &POOLS {
+        s += &format!("- `{}` ({}): {}\n", p.id, font(p.font), p.doc);
     }
     s += &format!("\n## texts.jsonl `art` records (each id required once; rows of width-1 glyphs, at most {TEXT_MAX} cols)\n\n");
     for a in Art::ALL {
@@ -1136,17 +1121,35 @@ const SHOUT_MAX: usize = 12;
 /// Bark line: most chars (one line in the speech bubble on the face in the bottom bar).
 const BARK_LINE_MAX: usize = 48;
 
-/// One text per `Msg`, rows per `Art`, a shout and lines per `Bark`; built only by `shown_texts`, so every slot is
-/// filled.
+/// One text per `TXTS` entry, lines per `POOLS` entry, rows per `Art`, a shout and lines per `Bark`; built only by
+/// `shown_texts`, so every slot is filled.
 pub struct Texts {
-    msg: [String; Msg::ALL.len()],
+    txt: [Vec<Seg>; TXTS.len()],
+    pool: [Vec<String>; POOLS.len()],
     art: [Vec<String>; Art::ALL.len()],
     bark: [(String, Vec<String>); Bark::ALL.len()],
 }
 
 impl Texts {
-    pub fn msg(&self, m: Msg) -> &str {
-        &self.msg[m as usize]
+    /// A text with no slots (one literal run: a text is never empty).
+    pub fn get(&self, t: Txt<0>) -> &str {
+        match self.txt[t.0].first() {
+            Some(Seg::Lit(s)) => s,
+            _ => "",
+        }
+    }
+    /// A text with its N slots filled, in the table's slot order.
+    pub fn fill<const N: usize>(&self, t: Txt<N>, args: [&str; N]) -> String {
+        text::fill(&self.txt[t.0], &args)
+    }
+    /// The `k`-th line of a pool, wrapping (a pool is never empty).
+    pub fn pick(&self, p: Pool, k: usize) -> &str {
+        let lines = &self.pool[p.0];
+        lines.get(k % lines.len().max(1)).map_or("", String::as_str)
+    }
+    #[cfg(test)]
+    pub fn pool(&self, p: Pool) -> &[String] {
+        &self.pool[p.0]
     }
     pub fn art(&self, a: Art) -> &[String] {
         &self.art[a as usize]
@@ -1176,16 +1179,36 @@ const TEXT_MAX: usize = 120;
 
 /// `text` and `art` records of texts.jsonl.
 fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
-    let mut msg: [Option<String>; Msg::ALL.len()] = Default::default();
+    let mut txt: [Option<Vec<Seg>>; TXTS.len()] = std::array::from_fn(|_| None);
+    let mut pool: [Option<Vec<String>>; POOLS.len()] = std::array::from_fn(|_| None);
     let mut art: [Option<Vec<String>>; Art::ALL.len()] = Default::default();
     let mut bark: [Option<(String, Vec<String>)>; Bark::ALL.len()] = Default::default();
+    // drawn in its font: the big font has fewer glyphs
+    let drawn = |s: &str, f: Font| (1..=TEXT_MAX).contains(&s.chars().count()) && s.chars().all(|ch| match f {
+        Font::Line => Glyph::of(ch).or_else(|| Glyph::wide(ch)).is_some(),
+        Font::Big => crate::bigtext::draws(ch),
+    });
     for (t, r) in recs {
         let id = r.text("id")?;
         let slot = match t.as_str() {
             "text" => {
                 r.allow(&["t", "id", "text"])?;
-                let m = Msg::ALL.into_iter().find(|m| m.id() == id).ok_or_else(|| r.err("id", format!("no message '{id}'")))?;
-                msg[m as usize].replace(shown(r, "text", TEXT_MAX)?).is_some()
+                let k = TXTS.iter().position(|s| s.id == id).ok_or_else(|| r.err("id", format!("no text '{id}'")))?;
+                let s = r.text("text")?;
+                if !drawn(s, TXTS[k].font) {
+                    return Err(r.err("text", format!("need 1..={TEXT_MAX} chars drawable in its font")));
+                }
+                let segs = text::segs(s, TXTS[k].slots).map_err(|e| r.err("text", e))?;
+                txt[k].replace(segs).is_some()
+            }
+            "pool" => {
+                r.allow(&["t", "id", "lines"])?;
+                let k = POOLS.iter().position(|s| s.id == id).ok_or_else(|| r.err("id", format!("no pool '{id}'")))?;
+                let lines = r.list("lines")?.iter().map(|v| v.as_str().filter(|s| drawn(s, POOLS[k].font)).map(String::from).ok_or_else(|| r.err("lines", format!("need lines of 1..={TEXT_MAX} chars drawable in its font")))).collect::<Result<Vec<_>>>()?;
+                if lines.is_empty() {
+                    return Err(r.err("lines", "need at least one line"));
+                }
+                pool[k].replace(lines).is_some()
             }
             "art" => {
                 r.allow(&["t", "id", "rows"])?;
@@ -1209,17 +1232,18 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
                 }
                 bark[b as usize].replace((shout.to_string(), lines)).is_some()
             }
-            _ => return Err(r.err("t", "need \"text\", \"art\" or \"bark\"")),
+            _ => return Err(r.err("t", "need \"text\", \"pool\", \"art\" or \"bark\"")),
         };
         if slot {
             return Err(r.err("id", format!("duplicate '{id}'")));
         }
     }
     let missing = |what: &str, id: &str| scheme_err("texts.jsonl", 0, "", format!("missing {what} '{id}'"));
-    let msg = Msg::ALL.map(|m| msg[m as usize].take().ok_or_else(|| missing("text", m.id())));
+    let txt: [Result<Vec<Seg>>; TXTS.len()] = std::array::from_fn(|k| txt[k].take().ok_or_else(|| missing("text", TXTS[k].id)));
+    let pool: [Result<Vec<String>>; POOLS.len()] = std::array::from_fn(|k| pool[k].take().ok_or_else(|| missing("pool", POOLS[k].id)));
     let art = Art::ALL.map(|a| art[a as usize].take().ok_or_else(|| missing("art", a.id())));
     let bark = Bark::ALL.map(|b| bark[b as usize].take().ok_or_else(|| missing("bark", b.id())));
-    Ok(Texts { msg: all(msg)?, art: all(art)?, bark: all(bark)? })
+    Ok(Texts { txt: all(txt)?, pool: all(pool)?, art: all(art)?, bark: all(bark)? })
 }
 
 /// Every slot or the first error.
@@ -2735,16 +2759,19 @@ pub mod tests {
         assert!(with(drop("pick_class")).contains("missing text 'pick_class'"));
         assert!(with(drop("title")).contains("missing art 'title'"));
         assert!(with(drop("gold")).contains("missing bark 'gold'"));
+        assert!(with(base.replace("slain by {killer}", "slain")).contains("missing slot {killer}"), "a template must use its slots");
+        assert!(with(base.replace("slain by {killer}", "slain by {who}")).contains("unknown slot {who}"));
+        assert!(with(drop("death_taunt")).contains("missing pool 'death_taunt'"));
         assert!(with(base.replace("\"shout\":\"SHINY!\"", "\"shout\":\"$$$\"")).contains("block font"), "a shout the big font cannot draw");
         assert!(with(base.replace("\"shout\":\"BRR!\",\"lines\":[\"B-b-brr!\",\"Who left the door open?\",\"C-can't feel my t-toes.\"]", "\"shout\":\"BRR!\",\"lines\":[]")).contains("at least one line"));
-        assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"nope\",\"text\":\"x\"}}\n")).contains("no message 'nope'"));
+        assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"nope\",\"text\":\"x\"}}\n")).contains("no text 'nope'"));
         assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"pick_class\",\"text\":\"x\"}}\n")).contains("duplicate 'pick_class'"));
         assert!(with(base.replace("CHOOSE YOUR HERO", "CHOOSE €")).contains("drawable"), "a char the terminal cannot draw");
         // the index is the declaration order, and every entry says where it is shown
-        assert!(Msg::ALL.iter().enumerate().all(|(i, &m)| m as usize == i) && Art::ALL.iter().enumerate().all(|(i, &a)| a as usize == i));
-        assert!(Msg::ALL.iter().all(|m| m.doc().len() > 20) && Art::ALL.iter().all(|a| a.doc().len() > 20));
+        assert!(Art::ALL.iter().enumerate().all(|(i, &a)| a as usize == i) && Bark::ALL.iter().enumerate().all(|(i, &b)| b as usize == i));
+        assert!(TXTS.iter().chain(&POOLS).all(|t| t.doc.len() > 20) && Art::ALL.iter().all(|a| a.doc().len() > 20));
         let doc = schema_doc();
-        assert!(Msg::ALL.iter().all(|m| doc.contains(m.id())) && Art::ALL.iter().all(|a| doc.contains(a.id())) && doc.contains("class.desc"));
+        assert!(TXTS.iter().chain(&POOLS).all(|t| doc.contains(t.id)) && Art::ALL.iter().all(|a| doc.contains(a.id())) && doc.contains("class.desc"));
     }
 
     #[test]

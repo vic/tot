@@ -14,6 +14,7 @@ mod render;
 mod rng;
 mod sim;
 mod trig;
+mod text;
 mod tty;
 
 use std::fmt;

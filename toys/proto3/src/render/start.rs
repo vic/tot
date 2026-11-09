@@ -1,7 +1,8 @@
 //! The start screen: the title art, then the adventures (step 1) or the picked adventure's hero classes (step 2),
 //! each entry a name line and a dim description line, the cursor's entry lit; the key hints on the last row.
 use super::*;
-use crate::data::{Art, Msg, ProfileInfo};
+use crate::data::{Art, ProfileInfo};
+use crate::text::t;
 use crate::input::Start;
 
 /// Row of the title art's first row.
@@ -23,8 +24,8 @@ impl Frame {
             row += 1;
         }
         let (head, items, sel): (&str, Vec<(&str, &str)>, usize) = match ui.start {
-            Start::Adventure { sel } => (c.texts.msg(Msg::PickAdventure), advs.iter().map(|a| (a.name.as_str(), a.blurb.as_str())).collect(), sel),
-            Start::Class { sel, .. } => (c.texts.msg(Msg::PickClass), c.classes.iter().map(|k| (k.name.as_str(), k.desc.as_str())).collect(), sel),
+            Start::Adventure { sel } => (c.texts.get(t::PICK_ADVENTURE), advs.iter().map(|a| (a.name.as_str(), a.blurb.as_str())).collect(), sel),
+            Start::Class { sel, .. } => (c.texts.get(t::PICK_CLASS), c.classes.iter().map(|k| (k.name.as_str(), k.desc.as_str())).collect(), sel),
         };
         row += 1;
         if row < rows {
