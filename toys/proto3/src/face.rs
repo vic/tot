@@ -191,10 +191,10 @@ impl Face {
         }
     }
 
-    /// The shout (big word) and the bark (line) showing now, if any.
-    pub fn shout(&self, sim: &Sim) -> Option<(&'static str, &'static str)> {
-        let (e, _) = self.bark?;
-        self.bark(sim).map(|line| (e.shout(), line))
+    /// The shout (big word), the bark (line) showing now, and the sim tick it began, if any.
+    pub fn shout(&self, sim: &Sim) -> Option<(&'static str, &'static str, u32)> {
+        let (e, at) = self.bark?;
+        self.bark(sim).map(|line| (e.shout(), line, at))
     }
 
     /// The bark showing now, if any.

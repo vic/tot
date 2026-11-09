@@ -11,9 +11,8 @@ const NODE_H: i32 = 3;
 /// Text room inside the borders and margins.
 const INNER: usize = PANEL_W as usize - 4;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Tab {
-    #[default]
     Armor,
     Skills,
     Bags,
@@ -42,40 +41,31 @@ const HERO: [(&str, [Option<Slot>; 3]); 7] = [
 ];
 
 impl Frame {
-    /// Where the pane goes (left col, top row), if the screen has room under the stats pane. Focused, it shows
-    /// even on a small screen (over the arena).
-    pub(super) fn pane_origin(&self, focused: bool) -> Option<(u16, u16)> {
+    /// Where the pane goes (left col, top row): under the stats pane when there is room, else over the arena.
+    pub(super) fn pane_origin(&self) -> Option<(u16, u16)> {
         let left = self.cols.checked_sub(PANEL_W)?;
         let bottom = self.play_rows();
         // keep clear of the bottom bar when it reaches under the pane
         let bar_under = self.bar_origin().is_some_and(|(bx, _)| bx + BAR_W > left);
         let top = bottom.checked_sub(PANE_H + if bar_under { BAR_H } else { 0 })?;
-        if top >= PANEL_H {
-            Some((left, top))
-        } else if focused {
-            Some((left, PANEL_H.min(bottom.saturating_sub(PANE_H))))
-        } else {
-            None
-        }
+        Some((left, if top >= PANEL_H { top } else { PANEL_H.min(bottom.saturating_sub(PANE_H)) }))
     }
 
+    /// Shown only in its modes (i / t / b); in every other mode the arena keeps the space (tot-sfx).
     pub(super) fn hero_pane(&mut self, sim: &Sim, ui: &Ui) {
-        let focus = match ui.mode {
+        let tab = match ui.mode {
             Mode::Gear => Some(Tab::Armor),
             Mode::Tree => Some(Tab::Skills),
             Mode::Bags => Some(Tab::Bags),
             _ => None,
         };
-        if let Some(t) = focus {
-            self.pane_tab = t;
-        }
-        self.pane_at = self.pane_origin(focus.is_some());
-        let Some((left, top)) = self.pane_at else { return };
+        self.pane_at = tab.and_then(|_| self.pane_origin());
+        let (Some(tab), Some((left, top))) = (tab, self.pane_at) else { return };
         let pal = &sim.c.pal;
         let (l, t, w) = (i32::from(left), i32::from(top), i32::from(PANEL_W));
         self.plate(l, t, w, i32::from(PANE_H), pal.hud_bg);
         // tabs on the top edge, the shown one lit
-        let edge = if focus.is_some() { pal.alarm } else { pal.of(Hue::Kin) };
+        let edge = pal.alarm;
         self.text(top, left, &format!("╭{}╮", "─".repeat(usize::from(PANEL_W) - 2)), edge);
         self.text(top + PANE_H - 1, left, &format!("╰{}╯", "─".repeat(usize::from(PANEL_W) - 2)), edge);
         for r in top + 1..top + PANE_H - 1 {
@@ -83,18 +73,17 @@ impl Frame {
             self.text(r, left + PANEL_W - 1, "│", edge);
         }
         let mut x = left + 2;
-        for tab in Tab::ALL {
-            let on = tab == self.pane_tab;
-            let key = match tab {
+        for each in Tab::ALL {
+            let key = match each {
                 Tab::Armor => "i",
                 Tab::Skills => "t",
                 Tab::Bags => "b",
             };
             x = self.text(top, x, key, key_fg(pal));
-            x = self.text(top, x, &format!(" {} ", tab.name()), if on { pal.alarm } else { pal.dim });
+            x = self.text(top, x, &format!(" {} ", each.name()), if each == tab { pal.alarm } else { pal.dim });
             x += 1;
         }
-        match self.pane_tab {
+        match tab {
             Tab::Armor => self.pane_armor(sim, ui, (l + 2, t + 2)),
             Tab::Skills => self.pane_skills(sim, ui, (l + 2, t + 1)),
             Tab::Bags => self.pane_bags(sim, ui, (l + 2, t + 2)),

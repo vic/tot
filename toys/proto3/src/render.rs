@@ -141,6 +141,8 @@ pub struct Frame {
     /// hero level last frame, and the running level-up flash (wall ms it began, level reached)
     level: Option<u16>,
     level_flash: Option<(u64, u16)>,
+    /// the running hero shout: sim tick it began, screen cell (col, row) of the hero then
+    shout_at: Option<(u32, (i32, i32))>,
     /// kill bursts (world x, y, sim tick of the death) and the boss ROAR (boss id, sim tick it appeared)
     pops: Vec<(i32, i32, u32)>,
     roars: Vec<(u32, u32)>,
@@ -153,8 +155,6 @@ pub struct Frame {
     /// weather last frame, and the change banner (weather, frame clock ms it turned)
     sky: Option<Weather>,
     sky_banner: Option<(Weather, u64)>,
-    /// the hero pane's tab shown when no tab key has the focus
-    pane_tab: heropane::Tab,
     /// where the hero pane is drawn this frame (left col, top row); pointers keep off it
     pane_at: Option<(u16, u16)>,
     /// clickable cell spans this frame: [start, end) cell index and the URL (OSC 8 in `emit`)
@@ -233,12 +233,12 @@ impl Frame {
             tick_ms: 0,
             level: None,
             level_flash: None,
+            shout_at: None,
             face: Face::default(),
             strip: strip_rows(c, cols),
             died_ms: None,
             sky: None,
             sky_banner: None,
-            pane_tab: heropane::Tab::default(),
             pane_at: None,
             links: Vec::new(),
             pops: Vec::with_capacity(POPS_MAX),
@@ -1042,13 +1042,21 @@ impl Frame {
         }
         let pal = &sim.c.pal;
         let r = ring_radius(t);
-        let star = Glyph::of('*').unwrap_or(Glyph::SPACE);
+        let star = Glyph::of('✦').unwrap_or(Glyph::SPACE);
         let n = LEVEL_RING_POINTS;
         let mid = prow - i32::from(sim.c.view.actor_rows[0]) / 2;
+        // bright colours chase round the ring, each star on a glow of its own colour, so it cannot be missed (tot-f6r)
+        let hues = LEVEL_GLOW.map(|role| pal.role(role));
+        let spin = (t / LEVEL_SPIN_MS) as usize;
+        let (cols, rows) = (i32::from(self.cols), i32::from(self.play_rows()));
         for k in 0..n {
             let a = f64::from(k) * std::f64::consts::TAU / f64::from(n);
             // terminal cells are 2:1, so the horizontal reach is doubled to look round
-            self.flash_cell(pcol + (r * 2.0 * a.cos()).round() as i32, mid + (r * a.sin()).round() as i32, star, pal.xp);
+            let (x, y) = (pcol + (r * 2.0 * a.cos()).round() as i32, mid + (r * a.sin()).round() as i32);
+            if x >= 0 && y >= 0 && x < cols && y < rows {
+                let fg = hues[(k as usize + spin) % hues.len()];
+                self.cells[y as usize * cols as usize + x as usize] = Cell { ch: star, fg, bg: mix(fg, pal.bg, LEVEL_GLOW_BG) };
+            }
         }
         let line = level_line(level);
         // below the feet: the hero's own LEVEL UP! shout and bubble take the space above its head
@@ -1209,12 +1217,16 @@ impl Frame {
         }
     }
 
-    /// The hero talks big: the shout word in block letters over its head (big enough to read while it moves),
-    /// and the line in a rounded speech bubble standing on the Doom face in the bar (still, so it reads).
+    /// The hero talks big: the shout word in block letters where its head was when it spoke, held still on screen
+    /// so it reads while the hero moves (tot-7op), and the line in a rounded speech bubble on the Doom face in the bar.
     fn hero_shout(&mut self, sim: &Sim) {
-        let Some((word, line)) = self.face.shout(sim) else { return };
+        let Some((word, line, at)) = self.face.shout(sim) else { return };
         let pal = &sim.c.pal;
-        let (col, row) = self.scr(f64::from(self.cur_p.0), f64::from(self.cur_p.1));
+        let here = self.scr(f64::from(self.cur_p.0), f64::from(self.cur_p.1));
+        let (col, row) = match self.shout_at {
+            Some((t, spot)) if t == at => spot,
+            _ => self.shout_at.insert((at, here)).1,
+        };
         let big = crate::bigtext::rows(word);
         let (bw, top) = (big[0].chars().count() as i32, row - i32::from(sim.c.view.actor_rows[0]) - 1 - big.len() as i32);
         for (r, l) in big.iter().enumerate() {
@@ -2172,7 +2184,7 @@ impl Frame {
         self.seen.clear();
         self.face = Face::default();
         self.died_ms = None;
-        (self.sky, self.sky_banner) = (None, None);
+        (self.sky, self.sky_banner, self.shout_at) = (None, None, None);
     }
 }
 
@@ -2280,6 +2292,11 @@ const LEVEL_RING_POINTS: u32 = 24;
 /// Ring radius in rows at the start and end of the flash.
 const RING_R0: f64 = 1.0;
 const RING_R1: f64 = 5.0;
+/// Level-up ring colours (roles, so every scheme keeps them bright), how fast they chase round, and how far the
+/// glow under each star is mixed toward the background (permille).
+const LEVEL_GLOW: [Role; 5] = [Role::Legendary, Role::Unique, Role::Rare, Role::Magic, Role::Heal];
+const LEVEL_SPIN_MS: u64 = 60;
+const LEVEL_GLOW_BG: u32 = 450;
 /// Rows between the hero's head and the level-up line.
 const LEVEL_LINE_GAP: i32 = 2;
 /// Taunts after a level up; picked by level so the same level always says the same thing.
@@ -2680,14 +2697,17 @@ mod tests {
         let mut f = Frame::new(&c, 120, 40);
         let view = |now_ms| View { ui: &ui, now_ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
         let text = |f: &Frame| f.cells.iter().map(|c| c.ch.ch()).collect::<String>();
-        let xp = c.pal.xp;
         f.compose(&sim, &view(0));
         assert!(!text(&f).contains("LEVEL"), "no flash before a level up");
         sim.p.level += 1;
         f.compose(&sim, &view(100));
         let t = text(&f);
         assert!(t.contains(&level_line(sim.p.level)), "line shown on level up");
-        assert!(f.cells.iter().filter(|c| c.ch.ch() == '*' && c.fg == xp).count() >= 8, "ring drawn");
+        // ring: stars in several bright colours, each on a glow of its own colour
+        let ring: Vec<Rgb> = f.cells.iter().filter(|cl| cl.ch.ch() == '✦' && cl.bg == mix(cl.fg, c.pal.bg, LEVEL_GLOW_BG)).map(|cl| cl.fg).collect();
+        assert!(ring.len() >= 8, "ring drawn with glow");
+        assert!(LEVEL_GLOW.iter().filter(|&&r| ring.contains(&c.pal.role(r))).count() >= 3, "several bright colours");
+        assert!(ring.iter().all(|&fg| LEVEL_GLOW.iter().any(|&r| c.pal.role(r) == fg)), "only the bright roles");
         f.compose(&sim, &view(100 + LEVEL_FLASH_MS + 1));
         assert!(!text(&f).contains("LEVEL"), "flash ends");
         // negative control: same level, no new flash
@@ -3002,6 +3022,20 @@ mod tests {
         // the bubble stands on the Doom face: its tail is right above the face centre
         let (fx, y0) = f.face_origin().unwrap();
         assert_eq!(f.cells[(usize::from(y0) - 1) * 120 + usize::from(fx + FACE_W / 2)].ch.ch(), '┬', "bubble on the face");
+        // the shout holds its screen spot while the hero walks on (tot-7op)
+        let word = crate::bigtext::rows("SHINY!");
+        // first cell where the word's top row is painted
+        let spot = |f: &Frame| {
+            let w = usize::from(f.cols);
+            (0..f.cells.len()).find(|&j| j % w + word[0].chars().count() <= w && word[0].chars().enumerate().all(|(k, ch)| ch == ' ' || f.cells[j + k].ch.ch() == ch))
+        };
+        let hero = |f: &Frame| (0..f.cells.len()).find(|&j| f.z[j] == Prio::PlayerCore && f.cells[j].ch.ch() == '@');
+        let (spot0, hero0) = (spot(&f), hero(&f));
+        sim.p.x += 4_000;
+        sim.tick += 1;
+        f.compose(&sim, &View { ui: &ui, now_ms: 80, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert_ne!(hero(&f), hero0, "control: the hero moved on screen");
+        assert_eq!(spot(&f), spot0, "the shout did not follow");
     }
 
     #[test]
@@ -3156,7 +3190,8 @@ mod tests {
 
         assert!(armor.contains("(◉ ◉)") && armor.contains(&c.items[0].name), "the hero and its gear");
         ui.mode = Mode::Play;
-        assert!(show(&ui, &sim).contains("(◉ ◉)"), "out of the tab modes the pane keeps the last tab");
+        let play = show(&ui, &sim);
+        assert!(!play.contains("(◉ ◉)") && !play.contains(" SKILLS "), "out of the tab modes there is no pane");
         sim.bag.push(ItemId(1));
         ui.mode = Mode::Bags;
         ui.bag_sel = 0;
@@ -3280,7 +3315,8 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x0ce2_ba81_ca91_0ad3;
+    // re-pinned 2026-11-09: hero shout holds the screen spot where it began (tot-7op)
+    const GOLDEN: u64 = 0xdcd8_1ae4_96ae_0264;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
