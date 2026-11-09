@@ -214,7 +214,7 @@ pub const TXTS: [Spec; 166] = [
     line("whichkey_more", &[], "Which-key popup: the label of a key that opens a further group."),
 ];
 
-pub const POOLS: [Spec; 9] = [
+pub const POOLS: [Spec; 10] = [
     line("thief_stole", &[], "Over a thief that ate loot: one picked per bite (then its power)."),
     line("level_taunt", &[], "Under the hero on level up: one picked per level."),
     big("roar_champion", "Over a champion that appears: one picked, in the big font."),
@@ -224,6 +224,7 @@ pub const POOLS: [Spec; 9] = [
     line("foe_quip", &[], "Look tooltip, after what a foe ate: one picked per foe."),
     line("cheer", &[], "Death screen: a short cheer hopping over every third foe of the crowd (keep it within 6 chars)."),
     line("death_taunt", &[], "Death screen: one taunt line picked per run, under slain_by."),
+    line("wall_lore", &[], "Written on the lit faces of the walls, one line per wall block, read left to right then row after row, in the accent colour (runes, carved lore, neon signs, graffiti). Width-1 glyphs only; spaces show the bare wall."),
 ];
 
 /// One art piece: rows of width-1 glyphs. `rows` = (fewest, most) rows; `cols` = the width every row must have
@@ -512,6 +513,7 @@ pub mod t {
     pub const FOE_QUIPS: Pool = Pool::named("foe_quip");
     pub const CHEERS: Pool = Pool::named("cheer");
     pub const DEATH_TAUNTS: Pool = Pool::named("death_taunt");
+    pub const WALL_LORE: Pool = Pool::named("wall_lore");
 }
 
 /// Named art handles.

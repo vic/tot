@@ -265,3 +265,4 @@
 {"t":"letter","id":"?","rows":["▀▀█"," █▀"," ▄ "]}
 {"t":"letter","id":".","rows":[" "," ","▄"]}
 {"t":"letter","id":" ","rows":["  ","  ","  "]}
+{"t":"pool","id":"wall_lore","lines":["NEON NOODLES 24H ","SYS//ROOT>_ ","ｱｲｼﾃﾙ CHROME ","OVERCLOCK NOW ","404 SOUL NOT FOUND ","JACK IN ","ﾈｵﾝ CITY ","<<<RUN>>> "]}

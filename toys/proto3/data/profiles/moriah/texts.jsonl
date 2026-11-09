@@ -265,3 +265,4 @@
 {"t":"letter","id":"?","rows":["▔▔▒"," ▒▔"," ▁ "]}
 {"t":"letter","id":".","rows":[" "," ","▁"]}
 {"t":"letter","id":" ","rows":["  ","  ","  "]}
+{"t":"pool","id":"wall_lore","lines":["╫ ╪ ┼ ╬ ╫ ╪ ","HERE THE KING DUG FOR GOLD ","GOLD UNDER STONE ","THE DEEP REMEMBERS ","SEVEN HALLS SEVEN HOARDS ","SHUN THE DEEP FIRE ","WE DELVED TOO GREEDILY ","┼ ╪ ╫ ┼ ╪ ╫ "]}

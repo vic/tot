@@ -2793,6 +2793,24 @@ pub mod tests {
         assert!([kawai.pal.text, kawai.pal.player, kawai.pal.of(Hue::Kin), kawai.pal.of(Hue::Therm), kawai.pal.of(Hue::Emp), kawai.pal.of(Hue::Code), kawai.pal.xp, kawai.pal.chest].into_iter().all(pastel), "kawai pastels");
         assert!([kawai.pal.ring, kawai.pal.alarm, kawai.pal.role(Role::Unique), kawai.pal.role(Role::Accent)].into_iter().all(pink), "kawai pinks");
         assert!(!pastel(hell.pal.of(Hue::Kin)), "control: hellish hues are not pastel");
+        // moriah: gold everywhere (red over green over blue, warm and bright) on near-black stone
+        let moria = load("moriah");
+        let gold = |c: Rgb| c.0 >= c.1 && c.1 > c.2.saturating_add(0x30) && c.0 >= 0x90;
+        assert!(moria.pal.floor.0 >= moria.pal.floor.1 && moria.pal.floor.1 > moria.pal.floor.2.saturating_add(0x30), "moriah gold-dark stone floor");
+        assert!([moria.pal.text, moria.pal.xp, moria.pal.chest, moria.pal.ring, moria.pal.role(Role::Accent), moria.pal.role(Role::Legendary)].into_iter().all(gold), "moriah golds");
+        assert!(!gold(kawai.pal.text), "control: kawai text is not gold");
+        // cyberpunk: saturated neons (one channel near full, one near empty) on a near-black background
+        let neon = |c: Rgb| c.0.max(c.1).max(c.2) >= 0xf0 && c.0.min(c.1).min(c.2) <= 0x40;
+        assert!([base.pal.ring, base.pal.alarm, base.pal.xp, base.pal.chest, base.pal.of(Hue::Kin), base.pal.of(Hue::Therm), base.pal.of(Hue::Emp), base.pal.role(Role::Accent)].into_iter().all(neon), "cyberpunk neons");
+        assert!(!neon(kawai.pal.of(Hue::Emp)), "control: kawai pastels are not neon");
+    }
+
+    /// The base palette record without its own inline base24 (tests that add a scheme or base24 start here).
+    fn no_base24(s: &str) -> String {
+        match (s.find("\"base24\":["), s.find("],\"bg\"")) {
+            (Some(a), Some(b)) => format!("{}{}", &s[..a], &s[b + 2..]),
+            _ => s.to_string(),
+        }
     }
 
     #[test]
@@ -2802,7 +2820,7 @@ pub mod tests {
         let inline = format!("\"base24\":[{}],", dracula.slots.iter().map(|c| format!("\"#{:02x}{:02x}{:02x}\"", c.0, c.1, c.2)).collect::<Vec<_>>().join(","));
         let with = |extra: &str| {
             let mut t = t.clone();
-            t[2] = t[2].replacen("\"t\":\"palette\",", &format!("\"t\":\"palette\",{extra}"), 1);
+            t[2] = no_base24(&t[2]).replacen("\"t\":\"palette\",", &format!("\"t\":\"palette\",{extra}"), 1);
             Content::parse(&t)
         };
         let base = Content::parse(&t).unwrap();
@@ -2821,7 +2839,7 @@ pub mod tests {
         let t = texts();
         let with = |id: &str| {
             let mut t = t.clone();
-            t[2] = t[2].replacen("\"t\":\"palette\",", &format!("\"t\":\"palette\",\"scheme\":\"{id}\","), 1);
+            t[2] = no_base24(&t[2]).replacen("\"t\":\"palette\",", &format!("\"t\":\"palette\",\"scheme\":\"{id}\","), 1);
             Content::parse(&t).map(|c| c.pal.scheme.map(|s| s.as_str().to_string())).map_err(|e| e.to_string())
         };
         assert_eq!(with("dracula"), Ok(Some("dracula".into())));

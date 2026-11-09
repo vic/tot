@@ -265,3 +265,4 @@
 {"t":"letter","id":"?","rows":["==#"," #="," _ "]}
 {"t":"letter","id":".","rows":[" "," ","_"]}
 {"t":"letter","id":" ","rows":["  ","  ","  "]}
+{"t":"pool","id":"wall_lore","lines":["BEWARE ","ROLL FOR IT ","DM WAS HERE ","TRAPS AHEAD ","TPK 1492 ","CHECK FOR MIMICS "]}

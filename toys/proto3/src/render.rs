@@ -583,7 +583,16 @@ impl Frame {
                     } else {
                         continue;
                     };
-                    let (ch, fg) = ink(k);
+                    let (mut ch, mut fg) = ink(k);
+                    // lit faces carry the adventure's wall lore (runes, neon signs): one line per block, read
+                    // left to right and row after row; a space or a wide glyph keeps the face glyph
+                    if k == 1 && !cutaway {
+                        let line = c.texts.pick(t::WALL_LORE, hash((fx as u64) << 32 ^ fy as u32 as u64) as usize);
+                        let at = (r - (br - hh - hz)) as usize * (2 * hw + 1) as usize + (col - (bc - hw)) as usize;
+                        if let Some(g) = line.chars().nth(at % line.chars().count().max(1)).and_then(Glyph::of).filter(|g| *g != Glyph::SPACE) {
+                            (ch, fg) = (g, mix(pal.role(Role::Accent), fg, WALL_LORE_INK));
+                        }
+                    }
                     let i = r as usize * usize::from(self.cols) + col as usize;
                     self.cells[i] = Cell { ch, fg, bg: self.cells[i].bg };
                     self.bd[i] = d;
@@ -2417,6 +2426,8 @@ const LOOT_PANE_W: i32 = 16;
 const POWER_ROLE: Role = Role::Unique;
 const POWER_GLOW: u32 = 700;
 const POWER_GLOW_HI: u32 = 450;
+/// Wall lore letters: the accent colour mixed this far (permille) toward the wall colour.
+const WALL_LORE_INK: u32 = 350;
 /// Compass world directions (y grows south), in `t::DIR` order: N, E, S, W.
 const COMPASS: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
@@ -3450,7 +3461,8 @@ mod tests {
     // re-pinned 2026-11-09: tiny compass on a 3x3 plate at the map top-left (tot-5ah)
     // re-pinned 2026-11-09: cyberpunk faces, walls and art from the adventure data (tot-62z.6)
     // re-pinned 2026-11-09: cyberpunk sprite glyphs themed (tot-62z.17)
-    const GOLDEN: u64 = 0x6b2c_035d_8cf2_e829;
+    // re-pinned 2026-11-09: cyberpunk neon base24 and wall lore (neon signs on lit wall faces)
+    const GOLDEN: u64 = 0x75de_9df4_a74b_91d3;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -3632,6 +3644,28 @@ mod tests {
 
     /// O-iso: block faces in >= 3 shade classes, standing stacks (head over body over shadow),
     /// shadow cells, and >= 1 actor hidden by a nearer block. Ok = frame hash.
+    #[test]
+    fn lit_walls_carry_the_adventure_lore() {
+        let at = texts().iter().position(|t| t.contains("\"id\":\"wall_lore\"")).unwrap();
+        let lore = |line: &str| {
+            let mut ts = texts();
+            let old = ts[at].lines().find(|l| l.contains("\"id\":\"wall_lore\"")).unwrap().to_string();
+            ts[at] = ts[at].replace(&old, &format!("{{\"t\":\"pool\",\"id\":\"wall_lore\",\"lines\":[\"{line}\"]}}"));
+            Content::parse(&ts).unwrap()
+        };
+        // cells drawn in the lore ink: accent mixed toward the wall colour
+        let lettered = |c: &Content| {
+            let mut sim = Sim::new(c, 7, None);
+            pillars(&mut sim);
+            let ui = Ui::new(true);
+            let mut f = Frame::new(c, 120, 40);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.cells.iter().filter(|cl| cl.ch.ch() == 'Z').count()
+        };
+        assert!(lettered(&lore("ZZZZ")) > 10, "lore letters on the lit wall faces");
+        assert_eq!(lettered(&lore("    ")), 0, "control: a blank lore line leaves the walls bare");
+    }
+
     fn o_iso(c: &Content, h: Heading) -> Result<u64, String> {
         let sim = iso_scene(c);
         let mut ui = Ui::new(true);
