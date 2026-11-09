@@ -27,10 +27,24 @@ impl<'c> Sim<'c> {
             && let Ok((id, left)) = self.world.buy(n, o, self.p.gold)
         {
             self.p.gold = left;
-            self.gear.wear(self.c, id);
+            self.wear(id);
         }
-        if let Some(slot) = inp.drop {
-            self.gear.drop_slot(slot);
+        match inp.bag {
+            Some(BagAct::Wear(k)) if usize::from(k) < self.bag.len() => {
+                let id = self.bag.remove(usize::from(k));
+                self.wear(id);
+            }
+            Some(BagAct::Discard(k)) if usize::from(k) < self.bag.len() => {
+                self.bag.remove(usize::from(k));
+            }
+            _ => {}
+        }
+        // taking an item off puts it in the bag; with a full bag it stays worn (never lost)
+        if let Some(slot) = inp.drop
+            && self.bag.len() < BAG_SLOTS
+            && let Some(id) = self.gear.drop_slot(slot)
+        {
+            self.bag.push(id);
         }
         if self.offer.is_some() && self.c.opt.pick_pauses {
             return;
@@ -562,6 +576,17 @@ impl<'c> Sim<'c> {
             f if f < FOOD_LOW => HUNGRY_PACE,
             _ => 1000,
         })
+    }
+
+    /// Wear an item; what the slot held goes into the bag, or onto the floor when the bag is full.
+    pub(super) fn wear(&mut self, id: ItemId) {
+        if let Some(Some(old)) = self.gear.wear(self.c, id) {
+            if self.bag.len() < BAG_SLOTS {
+                self.bag.push(old);
+            } else {
+                self.drop_at(self.p.x + 1500, self.p.y, Drop::Item(old));
+            }
+        }
     }
 
     fn eat(&mut self) {
@@ -1136,7 +1161,7 @@ impl<'c> Sim<'c> {
                 Drop::Xp(v) => self.p.xp += u32::from(v),
                 Drop::Chest => self.pending_chest += 1,
                 Drop::Item(id) => {
-                    self.gear.wear(self.c, id);
+                    self.wear(id);
                 }
                 Drop::Magnet => self.magnet_pull(),
                 Drop::Food => self.eat(),
@@ -1330,7 +1355,7 @@ impl<'c> Sim<'c> {
                     Drop::Xp(x) => self.p.xp += u32::from(x),
                     Drop::Chest => self.pending_chest += 1,
                     Drop::Item(id) => {
-                        self.gear.wear(self.c, id);
+                        self.wear(id);
                     }
                     Drop::Magnet => magnet = true,
                     Drop::Food => self.eat(),

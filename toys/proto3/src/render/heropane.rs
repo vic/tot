@@ -16,14 +16,16 @@ pub(super) enum Tab {
     #[default]
     Armor,
     Skills,
+    Bags,
 }
 
 impl Tab {
-    const ALL: [Tab; 2] = [Tab::Armor, Tab::Skills];
+    const ALL: [Tab; 3] = [Tab::Armor, Tab::Bags, Tab::Skills];
     fn name(self) -> &'static str {
         match self {
             Tab::Armor => "ARMOR",
             Tab::Skills => "SKILLS",
+            Tab::Bags => "BAGS",
         }
     }
 }
@@ -61,6 +63,7 @@ impl Frame {
         let focus = match ui.mode {
             Mode::Gear => Some(Tab::Armor),
             Mode::Tree => Some(Tab::Skills),
+            Mode::Bags => Some(Tab::Bags),
             _ => None,
         };
         if let Some(t) = focus {
@@ -85,6 +88,7 @@ impl Frame {
             let key = match tab {
                 Tab::Armor => "i",
                 Tab::Skills => "t",
+                Tab::Bags => "b",
             };
             x = self.text(top, x, key, key_fg(pal));
             x = self.text(top, x, &format!(" {} ", tab.name()), if on { pal.alarm } else { pal.dim });
@@ -93,6 +97,7 @@ impl Frame {
         match self.pane_tab {
             Tab::Armor => self.pane_armor(sim, ui, (l + 2, t + 2)),
             Tab::Skills => self.pane_skills(sim, ui, (l + 2, t + 1)),
+            Tab::Bags => self.pane_bags(sim, ui, (l + 2, t + 2)),
         }
     }
 
@@ -183,5 +188,46 @@ impl Frame {
         let detail = format!("pts {} cost {} {} {:?}", ui.tree_points(), n.cost, c.skill(n.effect).name, n.tag).to_uppercase();
         let detail: String = detail.chars().take(INNER).collect();
         self.text(y, l as u16, &detail, pal.of(c.skill(n.effect).hue));
+    }
+}
+
+impl Frame {
+    /// The bags as a grid of slots: each item's glyph in its rarity colour on a rarity glow, empty slots dotted,
+    /// the cursor's slot framed; the selected item's name and description below, then how to use it.
+    fn pane_bags(&mut self, sim: &Sim, ui: &Ui, (l, t): (i32, i32)) {
+        use crate::input::BAG_COLS;
+        let c = sim.c;
+        let pal = &c.pal;
+        for k in 0..crate::sim::BAG_SLOTS {
+            let (x, y) = (l + (k % BAG_COLS) as i32 * 5, t + (k / BAG_COLS) as i32 * 3);
+            let it = sim.bag.get(k).and_then(|id| c.items.get(usize::from(id.0)));
+            let edge = if k == ui.bag_sel { pal.alarm } else { pal.dim };
+            self.text(y as u16, x as u16, "┌─┐", edge);
+            self.text(y as u16 + 2, x as u16, "└─┘", edge);
+            self.text(y as u16 + 1, x as u16, "│", edge);
+            self.text(y as u16 + 1, x as u16 + 2, "│", edge);
+            match it {
+                Some(it) => {
+                    let fg = pal.role(it.rarity.role());
+                    let i = (y as usize + 1) * usize::from(self.cols) + x as usize + 1;
+                    self.cells[i] = Cell { ch: it.glyph, fg, bg: mix(fg, pal.hud_bg, 700) };
+                }
+                None => {
+                    self.text(y as u16 + 1, x as u16 + 1, "·", pal.dim);
+                }
+            }
+        }
+        let y = (t + 6) as u16;
+        match sim.bag.get(ui.bag_sel).and_then(|id| c.items.get(usize::from(id.0))) {
+            Some(it) => {
+                let x = self.text(y, l as u16, &it.name, pal.role(it.rarity.role()));
+                self.text(y, x + 1, &format!("{:?}", it.slot).to_lowercase(), pal.dim);
+                let d: String = it.desc.chars().take(INNER).collect();
+                self.text(y + 1, l as u16, &d, pal.dim);
+            }
+            None => {
+                self.text(y, l as u16, &format!("{} of {} slots used", sim.bag.len(), crate::sim::BAG_SLOTS), pal.dim);
+            }
+        }
     }
 }

@@ -882,7 +882,7 @@ impl Frame {
                 (format!("SHOP  gold {}   1-4 buy, walk on to leave", sim.p.gold), rows.collect(), None)
             }
             // the skill tree and the gear live in the hero pane, not in a popup
-            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear => return,
+            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear | Mode::Bags => return,
         };
         let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
         self.text(y0 + 1, x0 + 2, &title, pal.alarm);
@@ -2409,6 +2409,7 @@ fn mode_tag(mode: Mode, ended: bool) -> (&'static str, ModeInk) {
         (_, Mode::Tree) => ("-- TREE --", ModeInk::Role(Role::Magic)),
         (_, Mode::Gear) => ("-- GEAR --", ModeInk::Role(Role::Rare)),
         (_, Mode::Shop) => ("-- SHOP --", ModeInk::Role(Role::Legendary)),
+        (_, Mode::Bags) => ("-- BAGS --", ModeInk::Role(Role::Rare)),
     }
 }
 
@@ -3025,6 +3026,11 @@ mod tests {
         assert!(armor.contains("(◉ ◉)") && armor.contains(&c.items[0].name), "the hero and its gear");
         ui.mode = Mode::Play;
         assert!(show(&ui, &sim).contains("(◉ ◉)"), "out of the tab modes the pane keeps the last tab");
+        sim.bag.push(ItemId(1));
+        ui.mode = Mode::Bags;
+        ui.bag_sel = 0;
+        let bags = show(&ui, &sim);
+        assert!(bags.contains(" BAGS ") && bags.contains(&c.items[1].name) && bags.contains("┌─┐"), "the bag grid with the selected item named");
     }
 
     #[test]
@@ -3143,7 +3149,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x8ba6_ad63_3271_009e;
+    const GOLDEN: u64 = 0x1b4c_3990_bad4_df40;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

@@ -62,6 +62,15 @@
 {"t":"bind","mode":"tree","keys":["t"],"action":"back","label":"back"}
 {"t":"bind","mode":"tree","keys":["enter"],"action":"tree_spend","label":"spend point"}
 {"t":"bind","mode":"play","keys":["i"],"action":"gear","label":"gear"}
+{"t":"bind","mode":"play","keys":["b"],"action":"bags","label":"bags"}
+{"t":"bind","mode":"bags","keys":["esc"],"action":"back","label":"back"}
+{"t":"bind","mode":"bags","keys":["b"],"action":"back","label":"back"}
+{"t":"bind","mode":"bags","keys":["h"],"action":"bag_left","label":"left"}
+{"t":"bind","mode":"bags","keys":["l"],"action":"bag_right","label":"right"}
+{"t":"bind","mode":"bags","keys":["k"],"action":"bag_up","label":"up"}
+{"t":"bind","mode":"bags","keys":["j"],"action":"bag_down","label":"down"}
+{"t":"bind","mode":"bags","keys":["enter"],"action":"bag_wear","label":"wear"}
+{"t":"bind","mode":"bags","keys":["x"],"action":"bag_discard","label":"discard"}
 {"t":"bind","mode":"gear","keys":["esc"],"action":"back","label":"back"}
 {"t":"bind","mode":"gear","keys":["i"],"action":"back","label":"back"}
 {"t":"bind","mode":"gear","keys":["x"],"action":"gear_drop","label":"drop item"}

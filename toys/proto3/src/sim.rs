@@ -43,6 +43,8 @@ pub struct Input {
     pub drop: Option<crate::data::Slot>,
     /// number key: cast the special of bar slot n (0-based)
     pub special: Option<u8>,
+    /// act on a bag slot: wear it (swapping with what the slot holds) or discard it
+    pub bag: Option<BagAct>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -139,6 +141,13 @@ pub enum Cause {
     BossAttack { fam: FamId },
     /// area blast with no family behind it (bomb chests)
     Blast,
+}
+
+/// What the hero does with a bag slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BagAct {
+    Wear(u8),
+    Discard(u8),
 }
 
 /// What the last number-key press did; the face answers refusals.
@@ -385,6 +394,8 @@ const ITEM_SALT: u64 = 0x17E5_D80B;
 /// XP magnet: elites drop one in MAGNET_1_IN (by id); on pickup MAGNET_FAR orbs stream in from a ring
 /// MAGNET_RING_MIN..+MAGNET_RING_SPAN mm beyond sight.
 const MAGNET_1_IN: u64 = 10;
+/// Bag slots.
+pub const BAG_SLOTS: usize = 12;
 /// Foes run this much faster (permille) toward a hero sheltering from rain or acid.
 const SHELTER_DRAW: u32 = 1200;
 /// Day and night: one cycle every DAY_S seconds (night is its last third); foes run NIGHT_PACE (permille).
@@ -853,6 +864,8 @@ pub struct Sim<'c> {
     pub world: world::World,
     /// items the hero wears (bought at shops)
     pub gear: Gear,
+    /// items carried, not worn (at most BAG_SLOTS): what wearing replaced
+    pub bag: Vec<ItemId>,
     mines: Vec<Mine>,
     pub fx: Vec<Fx>,
     pub blades: Vec<(i32, i32)>,
@@ -924,6 +937,7 @@ impl<'c> Sim<'c> {
             treasures: Vec::with_capacity(TREASURES as usize),
             world: world::World::new(seed, &arena, NonZeroU32::MIN.saturating_add(c.hz().get() - 1)),
             gear: Gear::default(),
+            bag: Vec::with_capacity(BAG_SLOTS),
             mines: Vec::with_capacity(64),
             fx: Vec::with_capacity(256),
             blades: Vec::with_capacity(64),
@@ -1276,7 +1290,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {
@@ -1865,6 +1879,36 @@ mod tests {
         // elites: about one in ELITE_ITEM_1_IN by id
         let hits = (0..400u32).filter(|&id| mix(u64::from(id) ^ ITEM_SALT).is_multiple_of(ELITE_ITEM_1_IN)).count();
         assert!((60..140).contains(&hits), "elite drop rate {hits}/400");
+    }
+
+    /// Bags hold what wearing replaced; wear from the bag swaps; discard destroys; taking off goes to the bag;
+    /// nothing is ever lost: a full bag keeps a taken-off item worn and sends a replaced one to the floor.
+    #[test]
+    fn bags_keep_replaced_items_and_never_lose_one() {
+        use crate::data::Slot;
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        s.world.npcs.clear();
+        let id = |k: &str| ItemId(c.items.iter().position(|it| it.key == k).unwrap() as u16);
+        let (plate, coat) = (id("hazmat_plate"), id("firewall_coat"));
+        s.wear(plate);
+        assert!(s.bag.is_empty(), "control: an empty slot replaces nothing");
+        s.wear(coat);
+        assert_eq!((s.gear.worn(Slot::Armor), s.bag.clone()), (Some(coat), vec![plate]), "the plate went to the bag");
+        s.step(&Input { bag: Some(BagAct::Wear(0)), ..Input::default() });
+        assert_eq!((s.gear.worn(Slot::Armor), s.bag.clone()), (Some(plate), vec![coat]), "wear from the bag swaps");
+        s.step(&Input { bag: Some(BagAct::Discard(0)), ..Input::default() });
+        assert!(s.bag.is_empty(), "discarded");
+        s.step(&Input { drop: Some(Slot::Armor), ..Input::default() });
+        assert_eq!((s.gear.worn(Slot::Armor), s.bag.clone()), (None, vec![plate]), "taken off into the bag");
+        // full bag
+        s.bag = vec![coat; BAG_SLOTS];
+        s.wear(plate);
+        s.step(&Input { drop: Some(Slot::Armor), ..Input::default() });
+        assert_eq!(s.gear.worn(Slot::Armor), Some(plate), "full bag: stays worn, not lost");
+        let floor = s.drops.kind.len();
+        s.wear(coat);
+        assert_eq!(s.drops.kind.len(), floor + 1, "full bag: the replaced plate drops to the floor");
     }
 
     #[test]

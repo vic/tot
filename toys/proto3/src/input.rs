@@ -2,7 +2,9 @@
 //! Held directions come only from press/release (no autorepeat path, design sec 6.1).
 use crate::data::{Content, Owned, Slot, Tree};
 use crate::iso::{Heading, screen_dir};
-use crate::sim::{Cmd, Input, PickChoice};
+use crate::sim::{BAG_SLOTS, BagAct, Cmd, Input, PickChoice};
+/// Bag grid columns (BAG_SLOTS / BAG_COLS rows).
+pub const BAG_COLS: usize = 6;
 
 /// Class the hero plays (class picking is a later screen).
 const HERO_CLASS: usize = 0;
@@ -101,8 +103,10 @@ pub enum Mode {
     Cmd,
     /// skill tree screen
     Tree,
-    /// worn items popup
+    /// worn items (hero pane ARMOR tab)
     Gear,
+    /// carried items (hero pane BAGS tab)
+    Bags,
     /// merchant / blacksmith / witch offers
     Shop,
 }
@@ -112,6 +116,11 @@ pub enum Action {
     /// buy shop offer n (0-based)
     ShopTake(u8),
     OpenGear,
+    /// bags: open, move the cursor (cols, rows), wear the selected item, discard it
+    OpenBags,
+    BagMove(i8, i8),
+    BagWear,
+    BagDiscard,
     GearPrev,
     GearNext,
     GearDrop,
@@ -166,6 +175,13 @@ impl Action {
             "shop_3" => ShopTake(2),
             "shop_4" => ShopTake(3),
             "gear" => OpenGear,
+            "bags" => OpenBags,
+            "bag_left" => BagMove(-1, 0),
+            "bag_right" => BagMove(1, 0),
+            "bag_up" => BagMove(0, -1),
+            "bag_down" => BagMove(0, 1),
+            "bag_wear" => BagWear,
+            "bag_discard" => BagDiscard,
             "gear_prev" => GearPrev,
             "gear_next" => GearNext,
             "gear_drop" => GearDrop,
@@ -352,6 +368,9 @@ pub struct Ui {
     /// worn-items cursor over `Slot::ALL`; `gear_drop` is the one-shot take-off request
     pub gear_sel: usize,
     pub gear_drop: Option<Slot>,
+    /// bag cursor (slot index) and the one-shot bag request
+    pub bag_sel: usize,
+    pub bag_act: Option<BagAct>,
     /// one-shot: special slot asked by a number key (taken by `input`)
     pub special: Option<u8>,
     /// auto-walk and auto-fire as they were before a popup opened (popups force both on so play goes on)
@@ -396,6 +415,8 @@ impl Ui {
             tree_spent: 0,
             gear_sel: 0,
             gear_drop: None,
+            bag_sel: 0,
+            bag_act: None,
             special: None,
             popup_saved: None,
             shop_len: 0,
@@ -618,6 +639,14 @@ impl Ui {
             Action::RotRight => self.heading = self.heading.right(),
             Action::Autofire => self.msg = self.set_autofire(!self.choice().1),
             Action::OpenGear => self.mode = Mode::Gear,
+            Action::OpenBags => self.mode = Mode::Bags,
+            Action::BagMove(dc, dr) => {
+                let (col, row) = ((self.bag_sel % BAG_COLS) as i32 + i32::from(dc), (self.bag_sel / BAG_COLS) as i32 + i32::from(dr));
+                let (col, row) = (col.clamp(0, BAG_COLS as i32 - 1), row.clamp(0, (BAG_SLOTS / BAG_COLS) as i32 - 1));
+                self.bag_sel = row as usize * BAG_COLS + col as usize;
+            }
+            Action::BagWear => self.bag_act = Some(BagAct::Wear(self.bag_sel as u8)),
+            Action::BagDiscard => self.bag_act = Some(BagAct::Discard(self.bag_sel as u8)),
             Action::ShopTake(n) => self.shop_buy = (usize::from(n) < self.shop_len).then_some(usize::from(n)),
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
             Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(Slot::ALL.len() - 1),
@@ -694,7 +723,7 @@ impl Ui {
     pub fn input(&mut self, pick_pauses: bool) -> Input {
         // a popup (picker, tree, gear, shop) keeps the game going: auto-walk and auto-fire on while it is open,
         // restored to what they were when it closes
-        let popup = matches!(self.mode, Mode::Pick | Mode::Tree | Mode::Gear | Mode::Shop);
+        let popup = matches!(self.mode, Mode::Pick | Mode::Tree | Mode::Gear | Mode::Bags | Mode::Shop);
         match (popup, self.popup_saved) {
             (true, None) => {
                 self.popup_saved = Some((self.autowalk, self.autofire));
@@ -726,6 +755,7 @@ impl Ui {
             pick: self.pick.take(),
             buy: self.shop_buy.take(),
             drop: self.gear_drop.take(),
+            bag: self.bag_act.take(),
             special: self.special.take(),
         }
     }
