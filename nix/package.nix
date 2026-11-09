@@ -6,7 +6,7 @@
   ...
 }:
 let
-  inherit (yen.lib.batteries.lean) systems;
+  systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
   cargo = (lib.importTOML ../Cargo.toml).package;
   tot =
     pkgs:
