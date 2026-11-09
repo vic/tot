@@ -2773,6 +2773,29 @@ pub mod tests {
     }
 
     #[test]
+    fn hellish_is_dark_and_bloody_and_kawai_is_pink_pastel() {
+        let d = data_dir();
+        let load = |p: &str| Content::load_profile(&d, Some(p)).unwrap();
+        let (base, hell, kawai) = (load("cyberpunk"), load("hellish"), load("kawai"));
+        let luma = |c: Rgb| 2126 * u32::from(c.0) + 7152 * u32::from(c.1) + 722 * u32::from(c.2);
+        // dark: the world background and floor are darker than any other adventure's
+        for p in ["cyberpunk", "kawai", "dnd", "moriah"] {
+            let o = load(p);
+            assert!(luma(hell.pal.bg) < luma(o.pal.bg) && luma(hell.pal.floor) < luma(o.pal.floor), "hellish darker than {p}");
+        }
+        // bloody: the floor, fog and foe hues lean red
+        let red = |c: Rgb| c.0 > c.1.saturating_mul(2) && c.0 > c.2.saturating_mul(2);
+        assert!([hell.pal.floor, hell.pal.fog, hell.pal.alarm, hell.pal.of(Hue::Kin), hell.pal.of(Hue::Therm)].into_iter().all(red), "hellish reds");
+        assert!(!red(base.pal.floor), "control: the cyberpunk floor is not red");
+        // pink pastel: light inks, pink on top (red and blue over green), and the panels read from their own slots
+        let pastel = |c: Rgb| c.0.min(c.1).min(c.2) >= 0x88;
+        let pink = |c: Rgb| c.0 >= 0xf0 && c.2 > c.1;
+        assert!([kawai.pal.text, kawai.pal.player, kawai.pal.of(Hue::Kin), kawai.pal.of(Hue::Therm), kawai.pal.of(Hue::Emp), kawai.pal.of(Hue::Code), kawai.pal.xp, kawai.pal.chest].into_iter().all(pastel), "kawai pastels");
+        assert!([kawai.pal.ring, kawai.pal.alarm, kawai.pal.role(Role::Unique), kawai.pal.role(Role::Accent)].into_iter().all(pink), "kawai pinks");
+        assert!(!pastel(hell.pal.of(Hue::Kin)), "control: hellish hues are not pastel");
+    }
+
+    #[test]
     fn palette_takes_a_scheme_name_or_an_inline_base24_never_both() {
         let t = texts();
         let dracula = scheme("dracula");
@@ -2948,8 +2971,8 @@ pub mod tests {
         let dark = Content::load_profile(&d, Some("hellish")).unwrap();
         assert_ne!(names(&dark), names(&base));
         assert!(names(&dark).contains(&"BONE ABBOT".to_string()) && dark.mini.as_ref().map(MiniPlan::len) == Some(3) && dark.trees.len() == 6 && dark.items.len() == 14);
-        // hellish names its colour scheme: roles come from it, not from the legacy fields
-        assert_eq!(dark.pal.role(Role::Bg), scheme("lumina-oxblood-dark").slots[0]);
+        // hellish gives its own inline base24: roles come from it, not from the legacy fields
+        assert_eq!(dark.pal.role(Role::Bg), Rgb(7, 3, 3));
         assert_eq!(cyber.pal.role(Role::Bg), cyber.pal.bg);
         // options and bindings are never themed
         assert_eq!(dark.binds.len(), base.binds.len());
