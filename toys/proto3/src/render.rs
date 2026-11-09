@@ -155,10 +155,9 @@ pub struct View<'a> {
     pub phase: &'static str,
     pub last_bytes: usize,
 }
-
-/// Background that marks a key on the key rows and the hotkey bar.
-fn key_bg(pal: &crate::data::Palette) -> Rgb {
-    mix(pal.player, pal.bg, 700)
+/// Colour of a key on the key rows and the hotkey bar: prominent, on the plain background.
+fn key_fg(pal: &crate::data::Palette) -> Rgb {
+    pal.role(Role::Accent)
 }
 
 fn mix(a: Rgb, b: Rgb, f: u32) -> Rgb {
@@ -905,9 +904,7 @@ impl Frame {
                 _ => (right + (k % 2) * (half / 2), y0 + 3),
             };
             // the digit is a key: highlighted like every key hint
-            let x = self.text(row, hx, &(k + 1).to_string(), pal.player);
-            let ki = usize::from(row) * cols + usize::from(hx);
-            self.cells[ki].bg = key_bg(pal);
+            let x = self.text(row, hx, &(k + 1).to_string(), key_fg(pal));
             match sim.owned.get(usize::from(k)) {
                 Some(o) => {
                     let s = c.skill(o.id);
@@ -1654,7 +1651,7 @@ impl Frame {
             None => hints(c, ui),
         };
         // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
-        let key_bg = key_bg(pal);
+        let key = key_fg(pal);
         // the sponsor button owns the right end of row C; hints never cover it
         let sw = SUPPORT_LABEL.chars().count() as u16;
         let sx = self.cols.saturating_sub(sw + 1);
@@ -1664,21 +1661,22 @@ impl Frame {
         let limit = [self.cols, sx.saturating_sub(1)];
         let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
         for h in &entries {
-            let w = (h.keys.chars().count() + 1 + h.label.chars().count() + 2) as u16;
+            // a toggle carries its state: [ON] in the heal colour, [OFF] in the danger colour (width reserved
+            // for OFF, so flipping never moves the layout)
+            let tag = h.on.map(|on| if on { ("[ON] ", pal.role(Role::Heal)) } else { ("[OFF]", pal.role(Role::Danger)) });
+            let tw = if tag.is_some() { 6 } else { 0 };
+            let w = (h.keys.chars().count() + 1 + h.label.chars().count() + tw + 2) as u16;
             let Some(slot) = (0..2).find(|&s| ends[s] + w <= limit[s]) else { continue };
             let (row, x) = ([rb, rcm][slot], ends[slot]);
             ends[slot] += w;
             for (k, ch) in h.keys.chars().enumerate() {
                 let i = usize::from(row) * cols + usize::from(x) + k;
-                self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: pal.player, bg: key_bg };
+                self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: key, bg: pal.bg };
             }
-            let lx = x + h.keys.chars().count() as u16 + 1;
-            let fg = match h.on {
-                Some(true) => pal.player,
-                Some(false) => pal.dim,
-                None => pal.text,
-            };
-            self.text(row, lx, &h.label, fg);
+            let lx = self.text(row, x + h.keys.chars().count() as u16 + 1, &h.label, pal.text);
+            if let Some((t, fg)) = tag {
+                self.text(row, lx + 1, t, fg);
+            }
         }
     }
 
@@ -2419,14 +2417,20 @@ mod tests {
             f.compose(&sim, &View { ui: &ui, now_ms: k * 33, alpha: 1.0, phase: "SWARM", last_bytes: 99_999 });
         }
         assert_eq!(rows(&f), a, "fixed layout");
-        // keys are highlighted: the key cells of "spc" carry the key background, its label does not
+        // keys stand out by colour (accent, plain background); the label is ordinary text
         let at = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("spc fire").map(|x| (38 + r, l[..x].chars().count()))).unwrap();
-        let cell = |dx: usize| f.cells[at.0 * 120 + at.1 + dx].bg;
-        assert!(cell(0) == cell(2) && cell(0) != cell(5), "key highlighted, label plain");
-        // a toggle shows on/off by colour, same text
+        let cell = |f: &Frame, dx: usize| f.cells[at.0 * 120 + at.1 + dx];
+        assert!(cell(&f, 0).fg == key_fg(&c.pal) && cell(&f, 0).bg == cell(&f, 5).bg && cell(&f, 5).fg != key_fg(&c.pal), "key in accent, no block");
+        // a toggle is evident: [ON] green, [OFF] red; the layout does not move
+        assert!(a.contains("auto-fire [ON]"), "{a}");
+        let tag_at = |f: &Frame| f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("auto-fire [").map(|x| (38 + r, l[..x].chars().count() + 10))).unwrap();
+        let on = tag_at(&f);
+        let on_fg = f.cells[on.0 * 120 + on.1 + 1].fg;
         ui.autofire = false;
         f.compose(&sim, &View { ui: &ui, now_ms: 9_999, alpha: 1.0, phase: "SWARM", last_bytes: 0 });
-        assert_eq!(rows(&f), a, "same text with auto-fire off");
+        assert!(rows(&f).contains("auto-fire [OFF]") && tag_at(&f) == on, "same place");
+        assert!(f.cells[on.0 * 120 + on.1 + 1].fg != on_fg, "ON and OFF differ in colour");
+        assert_eq!(rows(&f).replace("auto-fire [OFF]", "auto-fire [ON] "), a, "only the tag changed");
     }
 
     #[test]
@@ -2446,8 +2450,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right
-    const GOLDEN: u64 = 0x51ce_2fc0_ffbd_8e2f;
+    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags
+    const GOLDEN: u64 = 0xedc7_f1b9_34db_20ba;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -2594,7 +2598,7 @@ mod tests {
         let n = usize::from(c.view.actor_rows[0]);
         let pi = (rc as usize - n) * 120 + cc as usize;
         assert_eq!(f.cells[pi].ch.ch(), '@');
-        assert!(f.cells[(40 - 2) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg || cell.bg == key_bg(&c.pal)));
+        assert!(f.cells[(40 - 2) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg));
     }
 
     fn headings() -> [Heading; 4] {
