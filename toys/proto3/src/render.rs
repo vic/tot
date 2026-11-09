@@ -1674,11 +1674,10 @@ impl Frame {
             let x = self.text(rcm, x, &ui.cmdline, pal.player);
             self.text(rcm, x, "_", pal.alarm);
         }
-        let entries = match ui.whichkey(c, v.now_ms) {
-            Some((_, items)) => items.into_iter().map(|(k, l)| Hint { keys: k, label: l, on: None }).collect(),
-            None if ended => vec![Hint { keys: "r".into(), label: "new run".into(), on: None }, Hint { keys: "q".into(), label: "quit".into(), on: None }],
-            None => hints(c, ui),
-        };
+        if let Some((prefix, items)) = ui.whichkey(c, v.now_ms) {
+            self.whichkey_popup(pal, &prefix, &items);
+        }
+        let entries = if ended { vec![Hint { keys: "r".into(), label: "new run".into(), on: None }, Hint { keys: "q".into(), label: "quit".into(), on: None }] } else { hints(c, ui) };
         // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
         let key = key_fg(pal);
         // the sponsor button owns the right end of row C; hints never cover it
@@ -1703,6 +1702,37 @@ impl Frame {
             if let Some((t, fg)) = tag {
                 self.text(row, lx + 1, t, fg);
             }
+        }
+    }
+
+    /// Vim-style which-key: a rounded box above the key rows, titled with the pending keys, entries in columns
+    /// (key in the accent colour, label plain).
+    fn whichkey_popup(&mut self, pal: &crate::data::Palette, prefix: &str, items: &[(String, String)]) {
+        let cell_w = items.iter().map(|(k, l)| k.chars().count() + 3 + l.chars().count()).max().unwrap_or(0) + 2;
+        let inner = (usize::from(self.cols) - 4).min(WK_MAX_W);
+        let per_row = (inner / cell_w.max(1)).max(1);
+        let rows = items.len().div_ceil(per_row);
+        let (w, h) = ((per_row * cell_w + 3).min(inner + 2) as i32, rows as i32 + 2);
+        let (left, top) = (1, i32::from(self.rows) - 2 - h);
+        let bg = pal.hud_bg;
+        self.plate(left, top, w, h, bg);
+        let edge = pal.of(Hue::Kin);
+        let title = format!("─ {prefix} ");
+        let top_line = format!("╭{title}{}╮", "─".repeat((w as usize).saturating_sub(2 + title.chars().count())));
+        let bot_line = format!("╰{}╯", "─".repeat(w as usize - 2));
+        for (r, line) in [(top, top_line), (top + h - 1, bot_line)] {
+            self.text(r as u16, left as u16, &line, edge);
+        }
+        for r in top + 1..top + h - 1 {
+            self.text(r as u16, left as u16, "│", edge);
+            self.text(r as u16, (left + w - 1) as u16, "│", edge);
+        }
+        self.text(top as u16, left as u16 + 2, &format!(" {prefix} "), pal.alarm);
+        for (n, (k, l)) in items.iter().enumerate() {
+            let (r, col) = (top + 1 + (n / per_row) as i32, left + 2 + (n % per_row * cell_w) as i32);
+            let x = self.text(r as u16, col as u16, k, key_fg(pal));
+            let x = self.text(r as u16, x + 1, "▸", pal.dim);
+            self.text(r as u16, x + 1, l, pal.text);
         }
     }
 
@@ -1928,6 +1958,8 @@ const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█
 const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
 const YOU_DIED_W: i32 = 29;
 /// Sponsor link: always at the bottom right, and pleaded on the death screen.
+/// Which-key popup: widest inner width.
+const WK_MAX_W: usize = 72;
 const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
 const SUPPORT_LABEL: &str = "support tot <3";
 const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and sponsor me";
@@ -2400,6 +2432,25 @@ mod tests {
         // negative controls: outside the circle stays fog
         assert!(!s.contains(&(14, 10)) && !s.contains(&(13, 13)));
         assert_eq!(s.len(), 29);
+    }
+
+    #[test]
+    fn whichkey_opens_a_vim_style_popup() {
+        use crate::input::{Key, KeyEv, Kind};
+        let c = Content::parse(&texts()).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let show = |f: &mut Frame, ui: &Ui, ms: u64| {
+            f.compose(&sim, &View { ui, now_ms: ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        assert!(!show(&mut f, &ui, 0).contains('╭'), "control: no popup");
+        ui.key(KeyEv { key: Key::Char('c'), kind: Kind::Press, text: Some('c') }, &c, 1000);
+        let s = show(&mut f, &ui, 1000 + c.opt.whichkey_ms + 50);
+        assert!(s.contains("╭─ c ") && s.contains('╰'), "bordered, titled with the prefix\n{s}");
+        assert!(s.contains("q ▸ turn left") && s.contains("e ▸ turn right"), "{s}");
+        assert!(s.lines().nth(39).unwrap().contains("-- PLAY --"), "key rows stay");
     }
 
     #[test]
