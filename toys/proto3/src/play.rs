@@ -68,17 +68,24 @@ pub fn entropy_seed() -> Result<u64> {
 /// then a hero class. None = the player quit. Keys are applied one at a time with the adventure loaded first, so a
 /// class key always reads the adventure it is shown for.
 /// shortcut: no resize while on this screen, upgrade if players resize before a run.
-fn start_screen(tty: &mut Tty, base: &Content, data: &Path, advs: &[ProfileInfo], size: (u16, u16)) -> Result<Option<(Content, ClassId)>> {
+fn start_screen(tty: &mut Tty, base: &Content, data: &Path, size: (u16, u16)) -> Result<Option<(Content, ClassId)>> {
     let mut ui = Ui::new(base.opt.autofire);
     ui.mode = Mode::Start;
+    let mut advs = crate::data::profiles(data)?;
     let mut adv: Option<(usize, Content)> = None;
     let mut frame = Frame::new(base, size.0, size.1);
     let dt = Duration::from_micros(1_000_000 / u64::from(base.view.fps));
+    // the agentic steps: the live local Claude sessions (read again on each loop of the pick step), the running
+    // request, and its last news for the player
+    let dirs = crate::peer::default_dirs();
+    let mut agents: Vec<crate::peer::Session> = Vec::new();
+    let mut link: Option<crate::agentic::Link> = None;
+    let mut news: Option<String> = None;
     tty.send(b"\x1b[2J")?;
-    let sync = |ui: &Ui, adv: &mut Option<(usize, Content)>, frame: &mut Frame| -> Result<()> {
+    let sync = |ui: &Ui, advs: &[ProfileInfo], adv: &mut Option<(usize, Content)>, frame: &mut Frame| -> Result<()> {
         let want = match ui.start {
             Start::Class { adv, .. } => Some(adv),
-            Start::Adventure { .. } => None,
+            Start::Adventure { .. } | Start::Describe { .. } | Start::Agent { .. } | Start::Asking { .. } => None,
         };
         if want != adv.as_ref().map(|a| a.0) {
             *adv = match want.and_then(|a| advs.get(a).map(|p| (a, p))) {
@@ -91,7 +98,7 @@ fn start_screen(tty: &mut Tty, base: &Content, data: &Path, advs: &[ProfileInfo]
     };
     loop {
         for e in tty.wait(dt) {
-            sync(&ui, &mut adv, &mut frame)?;
+            sync(&ui, &advs, &mut adv, &mut frame)?;
             if let Event::Key(k) = e {
                 ui.key(k, adv.as_ref().map_or(base, |a| &a.1), 0);
             }
@@ -102,13 +109,51 @@ fn start_screen(tty: &mut Tty, base: &Content, data: &Path, advs: &[ProfileInfo]
                 return Ok(adv.map(|(_, c)| (c, ui.class)));
             }
         }
-        sync(&ui, &mut adv, &mut frame)?;
+        // the agentic steps: list the sessions, send the request once on entering Asking, collect the answer
+        match (ui.start, &dirs) {
+            (Start::Agent { .. }, Some((reg, _))) => {
+                agents = crate::peer::sessions(reg, Path::new("/proc"));
+                link = None;
+            }
+            (Start::Asking { agent, adv: back }, Some((_, socks))) => {
+                if link.is_none() {
+                    news = None;
+                    match agents.get(agent).cloned().map(|to| crate::agentic::Link::ask(data, socks, to, &ui.brief)) {
+                        Some(Ok(l)) => link = Some(l),
+                        Some(Err(e)) => {
+                            news = Some(base.texts.fill(t::AGENT_FAILED, [&e.to_string()]));
+                            ui.start = Start::Agent { adv: back, sel: agent };
+                        }
+                        None => ui.start = Start::Agent { adv: back, sel: 0 },
+                    }
+                }
+                match link.as_mut().map(|l| l.poll(data)).transpose() {
+                    Ok(Some(crate::agentic::Heard::Installed(id))) => {
+                        // the new adventure joins the list and opens its class pick
+                        link = None;
+                        advs = crate::data::profiles(data)?;
+                        let at = advs.iter().position(|p| p.id == id).unwrap_or(0);
+                        ui.start = Start::Class { adv: at, sel: 0 };
+                    }
+                    Ok(Some(crate::agentic::Heard::Refused(why))) => news = Some(base.texts.fill(t::AGENT_REFUSED, [&why])),
+                    Ok(Some(crate::agentic::Heard::Nothing) | None) => {}
+                    Err(e) => news = Some(base.texts.fill(t::AGENT_FAILED, [&e.to_string()])),
+                }
+            }
+            // no registry or socket directory on this machine: no session can be listed, nothing is sent
+            (Start::Asking { adv: back, .. }, None) => ui.start = Start::Agent { adv: back, sel: 0 },
+            _ => link = None,
+        }
+        sync(&ui, &advs, &mut adv, &mut frame)?;
         let c = adv.as_ref().map_or(base, |a| &a.1);
         ui.start_len = match ui.start {
-            Start::Adventure { .. } => advs.len(),
+            // the adventures and, last, the agentic entry
+            Start::Adventure { .. } => advs.len() + 1,
             Start::Class { .. } => c.classes.len(),
+            Start::Agent { .. } => agents.len(),
+            Start::Describe { .. } | Start::Asking { .. } => 0,
         };
-        frame.start(c, &ui, advs);
+        frame.start(c, &ui, &crate::render::StartView { advs: &advs, agents: &agents, news: news.as_deref() });
         frame.emit();
         tty.send(&frame.out)?;
     }
@@ -127,7 +172,7 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
     }
     let picked = match auto {
         Some(_) => None,
-        None => match start_screen(&mut tty, base, data, &crate::data::profiles(data)?, size)? {
+        None => match start_screen(&mut tty, base, data, size)? {
             Some(p) => Some(p),
             None => return Ok(()),
         },

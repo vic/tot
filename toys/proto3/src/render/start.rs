@@ -1,37 +1,71 @@
-//! The start screen: the title art, then the adventures (step 1) or the picked adventure's hero classes (step 2),
-//! each entry a name line and a dim description line, the cursor's entry lit; the key hints on the last row.
+//! The start screen: the title art, then the adventures (step 1, ending with the agentic entry) or the picked
+//! adventure's hero classes (step 2), each entry a name line and a dim description line, the cursor's entry lit;
+//! the agentic steps: a text field to describe the adventure, the live Claude Code sessions, the waiting screen.
+//! The key hints sit on the last row.
 use super::*;
 use crate::data::ProfileInfo;
-use crate::text::{a, t};
 use crate::input::Start;
+use crate::peer::Session;
+use crate::text::{a, t};
 
 /// Row of the title art's first row.
 const TITLE_TOP: u16 = 2;
 
+/// What the start screen lists besides the content: the installed adventures, the live local Claude sessions,
+/// and the agent request's last news (an error, a refusal) if any.
+pub struct StartView<'a> {
+    pub advs: &'a [ProfileInfo],
+    pub agents: &'a [Session],
+    pub news: Option<&'a str>,
+}
+
 impl Frame {
-    /// The whole screen for `ui.start`. `c` is the base content on step 1 and the picked adventure on step 2, so
-    /// step 2 shows in that adventure's palette, texts and classes.
-    pub fn start(&mut self, c: &Content, ui: &Ui, advs: &[ProfileInfo]) {
+    /// The whole screen for `ui.start`. `c` is the base content on step 1 and the agentic steps, the picked
+    /// adventure on the class step, so that step shows in that adventure's palette, texts and classes.
+    pub fn start(&mut self, c: &Content, ui: &Ui, v: &StartView) {
         let pal = &c.pal;
+        let tx = &c.texts;
         self.cells.fill(Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.bg });
         let rows = self.rows;
         let centre = |cols: u16, w: usize| cols.saturating_sub(w as u16) / 2;
-        let art = c.texts.art(a::TITLE);
+        let art = tx.art(a::TITLE);
         let aw = art.iter().map(|r| r.chars().count()).max().unwrap_or(0);
         let mut row = TITLE_TOP;
         for line in art.iter().take(usize::from(rows.saturating_sub(row))) {
             self.text(row, centre(self.cols, aw), line, pal.role(Role::Legendary));
             row += 1;
         }
-        let (head, items, sel): (&str, Vec<(&str, &str)>, usize) = match ui.start {
-            Start::Adventure { sel } => (c.texts.get(t::PICK_ADVENTURE), advs.iter().map(|a| (a.name.as_str(), a.blurb.as_str())).collect(), sel),
-            Start::Class { sel, .. } => (c.texts.get(t::PICK_CLASS), c.classes.iter().map(|k| (k.name.as_str(), k.desc.as_str())).collect(), sel),
+        let agent = |s: &Session| (s.name.clone(), format!("{}{}", s.cwd, if s.busy { tx.get(t::AGENT_BUSY) } else { "" }));
+        let (head, items, sel): (String, Vec<(String, String)>, Option<usize>) = match ui.start {
+            Start::Adventure { sel } => {
+                let mut items: Vec<_> = v.advs.iter().map(|a| (a.name.clone(), a.blurb.clone())).collect();
+                items.push((tx.get(t::AGENTIC_NAME).into(), tx.get(t::AGENTIC_BLURB).into()));
+                (tx.get(t::PICK_ADVENTURE).into(), items, Some(sel))
+            }
+            Start::Class { sel, .. } => (tx.get(t::PICK_CLASS).into(), c.classes.iter().map(|k| (k.name.clone(), k.desc.clone())).collect(), Some(sel)),
+            Start::Describe { .. } => (tx.get(t::DESCRIBE_HEADER).into(), Vec::new(), None),
+            Start::Agent { .. } if v.agents.is_empty() => (tx.get(t::PICK_AGENT).into(), vec![(tx.get(t::NO_AGENTS).into(), String::new())], None),
+            Start::Agent { sel, .. } => (tx.get(t::PICK_AGENT).into(), v.agents.iter().map(agent).collect(), Some(sel)),
+            Start::Asking { agent: k, .. } => {
+                let who = v.agents.get(k).map_or_else(String::new, |s| s.name.clone());
+                (tx.fill(t::ASKING, [&who]), vec![(tx.get(t::AGENT_WAIT).into(), String::new())], None)
+            }
         };
         row += 1;
         if row < rows {
-            self.text(row, centre(self.cols, head.chars().count()), head, pal.text);
+            self.text(row, centre(self.cols, head.chars().count()), &head, pal.text);
         }
         row += 2;
+        if let Start::Describe { .. } = ui.start {
+            // the text field: what the player typed, else the dim example, in a box as wide as the screen allows
+            let w = usize::from(self.cols.saturating_sub(8));
+            let (shown, fg) = if ui.brief.is_empty() { (tx.get(t::DESCRIBE_PLACEHOLDER).to_string(), pal.dim) } else { (format!("{}_", ui.brief), pal.text) };
+            let left = centre(self.cols, w);
+            self.plate(i32::from(left), i32::from(row), w as i32, 3, pal.role(Role::Select));
+            let fit: String = shown.chars().rev().take(w.saturating_sub(4)).collect::<Vec<_>>().into_iter().rev().collect();
+            self.text(row + 1, left + 2, &fit, fg);
+            row += 4;
+        }
         let w = items.iter().map(|(n, d)| n.chars().count().max(d.chars().count())).max().unwrap_or(0) + 4;
         let left = centre(self.cols, w);
         // an entry takes its two lines and a gap, inside the play rows (the strip rows under them hold the hints)
@@ -39,13 +73,17 @@ impl Frame {
             if row + 2 > self.play_rows() {
                 break;
             }
-            let lit = k == sel;
+            let lit = sel == Some(k);
             if lit {
                 self.plate(i32::from(left), i32::from(row), w as i32, 2, pal.role(Role::Select));
             }
             self.text(row, left + 2, name, if lit { pal.role(Role::Accent) } else { pal.text });
             self.text(row + 1, left + 2, desc, pal.dim);
             row += 3;
+        }
+        if let Some(news) = v.news.filter(|_| row < self.play_rows()) {
+            let fit: String = news.chars().take(usize::from(self.cols.saturating_sub(4))).collect();
+            self.text(row, centre(self.cols, fit.chars().count()), &fit, pal.alarm);
         }
         if let Some(last) = rows.checked_sub(1) {
             let mut x = 1;

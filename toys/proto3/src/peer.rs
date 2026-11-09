@@ -162,8 +162,13 @@ pub fn default_dirs() -> Option<(PathBuf, PathBuf)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// Sessions with these names and no socket (for screens that only list them).
+    pub(crate) fn sessions_named(names: &[&str]) -> Vec<Session> {
+        names.iter().zip(1..).map(|(n, pid)| Session { pid, name: n.to_string(), cwd: format!("/w/{n}"), busy: false, socket: PathBuf::new() }).collect()
+    }
 
     #[test]
     fn registry_entries_need_their_pid_name_and_a_socket() {

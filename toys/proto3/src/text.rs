@@ -25,9 +25,21 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 166] = [
+pub const TXTS: [Spec; 177] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
+    // agentic adventure steps of the start screen (drawn in the base adventure)
+    line("agentic_name", &[], "Start screen, step 1: the last entry, the adventure a local Claude Code agent writes for you."),
+    line("agentic_blurb", &[], "Start screen, step 1: dim line under the agentic entry."),
+    line("describe_header", &[], "Agentic step 1: header over the text field where the player describes the adventure they want."),
+    line("describe_placeholder", &[], "Agentic step 1: the dim example in the empty text field (also the request when the player types nothing)."),
+    line("pick_agent", &[], "Agentic step 2: header over the list of live local Claude Code sessions."),
+    line("no_agents", &[], "Agentic step 2: shown when no local Claude Code session runs."),
+    line("agent_busy", &[], "Agentic step 2: tag after a session that is working right now."),
+    line("asking", &["agent"], "Agentic step 3: the request went out to this session; tell the player to accept it there."),
+    line("agent_wait", &[], "Agentic step 3: dim line under asking while the agent writes."),
+    line("agent_refused", &["error"], "Agentic step 3: the game refused the answer and sent the error back to the agent."),
+    line("agent_failed", &["error"], "Agentic step 3: the request could not be sent (the session closed, the socket failed)."),
     // upgrade picker (centred popup over the arena)
     line("pick_title", &[], "Upgrade picker popup, top line: the title before the seconds left to choose (keep a trailing space)."),
     line("pick_none", &[], "Upgrade picker popup: a card slot with no card."),
@@ -373,6 +385,17 @@ pub mod t {
     use super::{Pool, Txt};
     pub const PICK_ADVENTURE: Txt<0> = Txt::named("pick_adventure");
     pub const PICK_CLASS: Txt<0> = Txt::named("pick_class");
+    pub const AGENTIC_NAME: Txt<0> = Txt::named("agentic_name");
+    pub const AGENTIC_BLURB: Txt<0> = Txt::named("agentic_blurb");
+    pub const DESCRIBE_HEADER: Txt<0> = Txt::named("describe_header");
+    pub const DESCRIBE_PLACEHOLDER: Txt<0> = Txt::named("describe_placeholder");
+    pub const PICK_AGENT: Txt<0> = Txt::named("pick_agent");
+    pub const NO_AGENTS: Txt<0> = Txt::named("no_agents");
+    pub const AGENT_BUSY: Txt<0> = Txt::named("agent_busy");
+    pub const ASKING: Txt<1> = Txt::named("asking");
+    pub const AGENT_WAIT: Txt<0> = Txt::named("agent_wait");
+    pub const AGENT_REFUSED: Txt<1> = Txt::named("agent_refused");
+    pub const AGENT_FAILED: Txt<1> = Txt::named("agent_failed");
     pub const PICK_TITLE: Txt<0> = Txt::named("pick_title");
     pub const PICK_NONE: Txt<0> = Txt::named("pick_none");
     pub const PICK_CURSOR: Txt<0> = Txt::named("pick_cursor");

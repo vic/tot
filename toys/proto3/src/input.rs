@@ -7,18 +7,26 @@ use crate::sim::{BAG_SLOTS, BagAct, Cmd, Input, PickChoice};
 /// Bag grid columns (BAG_SLOTS / BAG_COLS rows).
 pub const BAG_COLS: usize = 6;
 
+/// Longest adventure description the player can type (chars).
+const BRIEF_MAX: usize = 300;
+
 /// The tree the TREE screen shows: the hero class's first tree.
 /// shortcut: one tree per class on screen, upgrade with a tree switcher when a class has several.
 pub fn hero_tree(c: &Content, class: ClassId) -> Option<&Tree> {
     c.trees.iter().find(|t| t.class == class)
 }
 
-/// Start screen step: the list shown and its cursor (an index into the adventures, or into the picked
-/// adventure's classes).
+/// Start screen step: the list shown and its cursor. The adventure list ends with the agentic entry (index
+/// `start_len - 1` there): it leads to Describe (type what you want), Agent (pick a live local Claude
+/// session) and Asking (the request is out; the start loop waits for the answer). `adv` = the list index to
+/// come back to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Start {
     Adventure { sel: usize },
     Class { adv: usize, sel: usize },
+    Describe { adv: usize },
+    Agent { adv: usize, sel: usize },
+    Asking { adv: usize, agent: usize },
 }
 
 /// Cursor step on the node grid: sideways along the row, up/down to the nearest column of the next row.
@@ -422,6 +430,8 @@ pub struct Ui {
     /// start screen step, and the length of the list it shows (set by the start loop)
     pub start: Start,
     pub start_len: usize,
+    /// what the player typed on the describe step (the adventure an agent writes)
+    pub brief: String,
     /// the class the hero plays (picked on the start screen)
     pub class: ClassId,
 }
@@ -467,6 +477,7 @@ impl Ui {
             human: None,
             start: Start::Adventure { sel: 0 },
             start_len: 0,
+            brief: String::new(),
             class: ClassId::FIRST,
         }
     }
@@ -531,6 +542,20 @@ impl Ui {
         }
         if self.mode == Mode::Cmd && self.edit(ev, c) {
             return;
+        }
+        // the describe step is a text field: printable keys type, backspace erases; enter and esc stay bindings
+        if let (Mode::Start, Start::Describe { .. }) = (self.mode, self.start) {
+            match (ev.key, ev.text) {
+                (Key::Backspace, _) => {
+                    self.brief.pop();
+                    return;
+                }
+                (Key::Char(k), t) if self.brief.chars().count() < BRIEF_MAX => {
+                    self.brief.push(t.unwrap_or(k));
+                    return;
+                }
+                _ => {}
+            }
         }
         // a shifted letter arrives as its base key + uppercase text (so its release matches the press): look it up
         // as the uppercase key, which is how shift bindings (Q, W, F) are written
@@ -740,11 +765,14 @@ impl Ui {
             }
             Action::StartMove(d) => {
                 let n = self.start_len.max(1) as isize;
-                let (Start::Adventure { sel } | Start::Class { sel, .. }) = &mut self.start;
-                *sel = (*sel as isize + isize::from(d)).rem_euclid(n) as usize;
+                if let Start::Adventure { sel } | Start::Class { sel, .. } | Start::Agent { sel, .. } = &mut self.start {
+                    *sel = (*sel as isize + isize::from(d)).rem_euclid(n) as usize;
+                }
             }
-            // an adventure opens its class list; a class starts the run (the start loop sees the mode leave Start)
+            // an adventure opens its class list (the last entry opens the agentic steps); a class starts the run
+            // (the start loop sees the mode leave Start); a live session gets the request
             Action::StartPick => match self.start {
+                Start::Adventure { sel } if sel + 1 == self.start_len => self.start = Start::Describe { adv: sel },
                 Start::Adventure { sel } => self.start = Start::Class { adv: sel, sel: 0 },
                 Start::Class { sel, .. } => {
                     if let Some(k) = c.class_id(sel) {
@@ -752,10 +780,20 @@ impl Ui {
                         self.mode = Mode::Play;
                     }
                 }
+                Start::Describe { adv } => {
+                    if self.brief.trim().is_empty() {
+                        self.brief = c.texts.get(t::DESCRIBE_PLACEHOLDER).to_string();
+                    }
+                    self.start = Start::Agent { adv, sel: 0 };
+                }
+                Start::Agent { adv, sel } if self.start_len > 0 => self.start = Start::Asking { adv, agent: sel },
+                Start::Agent { .. } | Start::Asking { .. } => {}
             },
             Action::StartBack => match self.start {
                 Start::Adventure { .. } => self.quit = true,
-                Start::Class { adv, .. } => self.start = Start::Adventure { sel: adv },
+                Start::Class { adv, .. } | Start::Describe { adv } => self.start = Start::Adventure { sel: adv },
+                Start::Agent { adv, .. } => self.start = Start::Describe { adv },
+                Start::Asking { adv, agent } => self.start = Start::Agent { adv, sel: agent },
             },
             Action::Up | Action::Down | Action::Left | Action::Right => {}
         }
@@ -1080,10 +1118,12 @@ mod tests {
         let mut ui = Ui::new(true);
         ui.mode = Mode::Start;
         let hit = |ui: &mut Ui, key: Key| ui.key(KeyEv { key, kind: Kind::Press, text: None }, &c, 0);
-        ui.start_len = 2;
-        hit(&mut ui, Key::Char('j'));
-        hit(&mut ui, Key::Char('j'));
+        ui.start_len = 3; // two adventures, then the agentic entry
+        for _ in 0..3 {
+            hit(&mut ui, Key::Char('j'));
+        }
         assert_eq!(ui.start, Start::Adventure { sel: 0 }, "the cursor wraps");
+        hit(&mut ui, Key::Char('k'));
         hit(&mut ui, Key::Char('k'));
         assert_eq!(ui.start, Start::Adventure { sel: 1 });
         hit(&mut ui, Key::Enter);
@@ -1101,6 +1141,43 @@ mod tests {
         hit(&mut ui, Key::Esc);
         assert!(ui.quit, "back from the adventures quits");
         assert_eq!(ui.fresh().class, ui.class, "a new run keeps the class");
+    }
+
+    #[test]
+    fn the_agentic_entry_takes_a_description_then_a_session_and_steps_back() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        let hit = |ui: &mut Ui, key: Key, text: Option<char>| ui.key(KeyEv { key, kind: Kind::Press, text }, &c, 0);
+        ui.start_len = 3;
+        ui.start = Start::Adventure { sel: 2 };
+        hit(&mut ui, Key::Enter, None);
+        assert_eq!(ui.start, Start::Describe { adv: 2 }, "the last entry opens the description");
+        // letters type, even the ones bound to moves and quit; shift gives capitals; backspace erases
+        for k in ['j', 'q', ' ', 'x'] {
+            hit(&mut ui, Key::Char(k), Some(k));
+        }
+        hit(&mut ui, Key::Char('k'), Some('K'));
+        hit(&mut ui, Key::Backspace, None);
+        assert_eq!((ui.brief.as_str(), ui.quit, ui.start), ("jq x", false, Start::Describe { adv: 2 }), "typed, not acted on");
+        hit(&mut ui, Key::Enter, None);
+        assert_eq!(ui.start, Start::Agent { adv: 2, sel: 0 });
+        ui.start_len = 0;
+        hit(&mut ui, Key::Enter, None);
+        assert_eq!(ui.start, Start::Agent { adv: 2, sel: 0 }, "no live session: nothing to pick");
+        ui.start_len = 2;
+        hit(&mut ui, Key::Char('j'), None);
+        hit(&mut ui, Key::Enter, None);
+        assert_eq!(ui.start, Start::Asking { adv: 2, agent: 1 }, "the picked session is asked");
+        for back in [Start::Agent { adv: 2, sel: 1 }, Start::Describe { adv: 2 }, Start::Adventure { sel: 2 }] {
+            hit(&mut ui, Key::Esc, None);
+            assert_eq!(ui.start, back);
+        }
+        // an empty description sends the example
+        ui.brief.clear();
+        ui.start = Start::Describe { adv: 2 };
+        hit(&mut ui, Key::Enter, None);
+        assert_eq!(ui.brief, c.texts.get(t::DESCRIBE_PLACEHOLDER));
     }
 
     #[test]

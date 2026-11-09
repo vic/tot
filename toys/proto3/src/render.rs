@@ -14,6 +14,7 @@ use std::collections::HashSet;
 
 mod heropane;
 mod start;
+pub use start::StartView;
 
 /// Hero levels where the shoulders grow, and the quadrant glyphs (left, right) of each tier (tot-rcn.6).
 /// shortcut: fixed in code, move to tuning data when a profile wants its own.
@@ -3285,7 +3286,7 @@ mod tests {
         let mut ui = Ui::new(true);
         ui.mode = Mode::Start;
         let mut f = Frame::new(&base, 120, 40);
-        f.start(&base, &ui, &advs);
+        f.start(&base, &ui, &StartView { advs: &advs, agents: &[], news: None });
         let s = f.plain();
         let art = base.texts.art(crate::text::a::TITLE);
         assert!(art.iter().all(|r| s.contains(r.trim())), "title art\n{s}");
@@ -3296,7 +3297,7 @@ mod tests {
         let dark = Content::load_profile(d, Some("hellish")).unwrap();
         ui.start = crate::input::Start::Class { adv: dark_ix, sel: 0 };
         let mut f = Frame::new(&dark, 120, 40);
-        f.start(&dark, &ui, &advs);
+        f.start(&dark, &ui, &StartView { advs: &advs, agents: &[], news: None });
         let s = f.plain();
         assert!(s.contains(dark.texts.get(crate::text::t::PICK_CLASS)) && dark.classes.iter().all(|k| s.contains(&k.name) && s.contains(&k.desc)), "{s}");
         assert!(!base.classes.iter().any(|k| s.contains(&k.name)), "control: not the base classes");
@@ -3345,6 +3346,38 @@ mod tests {
         ui.class = c.class_id(1).unwrap();
         let s = shot(&ui);
         assert!(s.contains("{o_o}") && !s.contains("[o_o]"), "the second class's art\n{s}");
+    }
+
+    #[test]
+    fn start_screen_draws_the_agentic_steps() {
+        use crate::input::Start;
+        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        let c = Content::load_profile(d, None).unwrap();
+        let advs = crate::data::profiles(d).unwrap();
+        let tx = &c.texts;
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        let shot = |ui: &Ui, agents: &[crate::peer::Session], news: Option<&str>| {
+            let mut f = Frame::new(&c, 120, 40);
+            f.start(&c, ui, &StartView { advs: &advs, agents, news });
+            f.plain()
+        };
+        let s = shot(&ui, &[], None);
+        assert!(s.contains(tx.get(t::AGENTIC_NAME)) && s.contains(tx.get(t::AGENTIC_BLURB)), "the agentic entry ends the list\n{s}");
+        ui.start = Start::Describe { adv: advs.len() };
+        let s = shot(&ui, &[], None);
+        assert!(s.contains(tx.get(t::DESCRIBE_HEADER)) && s.contains(&tx.get(t::DESCRIBE_PLACEHOLDER)[..40]), "header and the example\n{s}");
+        ui.brief = "a moon base overrun by robot ants".into();
+        let s = shot(&ui, &[], None);
+        assert!(s.contains("a moon base overrun by robot ants_") && !s.contains(&tx.get(t::DESCRIBE_PLACEHOLDER)[..40]), "what was typed replaces the example");
+        ui.start = Start::Agent { adv: advs.len(), sel: 0 };
+        assert!(shot(&ui, &[], None).contains(tx.get(t::NO_AGENTS)), "no session running");
+        let agents = crate::peer::tests::sessions_named(&["yen-11", "srs-7c"]);
+        let s = shot(&ui, &agents, None);
+        assert!(s.contains(tx.get(t::PICK_AGENT)) && s.contains("yen-11") && s.contains("srs-7c") && !s.contains(tx.get(t::NO_AGENTS)));
+        ui.start = Start::Asking { adv: advs.len(), agent: 1 };
+        let s = shot(&ui, &agents, Some("Could not ask the agent: gone"));
+        assert!(s.contains(&tx.fill(t::ASKING, ["srs-7c"])) && s.contains(tx.get(t::AGENT_WAIT)) && s.contains("Could not ask the agent: gone"), "{s}");
     }
 
     #[test]

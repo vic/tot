@@ -266,3 +266,14 @@
 {"t":"letter","id":".","rows":[" "," ","▄"]}
 {"t":"letter","id":" ","rows":["  ","  ","  "]}
 {"t":"pool","id":"wall_lore","lines":["NEON NOODLES 24H ","SYS//ROOT>_ ","ｱｲｼﾃﾙ CHROME ","OVERCLOCK NOW ","404 SOUL NOT FOUND ","JACK IN ","ﾈｵﾝ CITY ","<<<RUN>>> "]}
+{"t":"text","id":"agentic_name","text":"AGENTIC ADVENTURE (local Claude Code)"}
+{"t":"text","id":"agentic_blurb","text":"Describe any adventure. A Claude Code agent on this machine writes it for you."}
+{"t":"text","id":"describe_header","text":"DESCRIBE YOUR ADVENTURE: the world, the hero, the foes"}
+{"t":"text","id":"describe_placeholder","text":"a drowned jungle temple: a whip-wielding relic hunter against snake cultists, stone golems and a jaguar god"}
+{"t":"text","id":"pick_agent","text":"PICK A CLAUDE CODE SESSION TO WRITE IT"}
+{"t":"text","id":"no_agents","text":"No Claude Code session is running on this machine. Start one, then come back."}
+{"t":"text","id":"agent_busy","text":" (busy)"}
+{"t":"text","id":"asking","text":"Asked {agent}. Accept the request in that Claude Code session."}
+{"t":"text","id":"agent_wait","text":"The agent is writing your adventure. This takes a few minutes. esc cancels."}
+{"t":"text","id":"agent_refused","text":"The game refused the answer and sent the error back: {error}"}
+{"t":"text","id":"agent_failed","text":"Could not ask the agent: {error}"}
