@@ -115,6 +115,8 @@ pub enum Mode {
 pub enum Action {
     /// buy shop offer n (0-based)
     ShopTake(u8),
+    /// at a blacksmith: forge an item from ore
+    ShopForge,
     OpenGear,
     /// bags: open, move the cursor (cols, rows), wear the selected item, discard it
     OpenBags,
@@ -174,6 +176,7 @@ impl Action {
             "shop_2" => ShopTake(1),
             "shop_3" => ShopTake(2),
             "shop_4" => ShopTake(3),
+            "forge" => ShopForge,
             "gear" => OpenGear,
             "bags" => OpenBags,
             "bag_left" => BagMove(-1, 0),
@@ -373,6 +376,8 @@ pub struct Ui {
     pub bag_act: Option<BagAct>,
     /// one-shot: the skill a just-learned tree node grants (taken by `input`)
     pub learn: Option<crate::data::SkillId>,
+    /// one-shot: forge at the blacksmith
+    pub forge: bool,
     /// one-shot: special slot asked by a number key (taken by `input`)
     pub special: Option<u8>,
     /// auto-walk and auto-fire as they were before a popup opened (popups force both on so play goes on)
@@ -420,6 +425,7 @@ impl Ui {
             bag_sel: 0,
             bag_act: None,
             learn: None,
+            forge: false,
             special: None,
             popup_saved: None,
             shop_len: 0,
@@ -653,6 +659,7 @@ impl Ui {
             Action::BagWear => self.bag_act = Some(BagAct::Wear(self.bag_sel as u8)),
             Action::BagDiscard => self.bag_act = Some(BagAct::Discard(self.bag_sel as u8)),
             Action::ShopTake(n) => self.shop_buy = (usize::from(n) < self.shop_len).then_some(usize::from(n)),
+            Action::ShopForge => self.forge = true,
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
             Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(Slot::ALL.len() - 1),
             Action::GearDrop => self.gear_drop = Slot::ALL.get(self.gear_sel).copied(),
@@ -762,6 +769,7 @@ impl Ui {
             drop: self.gear_drop.take(),
             bag: self.bag_act.take(),
             learn: self.learn.take(),
+            forge: std::mem::take(&mut self.forge),
             special: self.special.take(),
         }
     }

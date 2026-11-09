@@ -410,6 +410,12 @@ impl Frame {
                 self.chest(sim, x, y);
                 continue;
             }
+            if let crate::sim::Drop::Ore = sim.drops.kind[k]
+                && let Some(i) = self.cell_of(x, y)
+            {
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: Glyph::of('▪').unwrap_or(Glyph::SPACE), fg: pal.text, bg: None });
+                continue;
+            }
             if let crate::sim::Drop::Food = sim.drops.kind[k]
                 && let Some(i) = self.cell_of(x, y)
             {
@@ -879,7 +885,9 @@ impl Frame {
             Mode::Shop => {
                 let deals = sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map_or(&[][..], Vec::as_slice);
                 let rows = deals.iter().zip(1..).filter_map(|(d, k)| c.items.get(usize::from(d.item.0)).map(|it| (format!("{k} {} {}  {} gold", it.glyph.ch(), it.name, d.price), pal.role(it.rarity.role()))));
-                (format!("SHOP  gold {}   1-4 buy, walk on to leave", sim.p.gold), rows.collect(), None)
+                let smith = sim.world.open_shop.and_then(|i| sim.world.npcs.get(i)).is_some_and(|p| matches!(p.npc, crate::sim::Npc::Blacksmith { .. }));
+                let forge = if smith { format!("   5 forge ({} of {} ore)", sim.p.ore, crate::sim::FORGE_ORE) } else { String::new() };
+                (format!("SHOP  gold {}   1-4 buy{forge}", sim.p.gold), rows.collect(), None)
             }
             // the skill tree and the gear live in the hero pane, not in a popup
             Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear | Mode::Bags => return,
@@ -3149,7 +3157,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x1b4c_3990_bad4_df40;
+    const GOLDEN: u64 = 0x0ce2_ba81_ca91_0ad3;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

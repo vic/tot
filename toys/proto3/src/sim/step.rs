@@ -39,6 +39,9 @@ impl<'c> Sim<'c> {
             }
             _ => {}
         }
+        if inp.forge {
+            self.forge();
+        }
         if let Some(id) = inp.learn {
             self.learn(id);
         }
@@ -302,7 +305,7 @@ impl<'c> Sim<'c> {
                         (tx, ty, td2) = (x + (x - px), y + (y - py), dp2);
                     } else if let Some(k) = (0..self.drops.x.len()).max_by_key(|&k| {
                         // best loot first: value squared over distance squared (a chest is worth a detour)
-                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) | Drop::Magnet | Drop::Food => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
+                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) | Drop::Magnet | Drop::Food | Drop::Ore => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
                         v * v * 1_000_000_000 / (dist2(self.drops.x[k] - x, self.drops.y[k] - y) + 1)
                     }) {
                         (tx, ty) = (self.drops.x[k], self.drops.y[k]);
@@ -601,6 +604,19 @@ impl<'c> Sim<'c> {
         } else if self.owned.len() < MAX_SKILLS {
             self.owned.push(Owned { id, rank: 1, power: 1000, cd: 0, sp: 0, phase: 0 });
         }
+    }
+
+    /// At a blacksmith the hero trades FORGE_ORE ore for a rare-or-better item, worn at once (picked by the tick,
+    /// no RNG stream consumed). Elsewhere, or short of ore, nothing happens.
+    fn forge(&mut self) {
+        let at_smith = self.world.open_shop.and_then(|i| self.world.npcs.get(i)).is_some_and(|p| matches!(p.npc, npc::Npc::Blacksmith { .. }));
+        let good: Vec<usize> = (0..self.c.items.len()).filter(|&k| self.c.items[k].rarity >= crate::data::Rarity::Rare).collect();
+        if !at_smith || self.p.ore < FORGE_ORE || good.is_empty() {
+            return;
+        }
+        self.p.ore -= FORGE_ORE;
+        let k = good[(mix(u64::from(self.tick) ^ ITEM_SALT) % good.len() as u64) as usize];
+        self.wear(ItemId(k as u16));
     }
 
     fn eat(&mut self) {
@@ -1179,6 +1195,7 @@ impl<'c> Sim<'c> {
                 }
                 Drop::Magnet => self.magnet_pull(),
                 Drop::Food => self.eat(),
+                Drop::Ore => self.p.ore += 1,
             }
             return;
         }
@@ -1231,6 +1248,9 @@ impl<'c> Sim<'c> {
                     self.drop_at(x, y, Drop::Xp(sp.xp_trash));
                     if mix(u64::from(self.e.id[i]) ^ ITEM_SALT.rotate_left(41)).is_multiple_of(FOOD_1_IN) {
                         self.drop_at(x + 500, y, Drop::Food);
+                    }
+                    if mix(u64::from(self.e.id[i]) ^ ITEM_SALT.rotate_left(53)).is_multiple_of(ORE_1_IN) {
+                        self.drop_at(x, y + 500, Drop::Ore);
                     }
                 }
                 Tier::Elite => {
@@ -1291,7 +1311,7 @@ impl<'c> Sim<'c> {
             let bite = match self.drops.kind[k] {
                 Drop::Xp(_) => LOOT_XP,
                 Drop::Chest | Drop::Item(_) => LOOT_CHEST,
-                Drop::Magnet | Drop::Food => LOOT_XP,
+                Drop::Magnet | Drop::Food | Drop::Ore => LOOT_XP,
             };
             let before = self.e.loot[j];
             self.e.loot[j] = before.saturating_add(bite);
@@ -1373,6 +1393,7 @@ impl<'c> Sim<'c> {
                     }
                     Drop::Magnet => magnet = true,
                     Drop::Food => self.eat(),
+                    Drop::Ore => self.p.ore += 1,
                 }
                 let d = &mut self.drops;
                 d.x.swap_remove(i);

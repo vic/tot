@@ -229,5 +229,8 @@ impl Frame {
                 self.text(y, l as u16, &format!("{} of {} slots used", sim.bag.len(), crate::sim::BAG_SLOTS), pal.dim);
             }
         }
+        // resources carried: what the blacksmith forges with
+        let x = self.text((t + 9) as u16, l as u16, "▪ ORE ", pal.text);
+        self.num((t + 9) as u16, x, i64::from(sim.p.ore), pal.chest);
     }
 }

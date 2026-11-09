@@ -101,3 +101,4 @@
 {"t":"bind","mode":"shop","keys":["2"],"action":"shop_2","label":"buy 2"}
 {"t":"bind","mode":"shop","keys":["3"],"action":"shop_3","label":"buy 3"}
 {"t":"bind","mode":"shop","keys":["4"],"action":"shop_4","label":"buy 4"}
+{"t":"bind","mode":"shop","keys":["5"],"action":"forge","label":"forge"}

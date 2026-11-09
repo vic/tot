@@ -47,6 +47,8 @@ pub struct Input {
     pub bag: Option<BagAct>,
     /// a tree node was learned: gain this skill (or rank it up)
     pub learn: Option<SkillId>,
+    /// at a blacksmith: forge an item from ore
+    pub forge: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -251,6 +253,8 @@ pub enum Drop {
     Magnet,
     /// food: eating it fills the belly by FOOD_MEAL
     Food,
+    /// ore: a resource the blacksmith forges with
+    Ore,
 }
 
 /// How a melee foe closes on the hero, fixed by its id (O(1), no state): a crowd mixes all four.
@@ -398,6 +402,9 @@ const ITEM_SALT: u64 = 0x17E5_D80B;
 const MAGNET_1_IN: u64 = 10;
 /// Bag slots.
 pub const BAG_SLOTS: usize = 12;
+/// Ore: trash drops it one in ORE_1_IN (by id); the blacksmith forges an item for FORGE_ORE.
+const ORE_1_IN: u64 = 8;
+pub const FORGE_ORE: u32 = 5;
 /// Foes run this much faster (permille) toward a hero sheltering from rain or acid.
 const SHELTER_DRAW: u32 = 1200;
 /// Day and night: one cycle every DAY_S seconds (night is its last third); foes run NIGHT_PACE (permille).
@@ -560,6 +567,8 @@ pub struct Player {
     pub gold: u32,
     /// how fed the hero is, parts per million of a full belly (FOOD_FULL); hunger slows it down
     pub food: i32,
+    /// ore carried in the bags: the blacksmith forges with it
+    pub ore: u32,
     /// burning / frozen (slowed) by foe hues; Raging never lands on the hero
     pub status: Status,
     dash_left: u16,
@@ -927,6 +936,7 @@ impl<'c> Sim<'c> {
                 unhurt: 0,
                 gold: 0,
                 food: FOOD_FULL,
+                ore: 0,
                 status: Status::None,
                 dash_left: 0,
                 dash_dir: (0, 0),
@@ -1292,7 +1302,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {
@@ -1729,10 +1739,11 @@ mod tests {
     /// Re-pinned 2026-11-08: blocked chasers walk the flow field round walls.
     /// Re-pinned 2026-11-09: a hero sheltering from rain or acid draws foes faster.
     /// Re-pinned 2026-11-09: hunger (walking pace) and food drops from trash.
+    /// Re-pinned 2026-11-09: ore drops from trash.
     #[test]
     fn iso_render_leaves_sim_hash_unchanged() {
         let h = run_hash(&content(), 7, 900);
-        assert_eq!(h, 0x918c_7c4c_6401_3d3f, "sim hash {h:#x}");
+        assert_eq!(h, 0x30e7_a5b8_29c5_051c, "sim hash {h:#x}");
     }
 
     #[test]
@@ -1884,6 +1895,38 @@ mod tests {
     }
 
     /// Bags hold what wearing replaced; wear from the bag swaps; discard destroys; taking off goes to the bag;
+    /// Ore drops from trash, is carried; at a blacksmith 5 ore forge a rare-or-better item, worn at once. Away
+    /// from a blacksmith, or short of ore, forging does nothing.
+    #[test]
+    fn ore_is_collected_and_the_blacksmith_forges() {
+        use crate::data::Rarity;
+        let c = content();
+        let hits = (0..800u32).filter(|&id| mix(u64::from(id) ^ ITEM_SALT.rotate_left(53)).is_multiple_of(ORE_1_IN)).count();
+        assert!((60..150).contains(&hits), "ore drop rate {hits}/800");
+        let mut s = Sim::new(&c, 7, None);
+        let (x, y) = (s.p.x, s.p.y);
+        s.drops.x.push(x);
+        s.drops.y.push(y);
+        s.drops.kind.push(Drop::Ore);
+        s.drops.pulled.push(false);
+        s.step(&Input::default());
+        assert_eq!(s.p.ore, 1, "picked up");
+        s.p.ore = FORGE_ORE;
+        s.step(&Input { forge: true, ..Input::default() });
+        assert_eq!(s.p.ore, FORGE_ORE, "NEG: no blacksmith here, nothing forged");
+        s.world.npcs = vec![npc::Placed { npc: npc::Npc::Blacksmith { honest: true }, x: s.p.x + 500, y: s.p.y }];
+        s.world.shops = vec![Vec::new()];
+        s.world_step();
+        assert_eq!(s.world.open_shop, Some(0), "at the counter");
+        let worn = |s: &Sim| crate::data::Slot::ALL.iter().filter_map(|&sl| s.gear.worn(sl)).count();
+        let before = worn(&s);
+        s.step(&Input { forge: true, ..Input::default() });
+        assert_eq!(s.p.ore, 0, "ore spent");
+        assert!(worn(&s) > before && crate::data::Slot::ALL.iter().filter_map(|&sl| s.gear.worn(sl)).all(|id| c.items[usize::from(id.0)].rarity >= Rarity::Rare), "a rare-or-better item forged and worn");
+        s.step(&Input { forge: true, ..Input::default() });
+        assert_eq!(s.p.ore, 0, "NEG: short of ore, nothing happens");
+    }
+
     /// nothing is ever lost: a full bag keeps a taken-off item worn and sends a replaced one to the floor.
     #[test]
     fn bags_keep_replaced_items_and_never_lose_one() {
