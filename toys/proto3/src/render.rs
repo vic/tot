@@ -1137,7 +1137,7 @@ impl Frame {
         let top = i32::from(self.play_rows()) / 4;
         // a dark red plate behind banner and text, so it reads over anything
         let plate = mix(pal.alarm, pal.hud_bg, 820);
-        let (pw, ph) = (SUPPORT_PLEA.chars().count() as i32 + 6, YOU_DIED.len() as i32 + 7);
+        let (pw, ph) = (SUPPORT_PLEA.chars().count() as i32 + 8, YOU_DIED.len() as i32 + 9);
         let pl = i32::from(self.cols) / 2 - pw / 2;
         self.plate(pl, top - 1, pw, ph, plate);
         for (r, line) in YOU_DIED.iter().enumerate() {
@@ -1157,15 +1157,44 @@ impl Frame {
             }
         }
         // the plea: below the plate, a clickable sponsor link
-        let w = SUPPORT_PLEA.chars().count() as i32;
-        let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + YOU_DIED.len() as i32 + 5);
-        for (i, ch) in SUPPORT_PLEA.chars().enumerate() {
-            self.flash_cell(col + i as i32, row, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.chest);
+        let w = SUPPORT_PLEA.chars().count() as i32 + 4;
+        let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + YOU_DIED.len() as i32 + 6);
+        if col >= 0 && row >= 1 && row + 1 < i32::from(self.play_rows()) {
+            self.button((row as u16, col as u16), SUPPORT_PLEA, (pal.chest, pal.bg), true, SUPPORT_URL);
         }
-        if col >= 0 && row >= 0 && row < i32::from(self.play_rows()) {
-            let i = row as usize * usize::from(self.cols) + col as usize;
-            self.links.push((i, i + w as usize, SUPPORT_URL));
+    }
+
+    /// A clickable button: ` label ` filled with `bg`, rounded by half blocks (`▐ … ▌`); `tall` adds rims above and
+    /// below in quadrant blocks so it reads as a raised key. Returns its width. Off-screen parts are clipped.
+    fn button(&mut self, (row, col): (u16, u16), label: &str, (bg, fg): (Rgb, Rgb), tall: bool, url: &'static str) -> u16 {
+        let w = label.chars().count() as u16 + 4;
+        let rows = if tall { 3 } else { 1 };
+        let r0 = if tall { row.saturating_sub(1) } else { row };
+        let back = self.cells.get(usize::from(row) * usize::from(self.cols) + usize::from(col)).map_or(bg, |c| c.bg);
+        for r in 0..rows {
+            let line: String = match (tall, r) {
+                (true, 0) => format!("▗{}▖", "▄".repeat(usize::from(w) - 2)),
+                (true, 2) => format!("▝{}▘", "▀".repeat(usize::from(w) - 2)),
+                _ => format!("▐ {label} ▌"),
+            };
+            let y = r0 + r;
+            if y >= self.rows {
+                continue;
+            }
+            for (k, ch) in line.chars().enumerate() {
+                let x = col + k as u16;
+                if x >= self.cols {
+                    break;
+                }
+                let i = usize::from(y) * usize::from(self.cols) + usize::from(x);
+                // rims and edges: button colour on the backdrop; inside: label on the button colour
+                let inside = (!tall || r == 1) && k > 0 && k + 1 < usize::from(w);
+                self.cells[i] = if inside { Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg } } else { Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: bg, bg: back } };
+            }
         }
+        let i = usize::from(row) * usize::from(self.cols) + usize::from(col);
+        self.links.push((i, i + usize::from(w), url));
+        w
     }
 
     /// Clear a w x h rectangle at (left, top) of the play area to blank cells on `bg` (clipped).
@@ -1653,11 +1682,8 @@ impl Frame {
         // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
         let key = key_fg(pal);
         // the sponsor button owns the right end of row C; hints never cover it
-        let sw = SUPPORT_LABEL.chars().count() as u16;
-        let sx = self.cols.saturating_sub(sw + 1);
-        self.text(rcm, sx, SUPPORT_LABEL, pal.alarm);
-        let si = usize::from(rcm) * cols + usize::from(sx);
-        self.links.push((si, si + usize::from(sw), SUPPORT_URL));
+        let sx = self.cols.saturating_sub(SUPPORT_LABEL.chars().count() as u16 + 5);
+        self.button((rcm, sx), SUPPORT_LABEL, (pal.alarm, pal.bg), false, SUPPORT_URL);
         let limit = [self.cols, sx.saturating_sub(1)];
         let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
         for h in &entries {
@@ -2385,11 +2411,13 @@ mod tests {
         let mut f = Frame::new(&c, 120, 40);
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let last = f.plain().lines().nth(39).unwrap().to_string();
-        assert!(last.trim_end().ends_with(SUPPORT_LABEL), "{last}");
+        assert!(last.trim_end().ends_with(&format!("▐ {SUPPORT_LABEL} ▌")), "a pill button: {last}");
+        let lx = last.chars().count() - last.chars().rev().position(|ch| ch == '▌').unwrap() - 1;
+        assert_eq!(f.cells[39 * 120 + lx - 2].bg, c.pal.alarm, "filled");
         f.emit();
         let out = String::from_utf8_lossy(&f.out).to_string();
         assert!(out.contains(&format!("\x1b]8;id=tot;{SUPPORT_URL}")), "OSC 8 link emitted");
-        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count(), "each link cell closed");
+        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count() + 4, "each link cell closed");
         let fam = c.fam_ids().next().unwrap();
         sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
@@ -2450,8 +2478,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags
-    const GOLDEN: u64 = 0xedc7_f1b9_34db_20ba;
+    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button
+    const GOLDEN: u64 = 0x4d91_51d2_7f78_f86c;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
