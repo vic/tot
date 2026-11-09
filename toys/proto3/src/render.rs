@@ -1722,18 +1722,18 @@ impl Frame {
             }
         }
         r += 1;
-        let mut x = self.text(r, x0 + 1, "HP ", pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_HP), pal.text);
         x = self.bar(r, x, i64::from(sim.p.hp), i64::from(sim.p.max_hp), 16, pal.of(Hue::Kin));
         x = self.num(r, x + 1, i64::from(sim.p.hp.max(0) / 1000), pal.text);
         x = self.text(r, x, "/", pal.dim);
         self.num(r, x, i64::from(sim.p.max_hp / 1000), pal.dim);
         r += 1;
         // XP: the bar that drives "one more level" (wide, with numbers to go)
-        let mut x = self.text(r, x0 + 1, "LV ", pal.text);
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_LV), pal.text);
         x = self.num(r, x, i64::from(sim.p.level), pal.xp);
         x = self.bar(r, x + 1, i64::from(sim.p.xp), i64::from(sim.xp_need()), XP_BAR_W, pal.xp);
         x = self.num(r, x + 1, i64::from(sim.xp_need().saturating_sub(sim.p.xp)), pal.xp);
-        self.text(r, x, " to go", pal.dim);
+        self.text(r, x, c.texts.get(t::PANEL_TO_GO), pal.dim);
         r += 1;
         let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_FLUX), pal.text);
         x = self.num(r, x, i64::from(sim.p.flux / 1000), pal.of(Hue::Code));

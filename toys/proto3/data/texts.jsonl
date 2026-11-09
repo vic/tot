@@ -184,3 +184,6 @@
 {"t":"text","id":"msg_opening","text":"opening {url} - thank you!"}
 {"t":"text","id":"msg_open_failed","text":"could not open {url}: {error}"}
 {"t":"text","id":"whichkey_more","text":"more"}
+{"t":"text","id":"panel_hp","text":"HP "}
+{"t":"text","id":"panel_lv","text":"LV "}
+{"t":"text","id":"panel_to_go","text":" to go"}

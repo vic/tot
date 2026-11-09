@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 163] = [
+pub const TXTS: [Spec; 166] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // upgrade picker (centred popup over the arena)
@@ -65,6 +65,9 @@ pub const TXTS: [Spec; 163] = [
     line("clock_night", &[], "Stats panel, first row: the sign before the clock by night."),
     line("panel_next", &[], "Stats panel, first row: label before the next boss's name and time."),
     line("panel_no_boss", &[], "Stats panel, first row: shown when no boss is left."),
+    line("panel_hp", &[], "Stats panel, second row: label of the hero HP bar."),
+    line("panel_lv", &[], "Stats panel, third row: label of the hero level, before the xp bar."),
+    line("panel_to_go", &[], "Stats panel, third row: after the xp still needed for the next level."),
     line("panel_flux", &[], "Stats panel: label of the flux (xp) bar."),
     line("panel_kills", &[], "Stats panel: label of the kill count."),
     line("panel_hijack", &[], "Stats panel: label of the hijacked foe count."),
@@ -341,6 +344,9 @@ pub mod t {
     pub const CLOCK_NIGHT: Txt<0> = Txt::named("clock_night");
     pub const PANEL_NEXT: Txt<0> = Txt::named("panel_next");
     pub const PANEL_NO_BOSS: Txt<0> = Txt::named("panel_no_boss");
+    pub const PANEL_HP: Txt<0> = Txt::named("panel_hp");
+    pub const PANEL_LV: Txt<0> = Txt::named("panel_lv");
+    pub const PANEL_TO_GO: Txt<0> = Txt::named("panel_to_go");
     pub const PANEL_FLUX: Txt<0> = Txt::named("panel_flux");
     pub const PANEL_KILLS: Txt<0> = Txt::named("panel_kills");
     pub const PANEL_HIJACK: Txt<0> = Txt::named("panel_hijack");
