@@ -3,7 +3,7 @@
 use crate::data::{
     AttackKind, Content, FamId, FamKind, Formation, Hue, MAX_SKILLS, ShapeDef, SkillId, SkillKind, WaveEv,
 };
-use crate::rng::{Stream, Xo};
+use crate::rng::{mix, Stream, Xo};
 use std::num::{NonZeroU16, NonZeroU32};
 
 mod npc;
@@ -16,6 +16,8 @@ pub use npc::Npc;
 pub use npc::Placed;
 pub use world::hazard::TrapState;
 pub use world::shop::ItemId;
+#[cfg(test)]
+pub use world::goblin::GoldPile;
 pub use weather::Weather;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -232,6 +234,8 @@ pub struct Bark {
 pub enum Drop {
     Xp(u16),
     Chest,
+    /// a real item (armour, ring...) on the floor; walking over it wears it
+    Item(ItemId),
 }
 
 /// How a melee foe closes on the hero, fixed by its id (O(1), no state): a crowd mixes all four.
@@ -371,6 +375,9 @@ const HERO_FROZEN_SPEED: i32 = 500;
 /// Number-key specials: reload seconds at rank 1 and damage multiplier over the normal shot.
 const SPECIAL_RELOAD_S: u64 = 8;
 const SPECIAL_DMG: i32 = 3;
+/// Item drops: elites drop one in ELITE_ITEM_1_IN (by id), champions and bosses always; salt for the id hash.
+const ELITE_ITEM_1_IN: u64 = 4;
+const ITEM_SALT: u64 = 0x17E5_D80B;
 
 impl Status {
     fn ticks(ms: u32, hz: u32) -> u16 {
@@ -512,7 +519,7 @@ pub struct Player {
     pub dodge_cd: u16,
     /// ticks since the player last took damage (confidence grows with it)
     pub unhurt: u32,
-    /// coins picked up (Drop::Gold)
+    /// coins picked up (goblin trails and catch bursts)
     pub gold: u32,
     /// burning / frozen (slowed) by foe hues; Raging never lands on the hero
     pub status: Status,
@@ -618,7 +625,7 @@ pub struct Drops {
     pub x: Vec<i32>,
     pub y: Vec<i32>,
     pub kind: Vec<Drop>,
-    pulled: Vec<bool>,
+    pub(crate) pulled: Vec<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -1728,6 +1735,28 @@ mod tests {
     }
 
     /// Number key = special: a 36-bolt ring at 3x damage, then a reload; rank shortens it; passive slots never cast.
+    /// Champions always drop a real item, elites one in ELITE_ITEM_1_IN; walking over it wears it.
+    #[test]
+    fn kills_drop_items_and_pickup_wears_them() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        s.world.npcs.clear();
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        s.push_enemy(fam, Tier::Champion, (s.p.x + 20_000, s.p.y), 1, (false, false));
+        s.e.hp[0] = 0;
+        s.step(&Input::default());
+        let k = s.drops.kind.iter().position(|d| matches!(d, Drop::Item(_))).expect("champion dropped an item");
+        let Drop::Item(id) = s.drops.kind[k] else { unreachable!() };
+        let slot = c.items[usize::from(id.0)].slot;
+        assert_eq!(s.gear.worn(slot), None, "control: not worn before pickup");
+        (s.p.x, s.p.y) = (s.drops.x[k], s.drops.y[k]);
+        s.step(&Input::default());
+        assert_eq!(s.gear.worn(slot), Some(id), "walked over it: worn");
+        // elites: about one in ELITE_ITEM_1_IN by id
+        let hits = (0..400u32).filter(|&id| mix(u64::from(id) ^ ITEM_SALT).is_multiple_of(ELITE_ITEM_1_IN)).count();
+        assert!((60..140).contains(&hits), "elite drop rate {hits}/400");
+    }
+
     #[test]
     fn special_casts_reloads_and_rank_shortens_it() {
         let c = content();

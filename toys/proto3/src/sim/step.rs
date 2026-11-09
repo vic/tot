@@ -276,7 +276,7 @@ impl<'c> Sim<'c> {
                         (tx, ty, td2) = (x + (x - px), y + (y - py), dp2);
                     } else if let Some(k) = (0..self.drops.x.len()).max_by_key(|&k| {
                         // best loot first: value squared over distance squared (a chest is worth a detour)
-                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) => LOOT_XP, Drop::Chest => LOOT_CHEST });
+                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
                         v * v * 1_000_000_000 / (dist2(self.drops.x[k] - x, self.drops.y[k] - y) + 1)
                     }) {
                         (tx, ty) = (self.drops.x[k], self.drops.y[k]);
@@ -1089,12 +1089,23 @@ impl<'c> Sim<'c> {
         }
     }
 
+    /// An item from the catalog picked by the foe's id (deterministic, no RNG stream consumed).
+    fn drop_item(&mut self, x: i32, y: i32, id: u32) {
+        let n = self.c.items.len() as u64;
+        if n > 0 {
+            self.drop_at(x, y, Drop::Item(ItemId((mix(u64::from(id) ^ ITEM_SALT.rotate_left(17)) % n) as u16)));
+        }
+    }
+
     fn drop_at(&mut self, x: i32, y: i32, kind: Drop) {
         if self.drops.x.len() >= self.drops.x.capacity() {
-            if let Drop::Xp(v) = kind {
-                self.p.xp += u32::from(v);
-            } else {
-                self.pending_chest += 1;
+            // no room on the floor: the loot goes straight to the hero
+            match kind {
+                Drop::Xp(v) => self.p.xp += u32::from(v),
+                Drop::Chest => self.pending_chest += 1,
+                Drop::Item(id) => {
+                    self.gear.wear(self.c, id);
+                }
             }
             return;
         }
@@ -1144,10 +1155,16 @@ impl<'c> Sim<'c> {
             self.p.flux = (self.p.flux + self.c.player.flux_per_kill).min(self.c.player.flux);
             match tier {
                 Tier::Trash => self.drop_at(x, y, Drop::Xp(sp.xp_trash)),
-                Tier::Elite => self.drop_at(x, y, Drop::Xp(sp.xp_elite)),
+                Tier::Elite => {
+                    self.drop_at(x, y, Drop::Xp(sp.xp_elite));
+                    if mix(u64::from(self.e.id[i]) ^ ITEM_SALT).is_multiple_of(ELITE_ITEM_1_IN) {
+                        self.drop_item(x - 600, y, self.e.id[i]);
+                    }
+                }
                 Tier::Champion => {
                     self.drop_at(x, y, Drop::Xp(sp.xp_champion));
                     self.drop_at(x + 600, y, Drop::Chest);
+                    self.drop_item(x - 600, y, self.e.id[i]);
                 }
                 Tier::Boss => {
                     if let Some(b) = self.boss.take() {
@@ -1157,6 +1174,7 @@ impl<'c> Sim<'c> {
                         }
                     }
                     self.drop_at(x, y, Drop::Chest);
+                    self.drop_item(x + 600, y, self.e.id[i]);
                 }
             }
             self.e.remove(i);
@@ -1185,7 +1203,7 @@ impl<'c> Sim<'c> {
             // eat it: loot grows max HP by a tenth per point (and heals that much), contact damage grows in contact_dmg
             let bite = match self.drops.kind[k] {
                 Drop::Xp(_) => LOOT_XP,
-                Drop::Chest => LOOT_CHEST,
+                Drop::Chest | Drop::Item(_) => LOOT_CHEST,
             };
             let before = self.e.loot[j];
             self.e.loot[j] = before.saturating_add(bite);
@@ -1262,6 +1280,9 @@ impl<'c> Sim<'c> {
                 match self.drops.kind[i] {
                     Drop::Xp(x) => self.p.xp += u32::from(x),
                     Drop::Chest => self.pending_chest += 1,
+                    Drop::Item(id) => {
+                        self.gear.wear(self.c, id);
+                    }
                 }
                 let d = &mut self.drops;
                 d.x.swap_remove(i);

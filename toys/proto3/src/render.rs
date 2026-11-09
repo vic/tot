@@ -396,6 +396,10 @@ impl Frame {
                 self.chest(sim, x, y);
                 continue;
             }
+            if let crate::sim::Drop::Item(id) = sim.drops.kind[k] {
+                self.loot(sim, x, y, id);
+                continue;
+            }
             if let Some(i) = self.cell_of(x, y) {
                 let ch = Glyph::of('◇').unwrap_or(Glyph::SPACE);
                 self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch, fg: pal.xp, bg: None });
@@ -1338,7 +1342,10 @@ impl Frame {
             }
         };
         for g in &w.gold_piles {
-            at(self, g.x, g.y, Prio::Pickup, '$', pal.chest);
+            // gold is golden and glows (the chest pulse)
+            if let Some(i) = self.cell_of(f64::from(g.x), f64::from(g.y)) {
+                self.put(i, Prio::Pickup, self.vd(f64::from(g.x), f64::from(g.y)), Ink { ch: Glyph::of('$').unwrap_or(Glyph::SPACE), fg: pal.chest, bg: Some(chest_glow(pal, sim.tick)) });
+            }
         }
         for c in &w.chests {
             self.chest(sim, f64::from(c.x), f64::from(c.y));
@@ -1375,6 +1382,23 @@ impl Frame {
                     self.text(row as u16 - 1, (col as u16).saturating_sub(2), "HELP!", pal.player);
                 }
             }
+        }
+    }
+
+    /// An item on the floor, Diablo style: its glyph in its rarity colour on a glow of that colour, and a light
+    /// beam rising above it, taller the rarer it is (common none, unique LOOT_BEAM_MAX rows, pulsing).
+    fn loot(&mut self, sim: &Sim, x: f64, y: f64, id: crate::sim::ItemId) {
+        let Some(it) = sim.c.items.get(usize::from(id.0)) else { return };
+        let Some(i) = self.cell_of(x, y) else { return };
+        let pal = &sim.c.pal;
+        let fg = pal.role(it.rarity.role());
+        let glow = mix(fg, pal.bg, LOOT_GLOW);
+        self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: it.glyph, fg, bg: Some(glow) });
+        let rank = it.rarity as i32;
+        let pulse = if (sim.tick / LOOT_PULSE).is_multiple_of(2) { 0 } else { 1 };
+        let (col, row) = self.scr(x, y);
+        for h in 1..=(rank * LOOT_BEAM_MAX / 4 + if rank == 4 { pulse } else { 0 }) {
+            self.flash_cell(col, row - h, Glyph::of(if h == 1 { '│' } else { '╎' }).unwrap_or(Glyph::SPACE), fg);
         }
     }
 
@@ -2078,6 +2102,10 @@ const YOU_DIED_W: i32 = 29;
 const WK_MAX_W: usize = 72;
 /// Toggle label background: state colour mixed this far (permille) toward the background.
 const TOGGLE_BG: u32 = 450;
+/// Floor loot: glow mix toward the background (permille), tallest beam (rows), pulse period (ticks).
+const LOOT_GLOW: u32 = 650;
+const LOOT_BEAM_MAX: i32 = 4;
+const LOOT_PULSE: u32 = 10;
 /// Sponsor link: always at the bottom right, and pleaded on the death screen.
 const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
 const SUPPORT_LABEL: &str = "support tot <3";
@@ -2611,6 +2639,44 @@ mod tests {
         // the bubble stands on the Doom face: its tail is right above the face centre
         let (fx, y0) = f.face_origin().unwrap();
         assert_eq!(f.cells[(usize::from(y0) - 1) * 120 + usize::from(fx + FACE_W / 2)].ch.ch(), '┬', "bubble on the face");
+    }
+
+    #[test]
+    fn floor_loot_glows_by_rarity_and_gold_glows() {
+        use crate::data::Rarity;
+        use crate::sim::{Drop, ItemId};
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let by = |r: Rarity| ItemId(c.items.iter().position(|it| it.rarity == r).unwrap() as u16);
+        let beam = |id: ItemId| {
+            let mut sim = Sim::new(&c, 7, None);
+            sim.world.npcs.clear();
+            let (x, y) = (sim.p.x + 3_000, sim.p.y + 3_000);
+            sim.drops.x.push(x);
+            sim.drops.y.push(y);
+            sim.drops.kind.push(Drop::Item(id));
+            sim.drops.pulled.push(false);
+            let mut f = Frame::new(&c, 120, 40);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let (col, row) = f.scr(f64::from(x), f64::from(y));
+            let fg = c.pal.role(c.items[usize::from(id.0)].rarity.role());
+            let cell = f.cells[row as usize * 120 + col as usize];
+            assert!(cell.fg == fg && cell.bg != c.pal.bg, "item in its rarity colour on a glow");
+            (1..=6).take_while(|h| f.cells[(row - h) as usize * 120 + col as usize].fg == fg && "│╎".contains(f.cells[(row - h) as usize * 120 + col as usize].ch.ch())).count()
+        };
+        let (common, unique) = (beam(by(Rarity::Common)), beam(by(Rarity::Unique)));
+        assert!(common == 0 && unique >= 4, "beam grows with rarity: common {common}, unique {unique}");
+        assert!(beam(by(Rarity::Rare)) < unique);
+        // gold piles: golden on the pulsing gold glow
+        let mut sim = Sim::new(&c, 7, None);
+        sim.world.npcs.clear();
+        let (x, y) = (sim.p.x + 3_000, sim.p.y - 3_000);
+        sim.world.gold_piles.push(crate::sim::GoldPile { x, y, gold: 5 });
+        let mut f = Frame::new(&c, 120, 40);
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let (col, row) = f.scr(f64::from(x), f64::from(y));
+        let cell = f.cells[row as usize * 120 + col as usize];
+        assert_eq!((cell.ch.ch(), cell.fg, cell.bg), ('$', c.pal.chest, chest_glow(&c.pal, sim.tick)), "gold glows");
     }
 
     #[test]
