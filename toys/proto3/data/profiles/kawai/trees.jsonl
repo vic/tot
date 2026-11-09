@@ -1,0 +1,39 @@
+{"t":"head","schema_version":1,"file":"trees"}
+{"t":"class","id":"gravekeeper","name":"STAR KEEPER","desc":"Tucks the night stars into bed. Wand, lantern, lullabies."}
+{"t":"class","id":"witchhunter","name":"BUN KNIGHT","desc":"Shields the meadow. Bun armor, carrot lance, big heart."}
+{"t":"tree","id":"packet","name":"STAR MAGIC","class":"gravekeeper","tag":"magic"}
+{"t":"node","tree":"packet","id":"packet0","name":"FIRST TWINKLE","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"packet","id":"packet1","name":"STAR BURST","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}
+{"t":"node","tree":"packet","id":"packet2","name":"TWIN STARS","effect":"chain","cost":1,"tag":"thunder","requires":["packet0"],"col":2,"row":1}
+{"t":"node","tree":"packet","id":"packet3","name":"STAR WEB","effect":"pulse","cost":2,"tag":"thunder","requires":["packet1","packet2"],"col":1,"row":2}
+{"t":"node","tree":"packet","id":"packet4","name":"STAR SAGE","effect":"bolt","cost":3,"requires":["packet3"],"col":1,"row":3}
+{"t":"tree","id":"daemon","name":"FRIENDSHIP","class":"gravekeeper","tag":"necro"}
+{"t":"node","tree":"daemon","id":"daemon0","name":"WAVE HELLO","effect":"orbit","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"daemon","id":"daemon1","name":"BEST FRIEND","effect":"hack","cost":1,"requires":["daemon0"],"col":0,"row":1}
+{"t":"node","tree":"daemon","id":"daemon2","name":"GIFT BOX","effect":"mine","cost":1,"requires":["daemon0"],"col":2,"row":1}
+{"t":"node","tree":"daemon","id":"daemon3","name":"SING ALONG","effect":"hack","cost":2,"requires":["daemon1","daemon2"],"col":1,"row":2}
+{"t":"node","tree":"daemon","id":"daemon4","name":"FRIENDSHIP BRACELET","effect":"orbit","cost":3,"requires":["daemon3"],"col":1,"row":3}
+{"t":"tree","id":"clock","name":"SUGAR RUSH","class":"gravekeeper","tag":"speed"}
+{"t":"node","tree":"clock","id":"clock0","name":"SECOND SNACK","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"clock","id":"clock1","name":"HOPPY FEET","effect":"haste","cost":1,"requires":["clock0"],"col":0,"row":1}
+{"t":"node","tree":"clock","id":"clock2","name":"SNACK MAGNET","effect":"magnet","cost":1,"tag":"dex","requires":["clock0"],"col":2,"row":1}
+{"t":"node","tree":"clock","id":"clock3","name":"TEA PARTY","effect":"regen","cost":2,"requires":["clock1","clock2"],"col":1,"row":2}
+{"t":"node","tree":"clock","id":"clock4","name":"ZOOMIES","effect":"haste","cost":3,"requires":["clock3"],"col":1,"row":3}
+{"t":"tree","id":"mop","name":"BUN STANCE","class":"witchhunter","tag":"melee"}
+{"t":"node","tree":"mop","id":"mop0","name":"CARROT GRIP","effect":"might","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"mop","id":"mop1","name":"PILLOW WARD","effect":"plating","cost":1,"requires":["mop0"],"col":0,"row":1}
+{"t":"node","tree":"mop","id":"mop2","name":"SPIN HOP","effect":"orbit","cost":1,"requires":["mop0"],"col":2,"row":1}
+{"t":"node","tree":"mop","id":"mop3","name":"BIG BONK","effect":"might","cost":2,"requires":["mop1","mop2"],"col":1,"row":2}
+{"t":"node","tree":"mop","id":"mop4","name":"MEGA HUG","effect":"plating","cost":3,"requires":["mop3"],"col":1,"row":3}
+{"t":"tree","id":"arc","name":"RAINBOW CALLING","class":"witchhunter","tag":"thunder"}
+{"t":"node","tree":"arc","id":"arc0","name":"RAINBOW TOUCH","effect":"chain","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"arc","id":"arc1","name":"DRIZZLE","effect":"pulse","cost":1,"requires":["arc0"],"col":0,"row":1}
+{"t":"node","tree":"arc","id":"arc2","name":"GLITTER","effect":"bolt","cost":1,"requires":["arc0"],"col":2,"row":1}
+{"t":"node","tree":"arc","id":"arc3","name":"RAINBOW ARC","effect":"chain","cost":2,"requires":["arc1","arc2"],"col":1,"row":2}
+{"t":"node","tree":"arc","id":"arc4","name":"SUNBEAM","effect":"pulse","cost":3,"requires":["arc3"],"col":1,"row":3}
+{"t":"tree","id":"slip","name":"TIPTOE","class":"witchhunter","tag":"dex"}
+{"t":"node","tree":"slip","id":"slip0","name":"SOFT PAWS","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"slip","id":"slip1","name":"TREAT HUNT","effect":"magnet","cost":1,"requires":["slip0"],"col":0,"row":1}
+{"t":"node","tree":"slip","id":"slip2","name":"YARN TRAP","effect":"mine","cost":1,"requires":["slip0"],"col":2,"row":1}
+{"t":"node","tree":"slip","id":"slip3","name":"BANDAID","effect":"regen","cost":2,"requires":["slip1","slip2"],"col":1,"row":2}
+{"t":"node","tree":"slip","id":"slip4","name":"FEATHER TICKLE","effect":"haste","cost":3,"requires":["slip3"],"col":1,"row":3}

@@ -2825,7 +2825,7 @@ pub mod tests {
     fn every_installed_profile_loads_and_default_is_the_base_data() {
         let d = data_dir();
         let ps = profiles(&d).unwrap();
-        assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyberpunk", "hellish"]);
+        assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyberpunk", "hellish", "kawai"]);
         let base = Content::load_profile(&d, None).unwrap();
         let cyber = Content::load_profile(&d, Some("cyberpunk")).unwrap();
         let names = |c: &Content| c.fams.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
@@ -2845,20 +2845,36 @@ pub mod tests {
         let d = data_dir();
         for bad in ["nope", "../data", "", "Dark-Fantasy"] {
             let e = Content::load_profile(&d, Some(bad)).err().map(|e| e.to_string()).unwrap_or_default();
-            assert!(e.contains(&format!("--profile '{bad}' is not installed; available: cyberpunk hellish")), "{e}");
+            assert!(e.contains(&format!("--profile '{bad}' is not installed; available: cyberpunk hellish kawai")), "{e}");
         }
     }
 
     #[test]
     fn every_profile_tells_its_story_from_minute_one_without_overlap() {
         let d = data_dir();
-        for p in ["cyberpunk", "hellish"] {
+        for p in ["cyberpunk", "hellish", "kawai"] {
             let c = Content::load_profile(&d, Some(p)).unwrap();
             let at: Vec<u32> = c.waves.iter().filter_map(|w| if let WaveEv::Narrate { at, .. } = w { Some(*at) } else { None }).collect();
             let minute = c.hz().ticks(60.0);
             assert!(at.iter().filter(|t| **t < minute).count() >= 3, "{p}: 3 story lines in the first minute");
             let shown = c.hz().get() * 6; // render keeps a line 6 s
             assert!(at.windows(2).all(|w| w[1] - w[0] >= shown), "{p}: a line must not cut off the previous one {at:?}");
+        }
+    }
+
+    #[test]
+    fn every_themed_adventure_has_its_own_words_foes_and_colours() {
+        let d = data_dir();
+        let base = Content::load_profile(&d, Some("cyberpunk")).unwrap();
+        let foes = |c: &Content| c.fams.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
+        let others: Vec<_> = profiles(&d).unwrap().into_iter().filter(|p| p.id != "cyberpunk").collect();
+        assert!(others.len() >= 2, "control: themed adventures exist");
+        for p in others {
+            let c = Content::load_profile(&d, Some(&p.id)).unwrap();
+            assert!(d.join("profiles").join(&p.id).join("texts.jsonl").exists(), "{}: ships its own texts", p.id);
+            assert_ne!(c.texts.get(crate::text::t::PANEL_FLUX), base.texts.get(crate::text::t::PANEL_FLUX), "{}: its own words", p.id);
+            assert!(foes(&c).iter().all(|f| !foes(&base).contains(f)), "{}: its own foes", p.id);
+            assert_ne!(c.pal.role(Role::Bg), base.pal.role(Role::Bg), "{}: its own colours", p.id);
         }
     }
 

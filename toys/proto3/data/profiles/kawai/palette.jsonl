@@ -1,0 +1,2 @@
+{"t":"head","schema_version":1,"file":"palette"}
+{"t":"palette","scheme":"catppuccin-mocha","bg":"#1e1e2e","fog":"#313244","floor":"#45475a","player":"#f5e0dc","ring":"#cba6f7","alarm":"#f38ba8","text":"#cdd6f4","dim":"#9399b2","xp":"#94e2d5","chest":"#f9e2af","hud_bg":"#181825","kin":"#a6e3a1","therm":"#fab387","emp":"#89dceb","code":"#f5c2e7","floor_glyphs":"·.'`,:","density_glyphs":"░▒▓","face_glyphs":"▓█▒","shadow_glyph":"▁","body_glyph":"│"}

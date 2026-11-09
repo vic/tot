@@ -1,0 +1,15 @@
+{"t":"head","schema_version":1,"file":"items"}
+{"t":"item","id":"mesh_vest","name":"COZY SWEATER","slot":"armor","rarity":"common","glyph":"[","mods":[{"stat":"armour","value":3}],"desc":"Knitted by grandma. Soft bumps bounce right off."}
+{"t":"item","id":"hazmat_plate","name":"BUN PLATE","slot":"armor","rarity":"rare","glyph":"[","mods":[{"stat":"armour","value":6},{"stat":"max_hp","value":40}],"desc":"Bun-shaped armor, warm from the oven."}
+{"t":"item","id":"firewall_coat","name":"CLOUD CAPE","slot":"armor","rarity":"epic","glyph":"[","mods":[{"stat":"armour","value":9},{"stat":"max_hp","value":80},{"stat":"regen","value":1.0}],"desc":"Woven from cloud fluff. Grumps slide off it."}
+{"t":"item","id":"loop_band","name":"CANDY RING","slot":"ring","rarity":"common","glyph":"o","mods":[{"stat":"haste","value":0.05}],"desc":"Sweet and sticky. It makes you skip."}
+{"t":"item","id":"signal_ring","name":"HEART RING","slot":"ring","rarity":"rare","glyph":"o","mods":[{"stat":"crit","value":0.05},{"stat":"damage","value":0.08}],"desc":"A tiny heart glows inside. Every bonk counts."}
+{"t":"item","id":"overflow_loop","name":"DONUT LOOP","slot":"ring","rarity":"legendary","glyph":"o","mods":[{"stat":"haste","value":0.15},{"stat":"damage","value":0.15},{"stat":"crit","value":0.08}],"desc":"A donut that never runs out of donut."}
+{"t":"item","id":"lint_chip","name":"SUGAR CRYSTAL","slot":"jewel","rarity":"common","glyph":"*","mods":[{"stat":"pickup","value":1.0}],"desc":"Pulls sweets and coins to your paws."}
+{"t":"item","id":"prism_core","name":"RAINBOW PRISM","slot":"jewel","rarity":"rare","glyph":"*","mods":[{"stat":"area","value":0.12},{"stat":"pickup","value":1.5}],"desc":"Splits a spell into a rainbow fan."}
+{"t":"item","id":"kernel_gem","name":"MOCHI HEART","slot":"jewel","rarity":"unique","glyph":"*","mods":[{"stat":"damage","value":0.25},{"stat":"speed","value":0.05}],"desc":"King Mochi's own squishy heart."}
+{"t":"item","id":"push_broom","name":"TOY WAND","slot":"weapon","rarity":"common","glyph":"/","mods":[{"stat":"damage","value":0.06}],"desc":"Plastic, but the stars are real."}
+{"t":"item","id":"arc_wand","name":"RAINBOW STAFF","slot":"weapon","rarity":"epic","glyph":"/","mods":[{"stat":"damage","value":0.2},{"stat":"area","value":0.1},{"stat":"haste","value":0.08}],"desc":"A candy cane that remembers rainbows."}
+{"t":"item","id":"lucky_fuse","name":"LUCKY CLOVER","slot":"charm","rarity":"common","glyph":"+","mods":[{"stat":"speed","value":0.03}],"desc":"Four leaves. It has not run out of luck yet."}
+{"t":"item","id":"ghost_tag","name":"BELL CHARM","slot":"charm","rarity":"rare","glyph":"+","mods":[{"stat":"speed","value":0.06},{"stat":"regen","value":0.5}],"desc":"A tiny bell. Strangely, it makes you quieter."}
+{"t":"item","id":"null_idol","name":"PLUSH IDOL","slot":"charm","rarity":"unique","glyph":"+","mods":[{"stat":"max_hp","value":120},{"stat":"armour","value":4},{"stat":"regen","value":2.0},{"stat":"speed","value":0.04}],"desc":"Hugs the void back. Purrs when grumps are near."}
