@@ -1,6 +1,6 @@
 {"t":"head","schema_version":1,"file":"trees"}
-{"t":"class","id":"gravekeeper","name":"RUNE KEEPER","desc":"Reads the runes on the walls. Lamp, chisel and the old tongue."}
-{"t":"class","id":"witchhunter","name":"AXE WARDEN","desc":"Holds the bridge. Axe, shield and a stubborn beard."}
+{"t":"class","id":"gravekeeper","name":"RUNE KEEPER","desc":"Reads the runes on the walls. Lamp, chisel and the old tongue.","art":["    ▄███▄    ","    (◉ ◉)    ","  ╔═▓▓▓▓▓═╗  ","  ║ ▓▓▓▓▓ ║─┼","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
+{"t":"class","id":"witchhunter","name":"AXE WARDEN","desc":"Holds the bridge. Axe, shield and a stubborn beard.","art":["    ▄███▄    ","    (◉ ◉)    ","  ╔═▓▓▓▓▓═╗  ","  ║ ▓▓▓▓▓ ║─┼","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
 {"t":"tree","id":"packet","name":"RUNECRAFT","class":"gravekeeper","tag":"magic"}
 {"t":"node","tree":"packet","id":"packet0","name":"FIRST RUNE","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
 {"t":"node","tree":"packet","id":"packet1","name":"BLAST RUNE","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}

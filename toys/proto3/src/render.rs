@@ -3247,6 +3247,29 @@ mod tests {
     }
 
     #[test]
+    fn hero_pane_draws_the_picked_class_art() {
+        let at = texts().iter().position(|t| t.contains("\"t\":\"class\"")).unwrap();
+        let mut ts = texts();
+        // the second class gets its own head row
+        let second = ts[at].lines().filter(|l| l.contains("\"t\":\"class\"")).nth(1).unwrap().to_string();
+        ts[at] = ts[at].replace(&second, &second.replacen("\"    (◉ ◉)    \"", "\"    {o_o}    \"", 1));
+        let c = Content::parse(&ts).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Gear;
+        let mut f = Frame::new(&c, 200, 60);
+        let mut shot = |ui: &Ui| {
+            f.compose(&sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let first = shot(&ui);
+        assert!(first.contains("(◉ ◉)") && !first.contains("{o_o}"), "control: the first class's art");
+        ui.class = c.class_id(1).unwrap();
+        let s = shot(&ui);
+        assert!(s.contains("{o_o}") && !s.contains("(◉ ◉)"), "the second class's art\n{s}");
+    }
+
+    #[test]
     fn hero_pane_highlights_the_selection_in_every_tab() {
         let c = Content::parse(&texts()).unwrap();
         let sim = Sim::new(&c, 7, None);

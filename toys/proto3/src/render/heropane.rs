@@ -24,16 +24,6 @@ impl Tab {
     const ALL: [Tab; 3] = [Tab::Armor, Tab::Bags, Tab::Skills];
 }
 
-/// The hero, 7 rows: each part names the slot whose item colours it (None = the body itself).
-const HERO: [(&str, [Option<Slot>; 3]); 7] = [
-    ("    ▄███▄    ", [Some(Slot::Armor), None, None]),
-    ("    (◉ ◉)    ", [None, None, None]),
-    ("  ╔═▓▓▓▓▓═╗  ", [Some(Slot::Armor), None, None]),
-    ("  ║ ▓▓▓▓▓ ║─┼", [Some(Slot::Armor), Some(Slot::Weapon), None]),
-    ("  ╚═╤═◆═╤═╝  ", [Some(Slot::Charm), Some(Slot::Jewel), None]),
-    ("    ║   ║  ○ ", [None, Some(Slot::Ring), None]),
-    ("   ▀▀▀ ▀▀▀   ", [None, None, None]),
-];
 
 impl Frame {
     /// Where the pane goes (left col, top row): under the stats pane when there is room, else over the arena.
@@ -95,14 +85,11 @@ impl Frame {
             None if slot.is_some() => pal.dim,
             None => pal.text,
         };
-        for (r, (line, parts)) in HERO.iter().enumerate() {
-            // the first slot colours the line, the later ones colour their own marks (weapon, jewel, ring)
-            self.text((t + r as i32) as u16, l as u16, line, ink(parts[0]));
-            for (mark, slot) in [('┼', Slot::Weapon), ('─', Slot::Weapon), ('◆', Slot::Jewel), ('○', Slot::Ring)] {
-                if parts.contains(&Some(slot))
-                    && let Some(k) = line.chars().position(|ch| ch == mark)
-                {
-                    self.text((t + r as i32) as u16, (l + k as i32) as u16, &mark.to_string(), ink(Some(slot)));
+        // the class's own hero art: each cell in the colour of the item its paint mask names
+        if let Some(class) = c.classes.get(ui.class.ix()) {
+            for (r, row) in class.art.rows().iter().enumerate() {
+                for (k, &(ch, slot)) in row.iter().enumerate() {
+                    self.text((t + r as i32) as u16, (l + k as i32) as u16, &ch.ch().to_string(), ink(slot));
                 }
             }
         }

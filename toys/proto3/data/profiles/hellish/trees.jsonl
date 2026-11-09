@@ -1,6 +1,6 @@
 {"t":"head","schema_version":1,"file":"trees"}
-{"t":"class","id":"gravekeeper","name":"GRAVE-KEEPER","desc":"Keeps the dead in the ground. Spade, lantern and old rites."}
-{"t":"class","id":"witchhunter","name":"WITCH HUNTER","desc":"Burns what the dark sends. Crossbow, silver and fire."}
+{"t":"class","id":"gravekeeper","name":"GRAVE-KEEPER","desc":"Keeps the dead in the ground. Spade, lantern and old rites.","art":["    ▄███▄    ","    (◉ ◉)    ","  ╔═▓▓▓▓▓═╗  ","  ║ ▓▓▓▓▓ ║─┼","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
+{"t":"class","id":"witchhunter","name":"WITCH HUNTER","desc":"Burns what the dark sends. Crossbow, silver and fire.","art":["    ▄███▄    ","    (◉ ◉)    ","  ╔═▓▓▓▓▓═╗  ","  ║ ▓▓▓▓▓ ║─┼","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
 {"t":"tree","id":"packet","name":"ARCANE ARTS","class":"gravekeeper","tag":"magic"}
 {"t":"node","tree":"packet","id":"packet0","name":"FIRST SPARK","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
 {"t":"node","tree":"packet","id":"packet1","name":"BLAST","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}

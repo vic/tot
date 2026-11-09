@@ -991,6 +991,43 @@ pub struct Class {
     pub name: String,
     /// one line shown when the hero picks a class
     pub desc: String,
+    /// the hero drawn in the hero pane's gear tab
+    pub art: HeroArt,
+}
+
+/// Hero pane art: HERO_ART_ROWS x HERO_ART_COLS cells, each a glyph and the gear slot whose worn item colours it
+/// (None = the body, drawn in the text colour). Built only by `hero_art`, so every row has every cell.
+pub struct HeroArt(Vec<Vec<(Glyph, Option<Slot>)>>);
+
+impl HeroArt {
+    pub fn rows(&self) -> &[Vec<(Glyph, Option<Slot>)>] {
+        &self.0
+    }
+}
+
+pub const HERO_ART_ROWS: usize = 7;
+pub const HERO_ART_COLS: usize = 13;
+/// Paint mask letters: the slot each letter colours ('.' = the body).
+const PAINT: [(char, Option<Slot>); 6] = [('.', None), ('a', Some(Slot::Armor)), ('r', Some(Slot::Ring)), ('j', Some(Slot::Jewel)), ('w', Some(Slot::Weapon)), ('c', Some(Slot::Charm))];
+
+/// `art` rows of glyphs and the same-size `paint` mask.
+fn hero_art(r: &Rec) -> Result<HeroArt> {
+    let grid = |k: &str| -> Result<Vec<Vec<char>>> {
+        let rows: Vec<Vec<char>> = r.strs(k)?.iter().map(|s| s.chars().collect()).collect();
+        if rows.len() == HERO_ART_ROWS && rows.iter().all(|row| row.len() == HERO_ART_COLS) {
+            Ok(rows)
+        } else {
+            Err(r.err(k, format!("need {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} chars")))
+        }
+    };
+    let (art, paint) = (grid("art")?, grid("paint")?);
+    art.iter().zip(&paint).map(|(a, p)| {
+        a.iter().zip(p).map(|(&ch, &m)| {
+            let g = Glyph::of(ch).ok_or_else(|| r.err("art", format!("'{ch}' is not a cell glyph")))?;
+            let slot = PAINT.iter().find(|(l, _)| *l == m).map(|(_, s)| *s).ok_or_else(|| r.err("paint", format!("'{m}' is not one of . a r j w c")))?;
+            Ok((g, slot))
+        }).collect::<Result<Vec<_>>>()
+    }).collect::<Result<Vec<_>>>().map(HeroArt)
 }
 
 // ---------- texts and art ----------
@@ -1033,6 +1070,9 @@ pub fn schema_doc() -> String {
         s += &format!("- `{}`: when {}\n", b.id(), b.doc());
     }
     s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
+    s += &format!(
+        "\n## trees.jsonl class art\n\nEach `class` record has `art`: the hero of that class drawn in the hero pane's gear tab, {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} cell glyphs (head on top, feet at the bottom); and `paint`: {HERO_ART_ROWS} rows of {HERO_ART_COLS} letters, one per art cell, naming what colours it: `a` armor, `r` ring, `j` jewel, `w` weapon, `c` charm (the worn item's rarity colour, dim when the slot is empty), `.` the body (text colour). Draw the gear where it is worn: armor on the torso, weapon in a hand, ring on a finger.\n"
+    );
     s += "\n## shown fields of other records\n\n";
     for (file, field, doc, max, kind) in SHOWN_FIELDS {
         s += &format!("- {file} `{field}` (1..={max} {kind}): {doc}\n");
@@ -1308,12 +1348,12 @@ fn index_of<'a>(keys: impl Iterator<Item = &'a str>, k: &str) -> Option<usize> {
 fn trees(recs: &[(String, Rec)], skill_id: &dyn Fn(&Rec, &str, &str) -> Result<SkillId>) -> Result<(Vec<Class>, Vec<Tree>)> {
     let mut classes: Vec<Class> = Vec::new();
     for (_, r) in recs.iter().filter(|(t, _)| t == "class") {
-        r.allow(&["t", "id", "name", "desc"])?;
+        r.allow(&["t", "id", "name", "desc", "art", "paint"])?;
         let key = label(r, "id", 24)?;
         if classes.iter().any(|c| c.key == key) {
             return Err(r.err("id", "duplicate class"));
         }
-        classes.push(Class { key, name: label(r, "name", SHOWN_FIELDS[2].3)?, desc: shown(r, "desc", SHOWN_FIELDS[3].3)? });
+        classes.push(Class { key, name: label(r, "name", SHOWN_FIELDS[2].3)?, desc: shown(r, "desc", SHOWN_FIELDS[3].3)?, art: hero_art(r)? });
     }
     if classes.is_empty() || classes.len() > 255 {
         return Err(scheme_err("trees.jsonl", 0, "", "need 1..=255 class records"));
@@ -2642,6 +2682,25 @@ pub mod tests {
         let e = WorldScheme::new("schemes/gruvbox-light.yaml", scheme("gruvbox-light")).err().map(|e| e.to_string());
         assert_eq!(e, Some("schemes/gruvbox-light.yaml:0 .variant: the world scheme must be dark".into()));
         assert!(WorldScheme::new("d", scheme("dracula")).is_ok(), "control");
+    }
+
+    #[test]
+    fn class_hero_art_and_paint_must_match_in_size_and_letters() {
+        let at = FILES.iter().position(|&f| f == "trees.jsonl").unwrap();
+        let with = |from: &str, to: &str| {
+            let mut t = texts();
+            assert!(t[at].contains(from), "control edit applies: {from}");
+            t[at] = t[at].replacen(from, to, 1);
+            Content::parse(&t).err().map(|e| e.to_string()).unwrap_or_default()
+        };
+        let c = content();
+        let row = |k: usize, r: usize| c.classes[k].art.rows()[r].iter().map(|(g, _)| g.ch()).collect::<String>();
+        assert_eq!(row(0, 1), "    (◉ ◉)    ", "control: the shipped art");
+        assert_eq!(c.classes[0].art.rows()[3][12].1, Some(Slot::Weapon), "paint names the slot of a cell");
+        assert!(with("\"...........r.\"", "\"...........x.\"").contains("not one of"), "a paint letter that names no slot");
+        assert!(with("\"...........r.\"", "\"..........r.\"").contains("exactly 13"), "a paint row of the wrong size");
+        assert!(with("\"    (◉ ◉)    \"", "\"    (◉ ◉)   \"").contains("exactly 13"), "an art row of the wrong size");
+        assert!(schema_doc().contains("class art"), "documented");
     }
 
     #[test]
