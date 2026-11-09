@@ -1,6 +1,6 @@
 //! Pure render: sim state -> cell grid -> diff bytes (design sec 5). One buffer per frame, diff
 //! against the front buffer, hand decimal writer (no core::fmt in the frame path, PF sec 1c).
-use crate::data::{Content, Glyph, Hue, Rgb, Role};
+use crate::data::{Content, Glyph, Hue, Rgb, Role, Slot};
 use crate::face::{self, Face, Mood};
 use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
@@ -13,6 +13,10 @@ use std::collections::HashSet;
 
 mod heropane;
 
+/// Hero levels where the shoulders grow, and the quadrant glyphs (left, right) of each tier (tot-rcn.6).
+/// shortcut: fixed in code, move to tuning data when a profile wants its own.
+const HERO_TIERS: [u16; 3] = [5, 10, 20];
+const SHOULDERS: [[char; 2]; 3] = [['▗', '▖'], ['▟', '▙'], ['█', '█']];
 /// Map box (top-left of the play area): cols x rows of the map.
 const MAP_W: u16 = 26;
 const MAP_H: u16 = 11;
@@ -471,9 +475,27 @@ impl Frame {
         let pfg = if sim.p.iframes > 0 { pal.xp } else { pal.player };
         // cutaway (blocks) keeps every block face out of the player's stack, so the player is never hidden
         let head = Ink { ch: Glyph::of('@').unwrap_or(Glyph::SPACE), fg: pfg, bg: Some(pal.ring) };
-        let body = Ink { ch: pal.body, fg: pfg, bg: None };
+        let worn = |s: Slot| sim.gear.worn(s).and_then(|id| c.items.get(usize::from(id.0))).map(|it| (it.glyph, pal.role(it.rarity.role())));
+        // worn armour plates the torso in its rarity colour
+        let body = match worn(Slot::Armor) {
+            Some((_, fg)) => Ink { ch: Glyph::of('█').unwrap_or(pal.body), fg, bg: None },
+            None => Ink { ch: pal.body, fg: pfg, bg: None },
+        };
         let shadow = Ink { ch: pal.shadow, fg: pal.dim, bg: None };
-        self.stand(pi, i32::MAX, c.view.actor_rows[0], Prio::PlayerCore, [head, body, shadow]);
+        let n = c.view.actor_rows[0];
+        self.stand(pi, i32::MAX, n, Prio::PlayerCore, [head, body, shadow]);
+        // beside the stack: weapon in the right hand, charm in the left, shoulders that grow per level tier
+        if n > 0 {
+            let tier = HERO_TIERS.iter().filter(|&&l| sim.p.level >= l).count();
+            let shoulders = tier.checked_sub(1).map(|t| SHOULDERS[t].map(|ch| (Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.player)));
+            let side = [(1, 1, worn(Slot::Weapon)), (-1, 1, worn(Slot::Charm)), (-1, i32::from(n), shoulders.map(|s| s[0])), (1, i32::from(n), shoulders.map(|s| s[1]))];
+            for (dx, up, ink) in side {
+                let (x, y) = (pcol + dx, prow - up);
+                if let Some((ch, fg)) = ink.filter(|_| x >= 0 && y >= 0 && x < i32::from(self.cols)) {
+                    self.put(y as usize * cols + x as usize, Prio::PlayerCore, i32::MAX, Ink { ch, fg, bg: None });
+                }
+            }
+        }
         if self.level.is_some_and(|l| sim.p.level > l) {
             self.level_flash = Some((v.now_ms, sim.p.level));
         }
@@ -2850,6 +2872,41 @@ mod tests {
         let rows: Vec<Vec<char>> = lines.iter().map(|l| l.chars().collect()).collect();
         let lw = rows.iter().map(Vec::len).max().unwrap_or(0);
         (0..h.saturating_sub(rows.len())).any(|r0| (0..w.saturating_sub(lw)).any(|c0| rows.iter().enumerate().all(|(r, l)| l.iter().enumerate().all(|(k, &ch)| ch == ' ' || f.cells[(r0 + r) * w + c0 + k].ch.ch() == ch))))
+    }
+
+    #[test]
+    fn hero_shows_worn_gear_and_level_tier() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let n = i32::from(c.view.actor_rows[0]);
+        let item = |s: Slot| c.items.iter().position(|it| it.slot == s).map(|k| ItemId(k as u16)).unwrap();
+        // (torso, right hand, left hand, left shoulder, right shoulder): glyph + colour, None where nothing of the hero's
+        let look = |sim: &Sim| {
+            let mut f = Frame::new(&c, 160, 50);
+            f.compose(sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let w = i32::from(f.cols);
+            let head = (0..f.cells.len()).find(|&j| f.z[j] == Prio::PlayerCore && f.cells[j].ch.ch() == '@').unwrap() as i32;
+            let at = |dx: i32, dy: i32| {
+                let j = (head + dy * w + dx) as usize;
+                (f.z[j] == Prio::PlayerCore).then(|| (f.cells[j].ch.ch(), f.cells[j].fg))
+            };
+            [at(0, n - 1), at(1, n - 1), at(-1, n - 1), at(-1, 0), at(1, 0)]
+        };
+        let mut sim = Sim::new(&c, 7, None);
+        sim.world.npcs.clear();
+        let bare = look(&sim);
+        assert_eq!(bare[0].map(|t| t.0), Some(c.pal.body.ch()), "control: bare torso");
+        assert_eq!(bare[1..], [None; 4], "control: nothing beside a bare level-1 hero");
+        let ink = |id: ItemId| (c.items[usize::from(id.0)].glyph.ch(), c.pal.role(c.items[usize::from(id.0)].rarity.role()));
+        let [armor, weapon, charm] = [Slot::Armor, Slot::Weapon, Slot::Charm].map(item);
+        for id in [armor, weapon, charm] {
+            sim.gear.wear(&c, id);
+        }
+        sim.p.level = HERO_TIERS[1];
+        let geared = look(&sim);
+        assert_eq!(geared[0], Some(('█', ink(armor).1)), "armour plates the torso");
+        assert_eq!((geared[1], geared[2]), (Some(ink(weapon)), Some(ink(charm))), "weapon right, charm left");
+        assert_eq!((geared[3].map(|t| t.0), geared[4].map(|t| t.0)), (Some('▟'), Some('▙')), "tier-2 shoulders");
     }
 
     #[test]
