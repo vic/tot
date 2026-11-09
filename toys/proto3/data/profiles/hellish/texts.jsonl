@@ -265,4 +265,4 @@
 {"t":"letter","id":"?","rows":["▀▀▓"," ▓▀"," ▄ "]}
 {"t":"letter","id":".","rows":[" "," ","▄"]}
 {"t":"letter","id":" ","rows":["  ","  ","  "]}
-{"t":"pool","id":"wall_lore","lines":["MEMENTO MORI ","+ REQUIESCAT + ","THE DEAD WALK ","DOMINE SALVA NOS ","ASHES TO ASHES ","HERE LIES NONE "]}
+{"t":"pool","id":"wall_lore","lines":["  X    XX  X       X   XXX     ","      X  X   XXXX        X X   ","X X       XX     X  XXX        ","    XXX      X  X        XX  X "]}

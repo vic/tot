@@ -5,7 +5,7 @@
 {"t":"xp","need":[[1,4],[5,16],[11,56],[19,123],[60,312]]}
 {"t":"picks","cards":3,"rarity":[700,220,70,10],"gain":[1.0,1.5,2.0,3.0],"pity_every":4,"owned_bias":0.5,"tag_bonus":0.5,"max_rank":5}
 {"t":"hijack","cap_base":8,"cap_per_rank":2,"burst_hp":0.5,"burst_m":2.0,"dmg_mult":1.0,"enemy_weight":0.5,"elite_ice":10,"champion_ice":25,"elite_s":6,"champion_s":4,"glitch_decay_s":2,"seek_m":8}
-{"t":"view","fog_start_m":6,"fog_end_m":26,"fog_max":0.7,"fog_bands":16,"floor_cell_m":2,"min_cols":120,"min_rows":40,"crowd_n":3,"crowd_m":1.5,"tele_blink_hz":4,"view_m":24,"block_rows":[7,2],"actor_rows":[2,2,3],"face_pct":[70,40,15],"cut_cols":10,"fps":60,"follow_ms":200,"deadzone_m":0.2,"turn_ms":250}
+{"t":"view","fog_start_m":6,"fog_end_m":26,"fog_max":0.7,"fog_bands":16,"floor_cell_m":2,"min_cols":120,"min_rows":40,"crowd_n":3,"crowd_m":1.5,"tele_blink_hz":4,"view_m":24,"block_rows":[7,2],"actor_rows":[2,2,3],"face_pct":[22,10,4],"cut_cols":10,"fps":60,"follow_ms":200,"deadzone_m":0.2,"turn_ms":250}
 {"t":"bars","kiter_tag_win":[0.55,0.75],"kiter_random_win":[0.15,0.35],"oracle_win_min":0.95,"none_median_max_s":270,"still_median_max_s":300,"n2_earlier_min":0.4,"skill_share_max":0.6,"degenerate_dmg_share":0.57,"meter_ratio_min":1.5}
 {"t":"arena","glyphs":[4,8],"density":[0.2,0.4],"fam_mult":[0.5,1.6],"decor":[0.15,0.45],"decor_cell_m":14,"decor_r_m":[1.0,3.5]}
 {"t":"scaling","par_levels_per_min":0.8,"speedup_per_level":0.25,"speedup_cap":1.0,"mini_per_level":0.04,"mini_cap":1.5,"horde_per_level":0.03,"horde_cap":1.5}

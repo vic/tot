@@ -399,6 +399,12 @@ pub struct Palette {
     pub bg: Rgb,
     pub fog: Rgb,
     pub floor: Rgb,
+    /// the walls' own colour (their faces mix it toward the text colour by view.face_pct)
+    pub wall: Rgb,
+    /// floor motif: colour and the share (permille) of floor glyphs drawn in it
+    pub floor_motif: (Rgb, u32),
+    /// wall motif: lore-marked lit wall cells mix toward this colour this far (permille)
+    pub wall_motif: (Rgb, u32),
     pub player: Rgb,
     pub ring: Rgb,
     pub alarm: Rgb,
@@ -1087,7 +1093,7 @@ pub fn schema_doc() -> String {
     }
     s += &format!("\n## texts.jsonl `letter` records (the big block font: shouts, roars, banners)\n\nOne record per character A-Z ! ? . and space (`\"id\":\"A\"`): `rows` = 3 rows of one width 1..={} in width-1 cell glyphs. The game puts one blank column between letters. Keep the letters distinct.\n", crate::bigtext::LETTER_MAX_W);
     s += "\n## tuning.jsonl gameplay (each adventure plays different)\n\n`player` = the hero: hp, regen_s, armour, speed_mps (must stay above every foe), pickup_m, crit_chance, crit_bonus, dash_m, dodge_cd_s... `spawn` = the horde: trash_hp, dmg0, rate0_s (seconds between spawns at the start)... `world` = who lives in the dungeon: npcs (pals, keepers, bystanders placed, 0..=64), bad_chance (0..1: a pal turns on the hero, a keeper cheats), chests (0..=64), rescue_chests (power-up chests a rescued pal gives, 0..=5). The loader names the field and range of any value out of bounds.\n";
-    s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
+    s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. `wall` = the wall colour (faces mix it toward `text` by tuning `view.face_pct` [top, lit, dark] percent). `floor_motif` + `floor_motif_share` (0..1) = that share of floor glyphs drawn in the motif colour (blood, moss, neon). `wall_motif` + `wall_motif_mix` (0..1) = the lit wall cells the `wall_lore` lines mark mix this far toward the motif colour (dark = engraved shadow, bright red = blood). The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
     s += &format!(
         "\n## trees.jsonl class art\n\nEach `class` record has `art`: the hero of that class drawn in the hero pane's gear tab, {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} cell glyphs (head on top, feet at the bottom); and `paint`: {HERO_ART_ROWS} rows of {HERO_ART_COLS} letters, one per art cell, naming what colours it: `a` armor, `r` ring, `j` jewel, `w` weapon, `c` charm (the worn item's rarity colour, dim when the slot is empty), `.` the body (text colour). Draw the gear where it is worn: armor on the torso, weapon in a hand, ring on a finger.\n"
     );
@@ -2188,7 +2194,8 @@ fn bars(r: &Rec) -> Result<Bars> {
 fn palette(r: &Rec) -> Result<Palette> {
     r.allow(&[
         "t", "bg", "fog", "floor", "player", "ring", "alarm", "text", "dim", "xp", "chest", "hud_bg", "kin", "therm", "emp", "code", "floor_glyphs",
-        "density_glyphs", "face_glyphs", "shadow_glyph", "body_glyph", "scheme", "base24",
+        "density_glyphs", "face_glyphs", "shadow_glyph", "body_glyph", "scheme", "base24", "wall", "floor_motif", "floor_motif_share",
+        "wall_motif", "wall_motif_mix",
     ])?;
     if r.has("scheme") && r.has("base24") {
         return Err(r.err("base24", "give a scheme name or an inline base24 palette, not both"));
@@ -2233,6 +2240,9 @@ fn palette(r: &Rec) -> Result<Palette> {
         bg,
         fog,
         floor: rgb(r, "floor")?,
+        wall: rgb(r, "wall")?,
+        floor_motif: (rgb(r, "floor_motif")?, permille(r.num("floor_motif_share", 0.0, 1.0)?)),
+        wall_motif: (rgb(r, "wall_motif")?, permille(r.num("wall_motif_mix", 0.0, 1.0)?)),
         player,
         ring,
         alarm,
@@ -2778,15 +2788,19 @@ pub mod tests {
         let load = |p: &str| Content::load_profile(&d, Some(p)).unwrap();
         let (base, hell, kawai) = (load("cyberpunk"), load("hellish"), load("kawai"));
         let luma = |c: Rgb| 2126 * u32::from(c.0) + 7152 * u32::from(c.1) + 722 * u32::from(c.2);
-        // dark: the world background and floor are darker than any other adventure's
+        // diablo: the darkest background and walls of all adventures, a greyish floor with blood-red motifs, near-black
+        // walls with bright blood motifs
         for p in ["cyberpunk", "kawai", "dnd", "moriah"] {
             let o = load(p);
-            assert!(luma(hell.pal.bg) < luma(o.pal.bg) && luma(hell.pal.floor) < luma(o.pal.floor), "hellish darker than {p}");
+            assert!(luma(hell.pal.bg) < luma(o.pal.bg) && luma(hell.pal.wall) < luma(o.pal.wall), "hellish darker than {p}");
         }
-        // bloody: the floor, fog and foe hues lean red
         let red = |c: Rgb| c.0 > c.1.saturating_mul(2) && c.0 > c.2.saturating_mul(2);
-        assert!([hell.pal.floor, hell.pal.fog, hell.pal.alarm, hell.pal.of(Hue::Kin), hell.pal.of(Hue::Therm)].into_iter().all(red), "hellish reds");
-        assert!(!red(base.pal.floor), "control: the cyberpunk floor is not red");
+        let grey = |c: Rgb| c.0.max(c.1).max(c.2) - c.0.min(c.1).min(c.2) <= 0x18 && c.0.max(c.1).max(c.2) >= 0x50;
+        assert!(grey(hell.pal.floor) && red(hell.pal.floor_motif.0) && hell.pal.floor_motif.1 > 0, "grey floor, blood motifs on it");
+        assert!(red(hell.pal.wall) && luma(hell.pal.wall) < luma(hell.pal.floor), "near-black blood-dark walls");
+        assert!(red(hell.pal.wall_motif.0) && hell.pal.wall_motif.0 .0 >= 0xf0 && hell.pal.wall_motif.1 >= 500, "bright blood motifs on the walls");
+        assert!([hell.pal.fog, hell.pal.alarm, hell.pal.of(Hue::Kin), hell.pal.of(Hue::Therm)].into_iter().all(red), "hellish reds");
+        assert!(!red(base.pal.floor) && base.pal.floor_motif.1 == 0, "control: the cyberpunk floor is not red and has no motif");
         // pink pastel: light inks, pink on top (red and blue over green), and the panels read from their own slots
         let pastel = |c: Rgb| c.0.min(c.1).min(c.2) >= 0x88;
         let pink = |c: Rgb| c.0 >= 0xf0 && c.2 > c.1;

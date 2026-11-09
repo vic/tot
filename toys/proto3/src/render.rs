@@ -403,7 +403,9 @@ impl Frame {
                 let anchor = self.scr(f64::from(fx * fc + fc / 2), f64::from(fy * fc + fc / 2)) == (col, r);
                 let ch = if anchor && (h % 1000) < u64::from(ar.density) { ar.glyphs[(h >> 20) as usize % ar.glyphs.len()] } else { Glyph::SPACE };
                 // blank cells keep one fg so camera motion only re-sends cells whose glyph moved
-                let fg = if ch == Glyph::SPACE { pal.floor } else { self.fogged(c, pal.floor, ax, ay) };
+                // a share of the floor glyphs wears the adventure's floor motif colour (blood, moss, neon)
+                let tint = if (h >> 40) % 1000 < u64::from(pal.floor_motif.1) { pal.floor_motif.0 } else { pal.floor };
+                let fg = if ch == Glyph::SPACE { pal.floor } else { self.fogged(c, tint, ax, ay) };
                 self.cells[i] = Cell { ch, fg, bg: pal.bg };
                 self.z[i] = Prio::Floor;
                 self.zd[i] = i32::MIN;
@@ -562,7 +564,7 @@ impl Frame {
             let (bc, br) = self.scr(bx, by);
             let cutaway = cut > 0 && d > pd && bc - hw <= pcol + cut && bc + hw >= pcol - cut && br - hh - hr <= prow + 1 && br + hh >= prow - n0 - 1;
             let hz = if cutaway { 0 } else { hr };
-            let base = self.fogged(c, pal.floor, bx, by);
+            let base = self.fogged(c, pal.wall, bx, by);
             let ink = |k: usize| if cutaway { (pal.face[2], mix(base, pal.bg, 400)) } else { (pal.face[k], mix(base, pal.text, u32::from(v.face_pct[k]) * 10)) };
             for r in (br - hh - hz).max(0)..=(br + hh).min(pr - 1) {
                 for col in (bc - hw).max(0)..=(bc + hw).min(pc - 1) {
@@ -590,7 +592,7 @@ impl Frame {
                         let line = c.texts.pick(t::WALL_LORE, hash((fx as u64) << 32 ^ fy as u32 as u64) as usize);
                         let at = (r - (br - hh - hz)) as usize * (2 * hw + 1) as usize + (col - (bc - hw)) as usize;
                         if line.chars().nth(at % line.chars().count().max(1)).is_some_and(|m| m != ' ') {
-                            fg = mix(fg, pal.bg, WALL_LORE_SHADE);
+                            fg = mix(fg, pal.wall_motif.0, pal.wall_motif.1);
                         }
                     }
                     let i = r as usize * usize::from(self.cols) + col as usize;
@@ -2434,8 +2436,6 @@ const LOOT_PANE_W: i32 = 16;
 const POWER_ROLE: Role = Role::Unique;
 const POWER_GLOW: u32 = 700;
 const POWER_GLOW_HI: u32 = 450;
-/// Wall lore shadow: a marked lit-face cell darkens this far (permille) toward the background.
-const WALL_LORE_SHADE: u32 = 250;
 /// Personas (NPCs): the glow under the head and under the body, the own colour mixed this far (permille) toward
 /// the background.
 const NPC_GLOW: u32 = 550;
@@ -3095,6 +3095,35 @@ mod tests {
         let (col, row) = f.scr(f64::from(x), f64::from(y));
         let cell = f.cells[row as usize * 120 + col as usize];
         assert_eq!((cell.ch.ch(), cell.fg, cell.bg), ('$', c.pal.chest, chest_glow(&c.pal, sim.tick)), "gold glows");
+    }
+
+    #[test]
+    fn floor_motif_recolours_its_share_of_floor_glyphs_and_walls_take_the_wall_colour() {
+        let at = texts().iter().position(|t| t.contains("\"t\":\"palette\"")).unwrap();
+        let with = |from: &str, to: &str| {
+            let mut ts = texts();
+            assert!(ts[at].contains(from), "control edit applies: {from}");
+            ts[at] = ts[at].replace(from, to);
+            Content::parse(&ts).unwrap()
+        };
+        let shot = |c: &Content| {
+            let mut sim = Sim::new(c, 7, None);
+            pillars(&mut sim);
+            let ui = Ui::new(true);
+            let mut f = Frame::new(c, 120, 40);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.cells.iter().map(|cl| (cl.ch.ch(), cl.fg)).collect::<Vec<_>>()
+        };
+        let base = shot(&Content::parse(&texts()).unwrap());
+        let diff = |a: &[(char, Rgb)], b: &[(char, Rgb)]| a.iter().zip(b).filter(|(x, y)| x != y).count();
+        let motif = shot(&with("\"floor_motif_share\":0,", "\"floor_motif_share\":0.5,"));
+        assert_eq!(base.iter().map(|x| x.0).collect::<Vec<_>>(), motif.iter().map(|x| x.0).collect::<Vec<_>>(), "same glyphs");
+        assert!(diff(&base, &shot(&with("\"floor_motif\":\"#4a2ad8\"", "\"floor_motif\":\"#ff0000\""))) == 0, "control: share 0 draws no motif");
+        let red = shot(&with("\"floor_motif\":\"#4a2ad8\",\"floor_motif_share\":0,", "\"floor_motif\":\"#ff0000\",\"floor_motif_share\":0.5,"));
+        let n = diff(&base, &red);
+        let all = diff(&base, &shot(&with("\"floor_motif\":\"#4a2ad8\",\"floor_motif_share\":0,", "\"floor_motif\":\"#ff0000\",\"floor_motif_share\":1,")));
+        assert!(0 < n && n < all, "the motif share sets how many floor glyphs wear it: half {n} of {all}");
+        assert!(diff(&base, &shot(&with("\"wall\":\"#4a2ad8\"", "\"wall\":\"#101010\""))) > 20, "walls take the wall colour");
     }
 
     #[test]
