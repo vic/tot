@@ -61,7 +61,7 @@ impl From<serde_json::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 const USAGE: &str = "proto2 play [--data DIR] [--profile NAME] [--seed N] [--out DIR]
-proto2 snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE]
+proto2 snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
 proto2 bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
 proto2 controls --seeds N [--data DIR]";
 
@@ -130,8 +130,22 @@ fn run() -> Result<()> {
             play::play(&c, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
         }
         Some("snapshot") => {
-            let (sim, dir) = bot::sim_at(&c, args.num("--seed", 1)?, args.num("--secs", 60)? as u32);
+            let (mut sim, mut dir) = bot::sim_at(&c, args.num("--seed", 1)?, args.num("--secs", 60)? as u32);
             let mut ui = input::Ui::new(true);
+            // --pick: play on (auto-fire, no picks) until the next power-up offer, at most 2 minutes, and show it open
+            if args.has("--pick") {
+                let until = sim.secs() + 120;
+                let mut pilot = bot::Autopilot::new(args.num("--seed", 1)?, bot::MoveBot::Kiter, bot::PickBot::Skip);
+                while sim.offer.is_none() && sim.outcome.is_none() && sim.secs() < until {
+                    dir.tick(&mut sim);
+                    let (mv, dodge) = pilot.walk(&sim);
+                    sim.step(&sim::Input { mv, dodge, autofire: true, ..sim::Input::default() });
+                }
+                ui.sync(sim.offer.is_some());
+                if ui.offer_waiting {
+                    ui.mode = input::Mode::Pick;
+                }
+            }
             for _ in 0..args.num("--cam", 0)? % 4 {
                 ui.heading = ui.heading.right();
             }
