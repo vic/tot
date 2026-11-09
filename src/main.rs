@@ -71,6 +71,7 @@ const USAGE: &str = "tot play [--data DIR] [--profile NAME] [--seed N] [--out DI
 tot schema   (adventure schema docs: every shown message, art and field, where it shows)
 tot skill [--data DIR]   (agent skill: write and update adventures; schema + every shipped adventure as examples)
 tot agentic [--to PID --brief TEXT --wait-s S]   (no --to: list live local Claude sessions; else ask one for an adventure)
+tot batch --to PID --briefs FILE --wait-s S   (ask the session for one adventure per line of FILE, one at a time; nothing is played)
 tot snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
 tot bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
 tot controls --seeds N [--data DIR]";
@@ -136,7 +137,7 @@ fn run() -> Result<()> {
             };
             play::play(&c, &lib, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
         }
-        Some("agentic") => agentic_cli(&lib, &args),
+        Some("agentic" | "batch") => agentic_cli(&lib, &args),
         Some("skill") => {
             print!("{}", skill::skill(&dir)?);
             Ok(())
@@ -211,17 +212,37 @@ fn agentic_cli(lib: &data::Library, args: &Args) -> Result<()> {
         return Ok(());
     };
     let to = live.into_iter().find(|s| s.pid.to_string() == pid).ok_or_else(|| Error::Usage(format!("no live Claude session with pid {pid}")))?;
-    let brief = args.val("--brief").ok_or_else(|| Error::Usage("--brief TEXT".into()))?;
     let wait = std::time::Duration::from_secs(args.val("--wait-s").ok_or_else(|| Error::Usage("--wait-s S".into()))?.parse().map_err(|_| Error::Usage("--wait-s: not a number".into()))?);
-    let mut link = agentic::Link::ask(lib, &socks, to, brief)?;
+    let Some(file) = args.val("--briefs") else {
+        let brief = args.val("--brief").ok_or_else(|| Error::Usage("--brief TEXT or --briefs FILE".into()))?;
+        println!("{}", fetch(lib, &socks, to, brief, wait, true)?);
+        return Ok(());
+    };
+    // one adventure per non-empty line, each asked only once the one before is installed or failed
+    let text = std::fs::read_to_string(file)?;
+    let briefs: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let mut failed = 0;
+    for (n, brief) in briefs.iter().enumerate() {
+        eprintln!("[{}/{}] {brief}", n + 1, briefs.len());
+        match fetch(lib, &socks, to.clone(), brief, wait, n == 0) {
+            Ok(id) => println!("{id}"),
+            Err(e) => {
+                failed += 1;
+                eprintln!("[{}/{}] failed: {e}", n + 1, briefs.len());
+            }
+        }
+    }
+    if failed > 0 { Err(Error::Peer(format!("{failed} of {} adventures failed", briefs.len()))) } else { Ok(()) }
+}
+
+/// Ask `to` for the adventure `brief` describes and wait up to `wait` for it to install. Ok(its id).
+fn fetch(lib: &data::Library, socks: &std::path::Path, to: peer::Session, brief: &str, wait: std::time::Duration, with_skill: bool) -> Result<String> {
+    let mut link = agentic::Link::ask(lib, socks, to, brief, with_skill)?;
     eprintln!("asked; accept the request in that Claude Code session");
     let start = std::time::Instant::now();
     while start.elapsed() < wait {
         match link.poll(lib)? {
-            agentic::Heard::Installed(id) => {
-                println!("{id}");
-                return Ok(());
-            }
+            agentic::Heard::Installed(id) => return Ok(id),
             agentic::Heard::Refused(why) => eprintln!("refused, sent back: {why}"),
             agentic::Heard::Nothing => std::thread::sleep(std::time::Duration::from_millis(200)),
         }

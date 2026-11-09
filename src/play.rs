@@ -126,7 +126,7 @@ fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) 
             (Start::Asking { agent, adv: back }, Some((_, socks))) => {
                 if link.is_none() {
                     news = None;
-                    match agents.get(agent).cloned().map(|to| crate::agentic::Link::ask(lib, socks, to, &ui.brief)) {
+                    match agents.get(agent).cloned().map(|to| crate::agentic::Link::ask(lib, socks, to, &ui.brief, true)) {
                         Some(Ok(l)) => {
                             link = Some(l);
                             asked_ms = Some(clock.elapsed().as_millis() as u64);

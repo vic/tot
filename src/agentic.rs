@@ -18,8 +18,9 @@ fn wanted() -> impl Iterator<Item = &'static str> {
 
 /// The whole request the agent reads: the skill with the example adventures, the player's description, and how
 /// to answer (`reply_to` = the game's own address).
-pub fn request(lib: &Library, brief: &str, reply_to: &str) -> Result<String> {
-    let mut s = crate::skill::skill_with(&lib.base, |id| EXAMPLES.contains(&id))?;
+pub fn request(lib: &Library, brief: &str, reply_to: &str, with_skill: bool) -> Result<String> {
+    // a batch sends the skill once: later requests point back to it
+    let mut s = if with_skill { crate::skill::skill_with(&lib.base, |id| EXAMPLES.contains(&id))? } else { "Use the tot-adventure skill and answer format sent with the first request of this batch.\n".into() };
     let taken = lib.profiles()?.into_iter().map(|p| p.id).collect::<Vec<_>>().join(", ");
     let files = wanted().collect::<Vec<_>>().join(", ");
     s += &format!(
@@ -119,10 +120,13 @@ mod tests {
 
     #[test]
     fn the_request_carries_the_skill_two_examples_the_brief_and_the_reply_rules() {
-        let r = request(&Library::shipped(&data_dir()), "a sunken jungle temple", "uds:/r/tot-1.sock").unwrap();
+        let r = request(&Library::shipped(&data_dir()), "a sunken jungle temple", "uds:/r/tot-1.sock", true).unwrap();
         assert!(r.contains("(cyberpunk)") && r.contains("(hellish)") && !r.contains("(kawai)"), "only the two examples");
         assert!(r.contains("a sunken jungle temple") && r.contains("uds:/r/tot-1.sock") && r.contains(DONE) && r.contains("pick_adventure"));
         assert!(r.contains("taken: cyberpunk, dnd, hellish, kawai, moriah"), "the ids it must not reuse");
+        let later = request(&Library::shipped(&data_dir()), "a sunken jungle temple", "uds:/r/tot-1.sock", false).unwrap();
+        assert!(!later.contains("(cyberpunk)") && !later.contains("pick_adventure"), "a later batch request leaves the skill out");
+        assert!(later.contains("a sunken jungle temple") && later.contains("uds:/r/tot-1.sock") && later.contains(DONE) && later.contains("taken: cyberpunk"));
     }
 
     #[test]
@@ -192,10 +196,10 @@ pub enum Heard {
 const SENDER: &str = "tot";
 
 impl Link {
-    /// Ask `to` for the adventure `brief` describes.
-    pub fn ask(lib: &Library, socks: &Path, to: crate::peer::Session, brief: &str) -> Result<Link> {
+    /// Ask `to` for the adventure `brief` describes (`with_skill`: send the skill along, see `request`).
+    pub fn ask(lib: &Library, socks: &Path, to: crate::peer::Session, brief: &str, with_skill: bool) -> Result<Link> {
         let inbox = crate::peer::Inbox::open(socks)?;
-        crate::peer::send(&to, &inbox, SENDER, &request(lib, brief, &inbox.addr())?)?;
+        crate::peer::send(&to, &inbox, SENDER, &request(lib, brief, &inbox.addr(), with_skill)?)?;
         Ok(Link { inbox, to, answer: Answer::default() })
     }
 

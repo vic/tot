@@ -420,7 +420,7 @@ pub struct Palette {
     pub face: [Glyph; 3],
     pub shadow: Glyph,
     pub body: Glyph,
-    /// base24 scheme id named by the record (file `schemes/<id>.yaml`), applied by `Content::load_profile`
+    /// base24 scheme id named by the record (file `schemes/<id>.yaml`), applied by `Content::load_profile`. Deprecated: adventures give all colours in `base24`.
     pub scheme: Option<SchemeId>,
     roles: RoleTable,
 }
@@ -1094,7 +1094,7 @@ pub fn schema_doc() -> String {
     }
     s += &format!("\n## texts.jsonl `letter` records (the big block font: shouts, roars, banners)\n\nOne record per character A-Z ! ? . and space (`\"id\":\"A\"`): `rows` = 3 rows of one width 1..={} in width-1 cell glyphs. The game puts one blank column between letters. Keep the letters distinct.\n", crate::bigtext::LETTER_MAX_W);
     s += "\n## tuning.jsonl gameplay (each adventure plays different)\n\n`player` = the hero: hp, regen_s, armour, speed_mps (must stay above every foe), pickup_m, crit_chance, crit_bonus, dash_m, dodge_cd_s... `spawn` = the horde: trash_hp, dmg0, rate0_s (seconds between spawns at the start)... `world` = who lives in the dungeon: npcs (pals, keepers, bystanders placed, 0..=64), bad_chance (0..1: a pal turns on the hero, a keeper cheats), chests (0..=64), rescue_chests (power-up chests a rescued pal gives, 0..=5). The loader names the field and range of any value out of bounds.\n";
-    s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. `wall` = the wall colour (faces mix it toward `text` by tuning `view.face_pct` [top, lit, dark] percent). `floor_motif` + `floor_motif_share` (0..1) = that share of floor glyphs drawn in the motif colour (blood, moss, neon). `wall_motif` + `wall_motif_mix` (0..1) = the lit wall cells the `wall_lore` lines mark mix this far toward the motif colour (dark = engraved shadow, bright red = blood). The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
+    s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. `wall` = the wall colour (faces mix it toward `text` by tuning `view.face_pct` [top, lit, dark] percent). `floor_motif` + `floor_motif_share` (0..1) = that share of floor glyphs drawn in the motif colour (blood, moss, neon). `wall_motif` + `wall_motif_mix` (0..1) = the lit wall cells the `wall_lore` lines mark mix this far toward the motif colour (dark = engraved shadow, bright red = blood). The UI roles (panel, rarity, danger, heal, info...) come from `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Specify all colours: every field above and all 24 base24 slots. `\"scheme\": \"<id>\"` (a base24 scheme file under data/schemes/) is deprecated: do not use it.\n";
     s += &format!(
         "\n## trees.jsonl class art\n\nEach `class` record has `art`: the hero of that class drawn in the hero pane's gear tab, {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} cell glyphs (head on top, feet at the bottom); and `paint`: {HERO_ART_ROWS} rows of {HERO_ART_COLS} letters, one per art cell, naming what colours it: `a` armor, `r` ring, `j` jewel, `w` weapon, `c` charm (the worn item's rarity colour, dim when the slot is empty), `.` the body (text colour). Draw the gear where it is worn: armor on the torso, weapon in a hand, ring on a finger.\n"
     );
@@ -2743,8 +2743,32 @@ pub mod tests {
         assert!(edit(w, "\"spawn\":\"mite\"", "\"spawn\":\"nope\"").contains("no family"));
     }
 
+    /// Test schemes in the base24 file format, own colours (nothing vendored): `night` a dark world, `dim` dark
+    /// with an unreadable danger slot, `paper` light.
     fn scheme_text(id: &str) -> String {
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("data/schemes").join(format!("{id}.yaml"))).unwrap_or_default()
+        let mut slots = [
+            "#1a1b26", "#16161e", "#2f3549", "#444b6a", "#787c99", "#c0caf5", "#cbd4f8", "#ffffff", "#f7768e", "#ff9e64", "#e0af68", "#9ece6a", "#7dcfff", "#7aa2f7", "#bb9af7", "#a9564a", "#13141c", "#0c0d12",
+            "#ff8fa3", "#ffc777", "#b4e88a", "#a4e0ff", "#9ab8ff", "#ff92df",
+        ];
+        let mut variant = "dark";
+        match id {
+            "night" => {}
+            // danger below 3:1 on the background, its bright twin readable
+            "dim" => (slots[0], slots[0x08], slots[0x12]) = ("#1d2021", "#5a2020", "#ff6a6a"),
+            "paper" => {
+                slots = [
+                    "#f4f0e6", "#e8e2d4", "#d8d0bc", "#a89f8a", "#6a6252", "#3a342a", "#2a251e", "#18140f", "#b02a1a", "#a8500a", "#8a6a00", "#3a6a1a", "#1a6a6a", "#1a4a9a", "#7a2a8a", "#7a3a1a", "#fbf8f0", "#ffffff",
+                    "#c83a2a", "#9a7a00", "#4a7a2a", "#2a7a7a", "#2a5aaa", "#8a3a9a",
+                ];
+                variant = "light";
+            }
+            _ => return String::new(),
+        }
+        let mut s = format!("system: \"base24\"\nname: \"{id}\"\nvariant: \"{variant}\"\npalette:\n");
+        for (i, c) in slots.iter().enumerate() {
+            s += &format!("  base{i:02X}: \"{c}\"  # slot {i}\n");
+        }
+        s
     }
 
     fn scheme(id: &str) -> Scheme {
@@ -2752,11 +2776,11 @@ pub mod tests {
     }
 
     #[test]
-    fn scheme_parser_accepts_dracula_and_rejects_bad_files() {
-        let d = scheme("dracula");
-        assert_eq!((d.variant, d.slots[0], d.slots[0x17]), (Variant::Dark, Rgb(0x28, 0x2a, 0x36), Rgb(0xff, 0x92, 0xdf)));
-        let t = scheme_text("dracula");
-        assert!(Scheme::parse("d.yaml", &t.replacen("name: \"Dracula\"", "", 1)).unwrap_err().to_string().contains(".name: missing"));
+    fn scheme_parser_accepts_a_base24_file_and_rejects_bad_files() {
+        let d = scheme("night");
+        assert_eq!((d.variant, d.slots[0], d.slots[0x17]), (Variant::Dark, Rgb(0x1a, 0x1b, 0x26), Rgb(0xff, 0x92, 0xdf)));
+        let t = scheme_text("night");
+        assert!(Scheme::parse("d.yaml", &t.replacen("name: \"night\"", "", 1)).unwrap_err().to_string().contains(".name: missing"));
         let short = t.replacen("  base17:", "  #base17:", 1);
         assert_eq!(Scheme::parse("d.yaml", &short).err().map(|e| e.to_string()), Some("d.yaml:0 .palette: need exactly 24 slots, got 23".into()));
         let dup = t.replacen("  base17:", "  base16:", 1);
@@ -2767,46 +2791,30 @@ pub mod tests {
     }
 
     #[test]
-    fn every_vendored_scheme_parses_and_resolves_to_readable_ink() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/schemes");
-        let world = WorldScheme::new("dracula", scheme("dracula")).unwrap();
-        let names: Vec<_> = std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.ends_with(".yaml")).collect();
-        assert_eq!(names.len(), 243);
-        for n in names {
-            let s = Scheme::parse(&n, &scheme_text(n.trim_end_matches(".yaml"))).unwrap();
-            let t = RoleTable::of(&s, &world);
-            let bg = t.get(Role::Bg);
-            for r in ROLES.into_iter().filter(|r| r.is_ink()) {
-                assert!(contrast(t.get(r), bg) >= MIN_CONTRAST, "{n} {r:?} {:.2}", contrast(t.get(r), bg));
-            }
-        }
-    }
-
-    #[test]
     fn low_contrast_danger_falls_back_to_bright_twin_then_extremes() {
-        let world = WorldScheme::new("dracula", scheme("dracula")).unwrap();
-        let g = scheme("gruvbox-dark");
-        assert!(contrast(g.slots[0x08], g.slots[0]) < 3.0, "fixture: gruvbox danger is below 3:1");
+        let world = WorldScheme::new("night", scheme("night")).unwrap();
+        let g = scheme("dim");
+        assert!(contrast(g.slots[0x08], g.slots[0]) < 3.0, "fixture: dim danger is below 3:1");
         let t = RoleTable::of(&g, &world);
         assert_eq!(t.get(Role::Danger), g.slots[0x12], "twin");
         assert_eq!(t.get(Role::Text), g.slots[Role::Text.slot()], "control: readable roles are untouched");
         // a scheme whose twin is also unreadable falls to the world, never below 3:1
-        let mut bad = scheme("gruvbox-dark");
+        let mut bad = scheme("dim");
         bad.slots[0x08] = bad.slots[0];
         bad.slots[0x12] = bad.slots[0];
         let t = RoleTable::of(&bad, &world);
         assert_eq!(t.get(Role::Danger), world.0.slots[0x08], "world");
         // light region over a dark world: bg is light, world colours are light-on-dark so they fail too
-        let l = scheme("gruvbox-light");
+        let l = scheme("paper");
         let t = RoleTable::of(&l, &world);
         assert!(ROLES.into_iter().filter(|r| r.is_ink()).all(|r| contrast(t.get(r), t.get(Role::Bg)) >= 3.0));
     }
 
     #[test]
     fn light_scheme_rejected_as_world() {
-        let e = WorldScheme::new("schemes/gruvbox-light.yaml", scheme("gruvbox-light")).err().map(|e| e.to_string());
-        assert_eq!(e, Some("schemes/gruvbox-light.yaml:0 .variant: the world scheme must be dark".into()));
-        assert!(WorldScheme::new("d", scheme("dracula")).is_ok(), "control");
+        let e = WorldScheme::new("schemes/paper.yaml", scheme("paper")).err().map(|e| e.to_string());
+        assert_eq!(e, Some("schemes/paper.yaml:0 .variant: the world scheme must be dark".into()));
+        assert!(WorldScheme::new("d", scheme("night")).is_ok(), "control");
     }
 
     #[test]
@@ -2883,7 +2891,7 @@ pub mod tests {
     #[test]
     fn palette_takes_a_scheme_name_or_an_inline_base24_never_both() {
         let t = texts();
-        let dracula = scheme("dracula");
+        let dracula = scheme("night");
         let inline = format!("\"base24\":[{}],", dracula.slots.iter().map(|c| format!("\"#{:02x}{:02x}{:02x}\"", c.0, c.1, c.2)).collect::<Vec<_>>().join(","));
         let with = |extra: &str| {
             let mut t = t.clone();
