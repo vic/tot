@@ -892,7 +892,14 @@ impl Frame {
                     let s = c.skill(o.id);
                     let name: String = s.name.chars().take(usize::from(half / 2 - 3)).collect();
                     self.text(row, x + 1, &name, pal.of(s.hue));
-                    self.bar(row + 1, hx + 2, i64::from(o.rank), 5, half / 2 - 4, pal.of(s.hue));
+                    // special reload gauge: fills as it reloads, full + bright = ready; passive powers say so
+                    if s.kind.has_special() {
+                        let full = i64::from(sim.special_reload(o.rank));
+                        let ready = o.sp == 0;
+                        self.bar(row + 1, hx + 2, full - i64::from(o.sp), full, half / 2 - 4, if ready { pal.of(s.hue) } else { pal.dim });
+                    } else {
+                        self.text(row + 1, hx + 2, "passive", pal.dim);
+                    }
                 }
                 None => {
                     self.text(row, x + 1, "-", pal.dim);
@@ -2009,8 +2016,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: cave walls drawn on every template, map shows explored rock, whole pointer labels
-    const GOLDEN: u64 = 0x4bfa_7f59_5320_ab0f;
+    // re-pinned 2026-11-08: hotkey slots show the special reload gauge (or "passive") instead of the rank bar
+    const GOLDEN: u64 = 0x308d_411d_12ff_b34a;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

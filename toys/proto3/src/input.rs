@@ -136,6 +136,8 @@ pub enum Action {
     Next,
     Confirm,
     Card(u8),
+    /// number key in play: cast the special of bar slot n
+    Special(u8),
     Skip,
     CurUp,
     CurDown,
@@ -179,6 +181,14 @@ impl Action {
             "prev" => Prev,
             "next" => Next,
             "confirm" => Confirm,
+            "special1" => Special(0),
+            "special2" => Special(1),
+            "special3" => Special(2),
+            "special4" => Special(3),
+            "special5" => Special(4),
+            "special6" => Special(5),
+            "special7" => Special(6),
+            "special8" => Special(7),
             "card1" => Card(0),
             "card2" => Card(1),
             "card3" => Card(2),
@@ -327,6 +337,8 @@ pub struct Ui {
     /// worn-items cursor over `Slot::ALL`; `gear_drop` is the one-shot take-off request
     pub gear_sel: usize,
     pub gear_drop: Option<Slot>,
+    /// one-shot: special slot asked by a number key (taken by `input`)
+    pub special: Option<u8>,
     /// shop offer count (set by `sync_shop`); `shop_buy` is the one-shot buy request
     pub shop_len: usize,
     pub shop_buy: Option<usize>,
@@ -363,6 +375,7 @@ impl Ui {
             tree_spent: 0,
             gear_sel: 0,
             gear_drop: None,
+            special: None,
             shop_len: 0,
             shop_buy: None,
             shop_left: false,
@@ -576,6 +589,7 @@ impl Ui {
             Action::TreeSpend => self.msg = self.spend(c),
             Action::Autowalk => self.msg = self.set_autowalk(!self.autowalk),
             Action::Fire => self.fire = true,
+            Action::Special(n) => self.special = Some(n),
             Action::Look => {
                 self.mode = Mode::Look;
                 self.cursor = (0, 0);
@@ -650,6 +664,7 @@ impl Ui {
             pick: self.pick.take(),
             buy: self.shop_buy.take(),
             drop: self.gear_drop.take(),
+            special: self.special.take(),
         }
     }
 }
@@ -783,6 +798,15 @@ mod tests {
         assert!(ui.tree_owned.has(ui.tree_sel) && ui.tree_points() == 0, "{}", ui.msg);
         ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
         assert_eq!(ui.mode, Mode::Play);
+    }
+
+    #[test]
+    fn number_keys_ask_specials_once() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        ui.key(press('3'), &c, 0);
+        assert_eq!(ui.input(true).special, Some(2), "key 3 = slot 3");
+        assert_eq!(ui.input(true).special, None, "one cast per press");
     }
 
     #[test]

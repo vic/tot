@@ -476,6 +476,11 @@ impl SkillKind {
     pub fn is_trait(self) -> bool {
         matches!(self, SkillKind::Might | SkillKind::Haste | SkillKind::Plating | SkillKind::Magnet | SkillKind::Regen)
     }
+
+    /// Has a number-key special (a boosted shot); traits and orbit blades are passive.
+    pub fn has_special(self) -> bool {
+        matches!(self, SkillKind::Bolt | SkillKind::Hack | SkillKind::Pulse | SkillKind::Chain | SkillKind::Mine)
+    }
 }
 
 /// Auto-aim mode per skill (design sec 6.5).

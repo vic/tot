@@ -1,4 +1,12 @@
 {"t":"head","schema_version":1,"file":"bindings"}
+{"t":"bind","mode":"play","keys":["1"],"action":"special1","label":"special 1"}
+{"t":"bind","mode":"play","keys":["2"],"action":"special2","label":"special 2"}
+{"t":"bind","mode":"play","keys":["3"],"action":"special3","label":"special 3"}
+{"t":"bind","mode":"play","keys":["4"],"action":"special4","label":"special 4"}
+{"t":"bind","mode":"play","keys":["5"],"action":"special5","label":"special 5"}
+{"t":"bind","mode":"play","keys":["6"],"action":"special6","label":"special 6"}
+{"t":"bind","mode":"play","keys":["7"],"action":"special7","label":"special 7"}
+{"t":"bind","mode":"play","keys":["8"],"action":"special8","label":"special 8"}
 {"t":"bind","mode":"play","keys":["w"],"action":"up","label":"up"}
 {"t":"bind","mode":"play","keys":["k"],"action":"up","label":"up"}
 {"t":"bind","mode":"play","keys":["up"],"action":"up","label":"up"}

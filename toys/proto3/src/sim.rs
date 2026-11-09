@@ -38,6 +38,8 @@ pub struct Input {
     pub buy: Option<usize>,
     /// take off the item in this slot
     pub drop: Option<crate::data::Slot>,
+    /// number key: cast the special of bar slot n (0-based)
+    pub special: Option<u8>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -355,6 +357,9 @@ const RAGE_SPEED_CAP: i64 = 950;
 const RAGE_DMG: i64 = 1_500;
 /// Frozen hero walks at this permille of normal speed.
 const HERO_FROZEN_SPEED: i32 = 500;
+/// Number-key specials: reload seconds at rank 1 and damage multiplier over the normal shot.
+const SPECIAL_RELOAD_S: u64 = 8;
+const SPECIAL_DMG: i32 = 3;
 
 impl Status {
     fn ticks(ms: u32, hz: u32) -> u16 {
@@ -622,6 +627,8 @@ pub struct Owned {
     /// sum of rarity gains, permille (first pick = 1000 at common)
     pub power: u32,
     cd: u16,
+    /// special (number key) reload ticks left; 0 = ready
+    pub sp: u16,
     phase: u32,
 }
 
@@ -918,7 +925,7 @@ impl<'c> Sim<'c> {
         res!(s.shots.x, s.shots.y, s.shots.vx, s.shots.vy, s.shots.ttl, s.shots.age, s.shots.dmg, s.shots.fam);
         res!(s.drops.x, s.drops.y, s.drops.kind, s.drops.pulled);
         for &id in &c.player.skills {
-            s.owned.push(Owned { id, rank: 1, power: 1000, cd: 0, phase: 0 });
+            s.owned.push(Owned { id, rank: 1, power: 1000, cd: 0, sp: 0, phase: 0 });
         }
         s.world.stock_shops(c);
         // boss homes: seeded direction, fixed distance from the start
@@ -1210,7 +1217,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {
@@ -1642,6 +1649,38 @@ mod tests {
         eprintln!("PERF 20k: tick p50 {} us p99 {p99} us max {} us", times[50], times[99]);
         assert!(p99 <= 4000, "p99 {p99} us (p50 {} us)", times[50]);
         assert_eq!(allocated, 0);
+    }
+
+    /// Number key = special: a 36-bolt ring at 3x damage, then a reload; rank shortens it; passive slots never cast.
+    #[test]
+    fn special_casts_reloads_and_rank_shortens_it() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let bolt = s.owned.iter().position(|o| c.skill(o.id).kind == SkillKind::Bolt).expect("hero starts with a bolt");
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        s.push_enemy(fam, Tier::Trash, (s.p.x + 4_000, s.p.y), 1_000_000, (false, false));
+        let hold = Input { autofire: false, ..Input::default() };
+        s.step(&hold);
+        assert!(s.bolts.x.is_empty(), "control: auto-fire off, no key: no bolt");
+        let cast = Input { special: Some(bolt as u8), ..hold };
+        s.step(&cast);
+        let normal = s.eff(&s.owned[bolt]).dmg;
+        assert_eq!(s.bolts.x.len(), 36, "a full ring");
+        assert!(s.bolts.dmg.iter().all(|&d| d == normal * SPECIAL_DMG), "3x damage");
+        let reload = s.special_reload(1);
+        assert_eq!(s.owned[bolt].sp, reload, "reload starts");
+        s.bolts = Bolts::default();
+        s.step(&cast);
+        assert!(s.bolts.x.is_empty(), "NEG: reloading, no second ring");
+        for _ in 0..reload {
+            s.step(&hold);
+        }
+        assert_eq!(s.owned[bolt].sp, 0, "reloaded");
+        assert!(s.special_reload(3) < s.special_reload(1), "upgrades reload faster");
+        // empty slot and out-of-range slot cast nothing
+        s.bolts = Bolts::default();
+        s.step(&Input { special: Some(7), ..hold });
+        assert!(s.bolts.x.is_empty(), "NEG: empty slot");
     }
 
     /// One item per slot; worn mods change the hero (max HP, armour, speed); dropping takes them away.

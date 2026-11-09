@@ -4,8 +4,8 @@ use crate::data::{Hue, Mob, MobRole, Skill, Stat, Target};
 
 /// Effective numbers of one owned skill after ranks, rarity and traits (design sec 11.2).
 #[derive(Clone, Copy)]
-struct Eff {
-    dmg: i32,
+pub(super) struct Eff {
+    pub(super) dmg: i32,
     cd: u16,
     area: i32,
     count: u8,
@@ -44,6 +44,7 @@ impl<'c> Sim<'c> {
         self.lists();
         self.enemies_move();
         self.weapons(inp);
+        self.specials(inp);
         self.bolts_step();
         self.mines_step();
         self.shots_step();
@@ -86,7 +87,7 @@ impl<'c> Sim<'c> {
             .sum()
     }
 
-    fn eff(&self, o: &Owned) -> Eff {
+    pub(super) fn eff(&self, o: &Owned) -> Eff {
         let s: &Skill = self.c.skill(o.id);
         let extra = i64::from(o.power.saturating_sub(1000));
         let inc_dmg = 1000 + i64::from(s.per.dmg) * extra / 1000 + self.trait_val(SkillKind::Might) + self.gear.sum(self.c, Stat::Damage);
@@ -525,6 +526,39 @@ impl<'c> Sim<'c> {
             if fired {
                 self.owned[k].cd = f.cd;
             }
+        }
+    }
+
+    /// Ticks a special of rank `rank` takes to reload: SPECIAL_RELOAD_S, shorter by a quarter per rank above 1.
+    pub fn special_reload(&self, rank: u8) -> u16 {
+        let base = u64::from(self.c.hz().get()) * SPECIAL_RELOAD_S;
+        (base * 1000 / (1000 + 250 * u64::from(rank.saturating_sub(1)))).min(u64::from(u16::MAX)) as u16
+    }
+
+    /// Number keys: slot n casts its power's special (a much stronger shot of the same weapon) when reloaded.
+    /// Passive powers (traits, orbit) have none. A special with no target to hit does not spend the reload.
+    fn specials(&mut self, inp: &Input) {
+        for o in &mut self.owned {
+            o.sp = o.sp.saturating_sub(1);
+        }
+        let Some(k) = inp.special.map(usize::from) else { return };
+        let Some(o) = self.owned.get(k).copied() else { return };
+        if o.sp > 0 || !self.c.skill(o.id).kind.has_special() {
+            return;
+        }
+        let f = self.eff(&o);
+        let big = Eff { dmg: f.dmg.saturating_mul(SPECIAL_DMG), area: f.area.saturating_mul(2), count: f.count.saturating_mul(3), pierce: f.pierce.saturating_add(2), ..f };
+        let cast = match self.c.skill(o.id).kind {
+            // a full ring: 36 bolts, one every 10 degrees
+            SkillKind::Bolt => self.fire_bolts(&o, &Eff { count: 36, ..big }, true),
+            SkillKind::Hack => self.hack(&o, &big, &Input { hack: true, ..Input::default() }),
+            SkillKind::Pulse => self.pulse(&o, &big),
+            SkillKind::Chain => self.chain(&o, &big),
+            SkillKind::Mine => self.drop_mines(&o, &big),
+            _ => false,
+        };
+        if cast {
+            self.owned[k].sp = self.special_reload(o.rank);
         }
     }
 
@@ -1307,7 +1341,7 @@ impl<'c> Sim<'c> {
             }
             None => {
                 if self.owned.len() < self.owned.capacity() {
-                    self.owned.push(Owned { id: card.skill, rank: 1, power: gain, cd: 0, phase: 0 });
+                    self.owned.push(Owned { id: card.skill, rank: 1, power: gain, cd: 0, sp: 0, phase: 0 });
                 }
             }
         }
