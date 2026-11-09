@@ -55,8 +55,8 @@ const ARROW_E: char = '▶';
 const ARROW_W: char = '◀';
 const ARROW_N: char = '▲';
 const ARROW_S: char = '▼';
-/// Pal arrows: at most this many, within this distance (mm).
-const PAL_CALLS: usize = 3;
+/// Arrows to pals, keepers and goblins: at most this many, within this distance (mm).
+const PAL_CALLS: usize = 4;
 const PAL_CALL_MM: i64 = 150_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1367,13 +1367,7 @@ impl Frame {
             at(self, g.x, g.y, Prio::EliteBoss, 'g', pal.chest);
         }
         for p in &w.npcs {
-            let (ch, fg) = match p.npc {
-                Npc::Pal { .. } => ('p', pal.player),
-                Npc::Merchant { .. } => ('m', pal.chest),
-                Npc::Blacksmith { .. } => ('b', pal.chest),
-                Npc::Witch { .. } => ('w', pal.chest),
-                Npc::Neutral => ('n', pal.dim),
-            };
+            let (ch, fg) = npc_ink(p.npc, pal);
             at(self, p.x, p.y, Prio::EliteBoss, ch, fg);
             // a pal still standing calls for help
             if matches!(p.npc, Npc::Pal { .. }) && let Some(i) = self.cell_of(f64::from(p.x), f64::from(p.y)) {
@@ -1464,11 +1458,14 @@ impl Frame {
         for &(x, y) in &sim.treasures {
             self.pointer(sim, x, y, c.pal.chest);
         }
-        // the nearest few pals in earshot call; every pal on the floor would bury the screen edge in arrows
-        let mut pals: Vec<(i64, i32, i32)> = sim.world.npcs.iter().filter(|p| matches!(p.npc, crate::sim::Npc::Pal { .. })).map(|p| (dist2(p.x - sim.p.x, p.y - sim.p.y), p.x, p.y)).filter(|&(d2, _, _)| d2 <= PAL_CALL_MM.pow(2)).collect();
-        pals.sort_unstable();
-        for &(_, x, y) in pals.iter().take(PAL_CALLS) {
-            self.pointer(sim, x, y, c.pal.player);
+        // the nearest few pals, keepers and goblins in earshot get an arrow in their own colour; every one on the
+        // floor would bury the screen edge in arrows
+        let goblins = sim.world.goblins.iter().map(|g| (g.x, g.y, c.pal.chest));
+        let npcs = sim.world.npcs.iter().filter(|p| p.npc != crate::sim::Npc::Neutral).map(|p| (p.x, p.y, npc_ink(p.npc, &c.pal).1));
+        let mut calls: Vec<(i64, i32, i32, Rgb)> = npcs.chain(goblins).map(|(x, y, fg)| (dist2(x - sim.p.x, y - sim.p.y), x, y, fg)).filter(|&(d2, ..)| d2 <= PAL_CALL_MM.pow(2)).collect();
+        calls.sort_unstable_by_key(|&(d2, x, y, _)| (d2, x, y));
+        for &(_, x, y, fg) in calls.iter().take(PAL_CALLS) {
+            self.pointer(sim, x, y, fg);
         }
         // shouts last: nothing may cover them
         self.roars_fx(sim);
@@ -1496,6 +1493,10 @@ impl Frame {
                     ('■', pal.chest)
                 } else if t.iter().any(|&(x, y, _)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
                     ('B', pal.alarm)
+                } else if sim.world.goblins.iter().any(|g| (g.x.div_euclid(unit), g.y.div_euclid(unit)) == (cx, cy)) {
+                    ('g', pal.chest)
+                } else if let Some(p) = sim.world.npcs.iter().find(|p| p.npc != crate::sim::Npc::Neutral && (p.x.div_euclid(unit), p.y.div_euclid(unit)) == (cx, cy)) {
+                    npc_ink(p.npc, pal)
                 } else if known && rock(sim.arena(), cx, cy) {
                     ('█', pal.text)
                 } else if known {
@@ -1977,6 +1978,18 @@ impl Frame {
         self.face = Face::default();
         self.died_ms = None;
         (self.sky, self.sky_banner) = (None, None);
+    }
+}
+
+/// Letter and colour of an NPC, on the arena and on the map: pals in the hero colour, keepers in gold.
+fn npc_ink(npc: crate::sim::Npc, pal: &crate::data::Palette) -> (char, Rgb) {
+    use crate::sim::Npc;
+    match npc {
+        Npc::Pal { .. } => ('p', pal.player),
+        Npc::Merchant { .. } => ('m', pal.chest),
+        Npc::Blacksmith { .. } => ('b', pal.chest),
+        Npc::Witch { .. } => ('w', pal.chest),
+        Npc::Neutral => ('n', pal.dim),
     }
 }
 
@@ -2680,6 +2693,30 @@ mod tests {
     }
 
     #[test]
+    fn keepers_and_goblins_on_the_map_and_pointed_at() {
+        use crate::sim::{Npc, Placed};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let view = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let map = |f: &Frame| (0..usize::from(MAP_H)).flat_map(|r| f.cells[r * 120..r * 120 + usize::from(MAP_W)].iter().map(|c| c.ch.ch())).collect::<String>();
+        sim.world.npcs.clear();
+        sim.world.goblins.clear();
+        f.compose(&sim, &view);
+        assert!(!map(&f).contains('m') && !map(&f).contains('g'), "control: none on the map");
+        let gold_arrows = |f: &Frame| f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == c.pal.chest).count();
+        let before = gold_arrows(&f);
+        sim.world.npcs = vec![Placed { npc: Npc::Merchant { honest: true }, x: sim.p.x + 40_000, y: sim.p.y }];
+        f.compose(&sim, &view);
+        assert!(map(&f).contains('m'), "merchant on the map");
+        assert_eq!(gold_arrows(&f), before + 1, "and a gold arrow points at it");
+        sim.world.goblins.push(crate::sim::Goblin { x: sim.p.x, y: sim.p.y - 30_000 });
+        f.compose(&sim, &view);
+        assert!(map(&f).contains('g'), "goblin on the map");
+    }
+
+    #[test]
     fn whichkey_opens_a_vim_style_popup() {
         use crate::input::{Key, KeyEv, Kind};
         let c = Content::parse(&texts()).unwrap();
@@ -2794,8 +2831,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels
-    const GOLDEN: u64 = 0x1eb1_5c0b_2645_26e3;
+    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
+    const GOLDEN: u64 = 0x6213_3ca6_4382_6294;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

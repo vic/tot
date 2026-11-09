@@ -17,7 +17,7 @@ pub use npc::Placed;
 pub use world::hazard::TrapState;
 pub use world::shop::ItemId;
 #[cfg(test)]
-pub use world::goblin::GoldPile;
+pub use world::goblin::{Goblin, GoldPile};
 pub use weather::Weather;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

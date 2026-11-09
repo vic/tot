@@ -31,7 +31,7 @@ const SEGMENT_S: NonZeroU32 = NonZeroU32::MIN.saturating_add(29);
 const HERO_TOUCH: i32 = 1000;
 const FOE_TOUCH: i32 = 1500;
 /// A goblin appears every this many seconds (while fewer than GOBLIN_MAX run), at this distance (mm).
-const GOBLIN_EVERY_S: u32 = 40;
+const GOBLIN_EVERY_S: u32 = 25;
 const GOBLIN_MAX: usize = 2;
 const GOBLIN_SPAWN_R: i32 = 14_000;
 /// Gold piles are picked up within this radius (mm).

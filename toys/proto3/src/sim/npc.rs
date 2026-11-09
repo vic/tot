@@ -75,7 +75,7 @@ impl Npc {
 }
 
 /// Rooms around the origin room that hold NPCs, per axis.
-const ROOM_SPAN: u32 = 7;
+const ROOM_SPAN: u32 = 5;
 /// Chance an NPC is bad (traitor pal, cheating shopkeeper), permille.
 const BAD: u32 = 250;
 /// Rejection tries per NPC before it is skipped.
