@@ -371,6 +371,8 @@ pub struct Ui {
     /// bag cursor (slot index) and the one-shot bag request
     pub bag_sel: usize,
     pub bag_act: Option<BagAct>,
+    /// one-shot: the skill a just-learned tree node grants (taken by `input`)
+    pub learn: Option<crate::data::SkillId>,
     /// one-shot: special slot asked by a number key (taken by `input`)
     pub special: Option<u8>,
     /// auto-walk and auto-fire as they were before a popup opened (popups force both on so play goes on)
@@ -417,6 +419,7 @@ impl Ui {
             gear_drop: None,
             bag_sel: 0,
             bag_act: None,
+            learn: None,
             special: None,
             popup_saved: None,
             shop_len: 0,
@@ -607,6 +610,8 @@ impl Ui {
             Ok((owned, left)) => {
                 self.tree_spent = self.tree_earned.saturating_sub(left);
                 self.tree_owned = owned;
+                // the node grants its skill in the sim (a new hotkey with its special, or a rank up)
+                self.learn = Some(t.nodes[self.tree_sel].effect);
                 format!("learned {}", t.nodes[self.tree_sel].name)
             }
             Err(e) => format!("cannot spend: {e:?}"),
@@ -756,6 +761,7 @@ impl Ui {
             buy: self.shop_buy.take(),
             drop: self.gear_drop.take(),
             bag: self.bag_act.take(),
+            learn: self.learn.take(),
             special: self.special.take(),
         }
     }
@@ -967,6 +973,31 @@ mod tests {
         ui.sync_shop(None);
         let _ = ui.input(false);
         assert!(ui.autofire && !ui.autowalk, "auto-fire toggled on in the shop stays on, auto-walk restored off");
+    }
+
+    /// Learning a tree node reaches the sim: the root's skill ranks up; a new skill takes the next hotkey slot.
+    #[test]
+    fn tree_nodes_grant_skills_in_the_sim() {
+        use crate::sim::Sim;
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let tree = hero_tree(&c).unwrap();
+        ui.key(press('t'), &c, 0);
+        ui.tree_earned = 2;
+        let root = tree.nodes[0].effect;
+        let rank0 = s.owned.iter().find(|o| o.id == root).map_or(0, |o| o.rank);
+        ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
+        s.step(&ui.input(true));
+        assert_eq!(s.owned.iter().find(|o| o.id == root).map_or(0, |o| o.rank), rank0 + 1, "root learned: its skill ranks up (or arrives)");
+        // a node whose skill the hero lacks: it arrives in the next hotkey slot
+        let k = tree.nodes.iter().position(|n| n.requires == [0] && !s.owned.iter().any(|o| o.id == n.effect)).expect("a child granting a new skill");
+        ui.tree_sel = k;
+        let slots = s.owned.len();
+        ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
+        s.step(&ui.input(true));
+        assert_eq!((s.owned.len(), s.owned[slots].id), (slots + 1, tree.nodes[k].effect), "new skill in hotkey slot {}", slots + 1);
+        assert!(c.skill(tree.nodes[k].effect).kind.has_special(), "and it has a special to bind");
     }
 
     #[test]

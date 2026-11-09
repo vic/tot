@@ -39,6 +39,9 @@ impl<'c> Sim<'c> {
             }
             _ => {}
         }
+        if let Some(id) = inp.learn {
+            self.learn(id);
+        }
         // taking an item off puts it in the bag; with a full bag it stays worn (never lost)
         if let Some(slot) = inp.drop
             && self.bag.len() < BAG_SLOTS
@@ -586,6 +589,17 @@ impl<'c> Sim<'c> {
             } else {
                 self.drop_at(self.p.x + 1500, self.p.y, Drop::Item(old));
             }
+        }
+    }
+
+    /// A skill-tree node grants its skill: a new one takes the next hotkey slot (with its special), one the
+    /// hero already has ranks up (up to the pick rules' max rank).
+    fn learn(&mut self, id: SkillId) {
+        let max = self.c.picks.max_rank;
+        if let Some(o) = self.owned.iter_mut().find(|o| o.id == id) {
+            o.rank = (o.rank + 1).min(max);
+        } else if self.owned.len() < MAX_SKILLS {
+            self.owned.push(Owned { id, rank: 1, power: 1000, cd: 0, sp: 0, phase: 0 });
         }
     }
 

@@ -45,6 +45,8 @@ pub struct Input {
     pub special: Option<u8>,
     /// act on a bag slot: wear it (swapping with what the slot holds) or discard it
     pub bag: Option<BagAct>,
+    /// a tree node was learned: gain this skill (or rank it up)
+    pub learn: Option<SkillId>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1290,7 +1292,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {
