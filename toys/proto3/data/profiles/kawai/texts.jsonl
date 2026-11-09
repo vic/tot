@@ -187,3 +187,20 @@
 {"t":"text","id":"panel_hp","text":"HUGS "}
 {"t":"text","id":"panel_lv","text":"LV "}
 {"t":"text","id":"panel_to_go","text":" to go"}
+{"t":"art","id":"face_calm","rows":[" .---. "," (o o) ","  \\_/  "]}
+{"t":"art","id":"face_calm_left","rows":[" .---. "," (oo ) ","  \\_/  "]}
+{"t":"art","id":"face_calm_right","rows":[" .---. "," ( oo) ","  \\_/  "]}
+{"t":"art","id":"face_fencing","rows":[" \\---/ "," (O O) ","  =#=  "]}
+{"t":"art","id":"face_fencing_left","rows":[" \\---/ "," (OO ) ","  =#=  "]}
+{"t":"art","id":"face_fencing_right","rows":[" \\---/ "," ( OO) ","  =#=  "]}
+{"t":"art","id":"face_grim","rows":[" .-%-. "," (. .) ","  ---  "]}
+{"t":"art","id":"face_grim_left","rows":[" .-%-. "," (.. ) ","  ---  "]}
+{"t":"art","id":"face_grim_right","rows":[" .-%-. "," ( ..) ","  ---  "]}
+{"t":"art","id":"face_pain","rows":[" .---. "," (> <) ","  ~O~  "]}
+{"t":"art","id":"face_laugh","rows":[" .---. "," (^ ^) "," \\vvv/ "]}
+{"t":"art","id":"face_frozen","rows":[" .***. "," (* *) ","  ~~~  "]}
+{"t":"art","id":"face_dead","rows":[" .---. "," (x x) ","  ___  "]}
+{"t":"art","id":"death_banner","rows":["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄","▀█▀ █ █ █ █   █ █  █  █▀  █ █"," █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "]}
+{"t":"art","id":"roar_sign","rows":["█▀▄ ▄▀▄ ▄▀▄ █▀▄","█▀▄ █ █ █▀█ █▀▄","▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"]}
+{"t":"art","id":"chest","rows":["▛▀▜","▙▄▟"]}
+{"t":"art","id":"kill_burst","rows":["+*+"," * "," . "]}

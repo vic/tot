@@ -226,6 +226,59 @@ pub const POOLS: [Spec; 9] = [
     line("death_taunt", &[], "Death screen: one taunt line picked per run, under slain_by."),
 ];
 
+/// One art piece: rows of width-1 glyphs. `rows` = (fewest, most) rows; `cols` = the width every row must have
+/// (`exact`) or must not pass.
+pub struct ArtSpec {
+    pub id: &'static str,
+    pub rows: (usize, usize),
+    pub cols: usize,
+    pub exact: bool,
+    pub doc: &'static str,
+}
+
+const fn face(id: &'static str, doc: &'static str) -> ArtSpec {
+    ArtSpec { id, rows: (3, 3), cols: 7, exact: true, doc }
+}
+
+pub const ARTS: [ArtSpec; 18] = [
+    ArtSpec { id: "title", rows: (1, 10), cols: 60, exact: false, doc: "Start screen top: the game title, rows centred as one block from row 2, in the Legendary role colour." },
+    // the hero's face in the middle of the bottom bar (Doom style): 3 rows x 7 cols, drawn in the mood's colour
+    face("face_calm", "Hero face, calm (nothing near), eyes ahead."),
+    face("face_calm_left", "Hero face, calm, eyes glancing left (toward a foe on the left)."),
+    face("face_calm_right", "Hero face, calm, eyes glancing right."),
+    face("face_fencing", "Hero face, fighting (foes close), eyes ahead."),
+    face("face_fencing_left", "Hero face, fighting, eyes left."),
+    face("face_fencing_right", "Hero face, fighting, eyes right."),
+    face("face_grim", "Hero face, low HP, eyes ahead."),
+    face("face_grim_left", "Hero face, low HP, eyes left."),
+    face("face_grim_right", "Hero face, low HP, eyes right."),
+    face("face_pain", "Hero face, just hit hard."),
+    face("face_laugh", "Hero face, a kill streak or a level up."),
+    face("face_frozen", "Hero face, frozen by the cold."),
+    face("face_dead", "Hero face, dead (death screen and after)."),
+    ArtSpec { id: "death_banner", rows: (3, 3), cols: 40, exact: false, doc: "Death screen: the big banner (3 rows), centred over the crowd, shaking, in the alarm colour." },
+    ArtSpec { id: "roar_sign", rows: (3, 3), cols: 15, exact: true, doc: "Over an uber boss that appears: its sign (3 rows x 15 cols), drawn at double size." },
+    ArtSpec { id: "chest", rows: (2, 2), cols: 3, exact: true, doc: "A treasure chest on the floor (2 rows x 3 cols), glowing gold." },
+    ArtSpec { id: "kill_burst", rows: (3, 3), cols: 3, exact: true, doc: "Where a foe dies: 3 frames of 3 cols played in order (one row per frame), over the foe's head row." },
+];
+
+/// An art piece (see `ARTS`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ArtId(pub(crate) usize);
+
+impl ArtId {
+    pub const fn named(id: &str) -> ArtId {
+        let mut i = 0;
+        while i < ARTS.len() {
+            if same(ARTS[i].id, id) {
+                return ArtId(i);
+            }
+            i += 1;
+        }
+        panic!("art id not in the table")
+    }
+}
+
 const fn same(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     if a.len() != b.len() {
@@ -459,4 +512,22 @@ pub mod t {
     pub const FOE_QUIPS: Pool = Pool::named("foe_quip");
     pub const CHEERS: Pool = Pool::named("cheer");
     pub const DEATH_TAUNTS: Pool = Pool::named("death_taunt");
+}
+
+/// Named art handles.
+pub mod a {
+    use super::ArtId;
+    pub const TITLE: ArtId = ArtId::named("title");
+    /// faces by mood; the moods with eyes have [ahead, left, right]
+    pub const FACE_CALM: [ArtId; 3] = [ArtId::named("face_calm"), ArtId::named("face_calm_left"), ArtId::named("face_calm_right")];
+    pub const FACE_FENCING: [ArtId; 3] = [ArtId::named("face_fencing"), ArtId::named("face_fencing_left"), ArtId::named("face_fencing_right")];
+    pub const FACE_GRIM: [ArtId; 3] = [ArtId::named("face_grim"), ArtId::named("face_grim_left"), ArtId::named("face_grim_right")];
+    pub const FACE_PAIN: ArtId = ArtId::named("face_pain");
+    pub const FACE_LAUGH: ArtId = ArtId::named("face_laugh");
+    pub const FACE_FROZEN: ArtId = ArtId::named("face_frozen");
+    pub const FACE_DEAD: ArtId = ArtId::named("face_dead");
+    pub const DEATH_BANNER: ArtId = ArtId::named("death_banner");
+    pub const ROAR_SIGN: ArtId = ArtId::named("roar_sign");
+    pub const CHEST: ArtId = ArtId::named("chest");
+    pub const KILL_BURST: ArtId = ArtId::named("kill_burst");
 }

@@ -162,41 +162,24 @@ impl Face {
     }
 }
 
-/// The 3 face rows (7 columns) for a mood and eye direction.
-pub fn rows(mood: Mood, eyes: i32) -> [String; 3] {
-    let hair = match mood {
-        Mood::Grim => " .-%-. ",
-        Mood::Frozen => " .***. ",
-        Mood::Fencing => " \\---/ ",
-        _ => " .---. ",
-    };
-    let eye = match mood {
-        Mood::Calm => Some('o'),
-        Mood::Fencing => Some('O'),
-        Mood::Grim => Some('.'),
-        _ => None,
-    };
-    let eyes_row = match (mood, eye) {
-        (_, Some(e)) => match eyes {
-            -1 => format!(" ({e}{e} ) "),
-            1 => format!(" ( {e}{e}) "),
-            _ => format!(" ({e} {e}) "),
-        },
-        (Mood::Pain, _) => " (> <) ".into(),
-        (Mood::Laugh, _) => " (^ ^) ".into(),
-        (Mood::Frozen, _) => " (* *) ".into(),
-        _ => " (x x) ".into(),
-    };
-    let mouth = match mood {
-        Mood::Calm => "  \\_/  ",
-        Mood::Fencing => "  =#=  ",
-        Mood::Pain => "  ~O~  ",
-        Mood::Laugh => " \\vvv/ ",
-        Mood::Grim => "  ---  ",
-        Mood::Frozen => "  ~~~  ",
-        Mood::Dead => "  ___  ",
-    };
-    [hair.into(), eyes_row, mouth.into()]
+
+/// The 3 face rows for a mood and eye direction (-1 left, 0 ahead, 1 right): the adventure's face art.
+pub fn rows(c: &crate::data::Content, mood: Mood, eyes: i32) -> &[String] {
+    use crate::text::a;
+    let look = |set: [crate::text::ArtId; 3]| set[match eyes.signum() {
+        -1 => 1,
+        1 => 2,
+        _ => 0,
+    }];
+    c.texts.art(match mood {
+        Mood::Calm => look(a::FACE_CALM),
+        Mood::Fencing => look(a::FACE_FENCING),
+        Mood::Grim => look(a::FACE_GRIM),
+        Mood::Pain => a::FACE_PAIN,
+        Mood::Laugh => a::FACE_LAUGH,
+        Mood::Frozen => a::FACE_FROZEN,
+        Mood::Dead => a::FACE_DEAD,
+    })
 }
 
 #[cfg(test)]
@@ -241,11 +224,12 @@ mod tests {
         s.tick += LAUGH_S * c.hz().get();
         assert_eq!(f.mood(&s, true), Mood::Fencing);
         assert_eq!(Face::eyes(&s, Some(-40)), -1);
-        assert!(rows(Mood::Fencing, -1)[1].contains("OO "), "{:?}", rows(Mood::Fencing, -1));
+        assert!(rows(&c, Mood::Fencing, -1)[1].contains("OO "), "{:?}", rows(&c, Mood::Fencing, -1));
+        assert_ne!(rows(&c, Mood::Fencing, -1), rows(&c, Mood::Fencing, 1), "control: the eyes move");
         // every row is FACE_W wide
         for m in [Mood::Calm, Mood::Fencing, Mood::Pain, Mood::Laugh, Mood::Grim, Mood::Frozen, Mood::Dead] {
             for e in -1..=1 {
-                assert!(rows(m, e).iter().all(|r| r.chars().count() == 7), "{m:?} {e}");
+                assert!(rows(&c, m, e).iter().all(|r| r.chars().count() == 7), "{m:?} {e}");
             }
         }
     }

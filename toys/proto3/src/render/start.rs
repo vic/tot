@@ -1,8 +1,8 @@
 //! The start screen: the title art, then the adventures (step 1) or the picked adventure's hero classes (step 2),
 //! each entry a name line and a dim description line, the cursor's entry lit; the key hints on the last row.
 use super::*;
-use crate::data::{Art, ProfileInfo};
-use crate::text::t;
+use crate::data::ProfileInfo;
+use crate::text::{a, t};
 use crate::input::Start;
 
 /// Row of the title art's first row.
@@ -16,7 +16,7 @@ impl Frame {
         self.cells.fill(Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.bg });
         let rows = self.rows;
         let centre = |cols: u16, w: usize| cols.saturating_sub(w as u16) / 2;
-        let art = c.texts.art(Art::Title);
+        let art = c.texts.art(a::TITLE);
         let aw = art.iter().map(|r| r.chars().count()).max().unwrap_or(0);
         let mut row = TITLE_TOP;
         for line in art.iter().take(usize::from(rows.saturating_sub(row))) {

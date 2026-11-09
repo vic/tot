@@ -9,7 +9,7 @@ use crate::iso::{Heading, Proj};
 use crate::sim::{Ability, BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 #[cfg(test)]
 use crate::sim::ItemId;
-use crate::text::t;
+use crate::text::{a, t};
 use std::collections::HashSet;
 
 mod heropane;
@@ -44,8 +44,7 @@ const PANEL_CAST_ROW: u16 = PANEL_FOES_ROW + 1 + PANEL_FOE_ROWS;
 /// Width of the share bar on each foe / cast row.
 const MINI_BAR_W: u16 = 6;
 const XP_BAR_W: u16 = 18;
-/// Chest sprite (3x2, centred on the chest cell) and its glow pulse period (ticks).
-const CHEST: [&str; 2] = ["▛▀▜", "▙▄▟"];
+/// Chest glow pulse period (ticks); the chest sprite is the adventure's `chest` art, centred on the chest cell.
 const CHEST_PULSE: u32 = 8;
 /// Bottom bar: size, orb width, face width (face rows come from `face::rows`).
 const BAR_W: u16 = 76;
@@ -1032,7 +1031,7 @@ impl Frame {
             Mood::Frozen => pal.of(Hue::Code),
             Mood::Dead => pal.dim,
         };
-        for (r, line) in face::rows(mood, Face::eyes(sim, toward)).iter().enumerate() {
+        for (r, line) in face::rows(sim.c, mood, Face::eyes(sim, toward)).iter().enumerate() {
             self.text(y0 + 1 + r as u16, fx, line, fg);
         }
     }
@@ -1079,7 +1078,9 @@ impl Frame {
         for k in 0..self.pops.len() {
             let (x, y, at) = self.pops[k];
             let (col, row) = self.scr(f64::from(x), f64::from(y));
-            let frame = POP_FRAMES[((now.saturating_sub(at)) * POP_FRAMES.len() as u32 / POP_TICKS).min(POP_FRAMES.len() as u32 - 1) as usize];
+            let frames = c.texts.art(a::KILL_BURST);
+            let n = frames.len() as u32;
+            let Some(frame) = frames.get(((now.saturating_sub(at)) * n / POP_TICKS).min(n.saturating_sub(1)) as usize) else { continue };
             for (dc, ch) in frame.chars().enumerate() {
                 if ch != ' ' {
                     self.flash_cell(col + dc as i32 - 1, row - 1, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.xp);
@@ -1164,7 +1165,7 @@ impl Frame {
             let h = c.boss_of(sim.e.fam[k]).map_or(i32::from(c.view.actor_rows[0]), |d| i32::from(d.h));
             let word = sim.c.texts.pick(loud.pool(), (id as usize).wrapping_mul(7));
             let lines: Vec<String> = match loud {
-                Roar::Uber => crate::bigtext::double(&ROAR.map(String::from)),
+                Roar::Uber => crate::bigtext::double(c.texts.art(a::ROAR_SIGN)),
                 _ => crate::bigtext::rows(word).to_vec(),
             };
             let shake = if loud >= Roar::Mini { if now.is_multiple_of(2) { -1 } else { 1 } } else { 0 };
@@ -1336,15 +1337,17 @@ impl Frame {
         }
         // banner: shakes for the first DIED_SHAKE_MS, then stands
         let shake = if t < DIED_SHAKE_MS { if (now_ms / 50).is_multiple_of(2) { -1 } else { 1 } } else { 0 };
-        let left = i32::from(self.cols) / 2 - YOU_DIED_W / 2 + shake;
+        let banner = sim.c.texts.art(a::DEATH_BANNER);
+        let bw = banner.iter().map(|l| l.chars().count()).max().unwrap_or(0) as i32;
+        let left = i32::from(self.cols) / 2 - bw / 2 + shake;
         let top = i32::from(self.play_rows()) / 4;
         // a dark red plate behind banner and text, so it reads over anything
         let plate = mix(pal.alarm, pal.hud_bg, 820);
         let plea = sim.c.texts.get(t::SUPPORT_PLEA);
-        let (pw, ph) = (plea.chars().count() as i32 + 8, YOU_DIED.len() as i32 + 9);
+        let (pw, ph) = (plea.chars().count() as i32 + 8, banner.len() as i32 + 9);
         let pl = i32::from(self.cols) / 2 - pw / 2;
         self.plate(pl, top - 1, pw, ph, plate);
-        for (r, line) in YOU_DIED.iter().enumerate() {
+        for (r, line) in banner.iter().enumerate() {
             for (i, ch) in line.chars().enumerate() {
                 if ch != ' ' {
                     self.flash_cell(left + i as i32, top + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.alarm);
@@ -1358,12 +1361,12 @@ impl Frame {
             let w = line.chars().count() as i32;
             let col = i32::from(self.cols) / 2 - w / 2;
             for (i, ch) in line.chars().enumerate() {
-                self.flash_cell(col + i as i32, top + YOU_DIED.len() as i32 + 1 + dr as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+                self.flash_cell(col + i as i32, top + banner.len() as i32 + 1 + dr as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
             }
         }
         // the plea: below the plate, a clickable sponsor link
         let w = plea.chars().count() as i32 + 4;
-        let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + YOU_DIED.len() as i32 + 6);
+        let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + banner.len() as i32 + 6);
         if col >= 0 && row >= 1 && row + 1 < i32::from(self.play_rows()) {
             self.button((row as u16, col as u16), plea, (pal.chest, pal.bg), true, sim.c.texts.get(t::SUPPORT_URL));
         }
@@ -1527,7 +1530,7 @@ impl Frame {
         let (col, row) = self.scr(x, y);
         let d = self.vd(x, y);
         let glow = chest_glow(pal, sim.tick);
-        for (dr, line) in CHEST.iter().enumerate() {
+        for (dr, line) in sim.c.texts.art(a::CHEST).iter().enumerate() {
             for (dc, ch) in line.chars().enumerate() {
                 let (c2, r2) = (col + dc as i32 - 1, row + dr as i32 - 1);
                 if c2 < 0 || r2 < 0 || c2 >= i32::from(self.cols) || r2 >= i32::from(self.play_rows()) {
@@ -2297,9 +2300,8 @@ const LEVEL_GLOW_BG: u32 = 450;
 /// Rows between the hero's head and the level-up line.
 const LEVEL_LINE_GAP: i32 = 2;
 
-/// Kill burst life in sim ticks, split evenly over POP_FRAMES (a few frames at 30 Hz).
+/// Kill burst life in sim ticks, split evenly over the `kill_burst` art frames.
 const POP_TICKS: u32 = 9;
-const POP_FRAMES: [&str; 3] = ["+*+", " * ", " . "];
 /// Most bursts alive at once: a wipe of the screen must not cost a frame.
 const POPS_MAX: usize = 64;
 /// Roar life in sim ticks (about 1.5 s), gap above the head, the uber ROAR sign, and how long a roared id is
@@ -2307,8 +2309,6 @@ const POPS_MAX: usize = 64;
 const ROAR_TICKS: u32 = 45;
 const ROAR_FORGET: u32 = 30 * 60 * 5;
 const ROAR_GAP: i32 = 1;
-const ROAR_ROWS: usize = 3;
-const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█▀▄ █ █ █▀█ █▀▄", "▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"];
 
 /// How loud a foe roars when it first comes into sight: champions, then bosses by class. Order = loudness.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -2343,9 +2343,7 @@ impl Roar {
     }
 }
 
-/// Death: the banner (3 rows), its width, how long it shakes, the crowd hop period, cheers and taunts.
-const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
-const YOU_DIED_W: i32 = 29;
+/// Death: how long the banner shakes, the crowd hop period.
 /// Which-key popup: widest inner width.
 const WK_MAX_W: usize = 72;
 /// Toggle label background: state colour mixed this far (permille) toward the background.
@@ -2654,9 +2652,6 @@ mod tests {
         assert_eq!(vanished(&prev, &cur).collect::<Vec<_>>(), vec![(10, 20), (50, 60)]);
         // negative control: nobody died when the id sets match
         assert_eq!(vanished(&cur, &cur).count(), 0);
-        assert!(ROAR.iter().all(|l| l.chars().count() == ROAR[0].chars().count()), "sign rows share one width");
-        assert!(ROAR.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()), "every sign glyph is in the font");
-        assert!(POP_FRAMES.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()));
     }
 
     #[test]
@@ -2840,7 +2835,8 @@ mod tests {
         assert!(!alive.contains("HERO-SLAYER") && !alive.contains("slain by"), "control: alive, no death show");
         sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
         let s0 = at(&mut f, &sim, 1000);
-        assert!(s0.contains(YOU_DIED[0].trim_end()) || s0.contains(&YOU_DIED[1][1..20]), "banner\n{s0}");
+        let banner = c.texts.art(a::DEATH_BANNER);
+        assert!(s0.contains(banner[0].trim_end()), "banner\n{s0}");
         assert!(s0.contains("slain by") && s0.contains("HERO-SLAYER"), "{s0}");
         // the crowd hops: two frames a hop apart differ
         let s1 = at(&mut f, &sim, 1000 + CHEER_HOP_MS);
@@ -3005,7 +3001,8 @@ mod tests {
         assert_eq!(roared("kiosk", Tier::Boss), (Roar::Mini, true));
         assert_eq!(roared("sweeper", Tier::Boss), (Roar::Super, true));
         assert!(Roar::Champion < Roar::Mini && Roar::Super < Roar::Uber, "loudness order");
-        assert_eq!(crate::bigtext::double(&ROAR.map(String::from)).len(), 2 * ROAR.len(), "uber ROAR is double size");
+        let sign = c.texts.art(a::ROAR_SIGN);
+        assert_eq!(crate::bigtext::double(sign).len(), 2 * sign.len(), "uber ROAR is double size");
         // hero: gold makes it shout SHINY! big, with the line in a bubble
         let mut sim = Sim::new(&c, 7, None);
         sim.p.unhurt = 1000;
@@ -3214,7 +3211,7 @@ mod tests {
         let mut f = Frame::new(&base, 120, 40);
         f.start(&base, &ui, &advs);
         let s = f.plain();
-        let art = base.texts.art(crate::data::Art::Title);
+        let art = base.texts.art(crate::text::a::TITLE);
         assert!(art.iter().all(|r| s.contains(r.trim())), "title art\n{s}");
         assert!(s.contains(base.texts.get(crate::text::t::PICK_ADVENTURE)) && advs.iter().all(|a| s.contains(&a.name) && s.contains(&a.blurb)));
         assert!(f.cells.iter().any(|cl| cl.bg == base.pal.role(Role::Select)), "the cursor's entry is lit");
