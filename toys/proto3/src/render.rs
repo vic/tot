@@ -1472,6 +1472,7 @@ impl Frame {
             t.push((sim.e.x[b], sim.e.y[b], sim.e.fam[b].ix()));
         }
         self.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures);
+        self.loot_panes(sim, ui);
         self.panel(sim, v.phase, v.last_bytes);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
@@ -1533,6 +1534,38 @@ impl Frame {
         }
         self.rose(pal);
     }
+    /// Waiting power-ups stack as small loot panes down the left edge under the map; `p` opens the top one.
+    fn loot_panes(&mut self, sim: &Sim, ui: &Ui) {
+        let n = sim.offers_waiting();
+        if n == 0 || ui.mode == Mode::Pick {
+            return;
+        }
+        let pal = &sim.c.pal;
+        let glow = chest_glow(pal, sim.tick);
+        for k in 0..n.min(LOOT_PANES) {
+            let top = i32::from(MAP_H) + 1 + i32::from(k) * 3;
+            if top + 3 > i32::from(self.play_rows()) {
+                break;
+            }
+            self.plate(0, top, LOOT_PANE_W, 3, pal.hud_bg);
+            let w = LOOT_PANE_W as usize - 2;
+            self.text(top as u16, 0, &format!("╭{}╮", "─".repeat(w)), pal.chest);
+            self.text(top as u16 + 1, 0, &format!("│{:<w$}│", " ✦ POWER-UP"), pal.chest);
+            self.text(top as u16 + 2, 0, &format!("╰{}╯", "─".repeat(w)), pal.chest);
+            if k == 0 {
+                // the top pane carries the key and glows
+                let i = (top as usize + 1) * usize::from(self.cols);
+                for cell in &mut self.cells[i + 1..i + 1 + w] {
+                    cell.bg = glow;
+                }
+                self.text(top as u16 + 2, 2, " p ", key_fg(pal));
+            }
+        }
+        if n > LOOT_PANES {
+            self.text((i32::from(MAP_H) + 1 + i32::from(LOOT_PANES) * 3) as u16, 1, &format!("+{} more", n - LOOT_PANES), pal.dim);
+        }
+    }
+
     /// Compass rose in the map's bottom-right corner: a star, a ring, and N E S W on it. It turns with the eased
     /// camera (the same rotation the map makes at rest), so a q/e turn swings it smoothly. N in the alarm colour.
     fn rose(&mut self, pal: &crate::data::Palette) {
@@ -2192,6 +2225,9 @@ fn chest_glow(pal: &crate::data::Palette, tick: u32) -> Rgb {
 /// Rose radii in cells (cells are about twice as tall as wide, so the ring is a wide ellipse).
 const ROSE_RX: f64 = 3.0;
 const ROSE_RY: f64 = 1.5;
+/// Waiting power-up panes: most shown, and their width.
+const LOOT_PANES: u16 = 4;
+const LOOT_PANE_W: i32 = 16;
 /// Compass letters with their world direction (y grows south).
 const COMPASS: [(char, i32, i32); 4] = [('N', 0, -1), ('E', 1, 0), ('S', 0, 1), ('W', -1, 0)];
 
@@ -2757,6 +2793,29 @@ mod tests {
     }
 
     #[test]
+    fn power_ups_wait_as_loot_panes_until_p() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 2, None);
+        let mut d = Director::new(2);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(!f.plain().contains("POWER-UP"), "control: nothing waiting");
+        while sim.offer.is_none() {
+            d.tick(&mut sim);
+            sim.step(&Input { autofire: true, ..Input::default() });
+        }
+        ui.sync(sim.offer.is_some());
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(f.plain().contains("POWER-UP") && !f.plain().contains("UPGRADE"), "waits as a pane, no popup");
+        assert_eq!(ui.mode, Mode::Play);
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Char('p'), kind: crate::input::Kind::Press, text: Some('p') }, &c, 7_000);
+        f.compose(&sim, &View { ui: &ui, now_ms: 7_000, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(f.plain().contains("UPGRADE") && !f.plain().contains("POWER-UP"), "p opens the picker");
+        assert_eq!(ui.pick_open_ms, 7_000, "its timer starts on opening");
+    }
+
+    #[test]
     fn whichkey_opens_a_vim_style_popup() {
         use crate::input::{Key, KeyEv, Kind};
         let c = Content::parse(&texts()).unwrap();
@@ -2872,7 +2931,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0xd666_8461_0dde_8533;
+    const GOLDEN: u64 = 0x9886_1100_2c93_be6b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -2990,7 +3049,8 @@ mod tests {
             sim.step(&Input { autofire: true, ..Input::default() });
         }
         let mut ui = Ui::new(true);
-        ui.sync(true, 0);
+        ui.sync(true);
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Char('p'), kind: crate::input::Kind::Press, text: Some('p') }, &c, 0);
         let mut f = Frame::new(&c, 120, 40);
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let row = |r: usize| f.cells[r * 120..(r + 1) * 120].iter().map(|c| c.ch.ch()).collect::<String>();

@@ -155,7 +155,7 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
         }
         // shortcut: points = levels gained, owned nodes live in Ui until the sim holds them
         ui.tree_earned = sim.p.level.saturating_sub(1);
-        ui.sync(sim.offer.is_some(), now_ms());
+        ui.sync(sim.offer.is_some());
         ui.sync_shop(sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map(Vec::len));
         if Instant::now() >= next {
             next += tick;

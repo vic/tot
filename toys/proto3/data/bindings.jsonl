@@ -27,6 +27,7 @@
 {"t":"bind","mode":"play","keys":["space"],"action":"fire","label":"fire"}
 {"t":"bind","mode":"play","keys":["F"],"action":"autofire","label":"autofire"}
 {"t":"bind","mode":"play","keys":["W"],"action":"autowalk","label":"autowalk"}
+{"t":"bind","mode":"play","keys":["p"],"action":"pick","label":"power-up"}
 {"t":"bind","mode":"play","keys":["v"],"action":"look","label":"look"}
 {"t":"group","mode":"play","keys":["c"],"label":"camera"}
 {"t":"bind","mode":"play","keys":["c","q"],"action":"rot_left","label":"turn left"}
@@ -40,6 +41,7 @@
 {"t":"bind","mode":"look","keys":["j"],"action":"cur_down","label":"down"}
 {"t":"bind","mode":"look","keys":["k"],"action":"cur_up","label":"up"}
 {"t":"bind","mode":"look","keys":["l"],"action":"cur_right","label":"right"}
+{"t":"bind","mode":"pick","keys":["esc"],"action":"back","label":"later"}
 {"t":"bind","mode":"look","keys":["esc"],"action":"back","label":"back"}
 {"t":"bind","mode":"cmd","keys":["esc"],"action":"back","label":"back"}
 {"t":"bind","mode":"pick","keys":["w"],"action":"prev","label":"prev"}

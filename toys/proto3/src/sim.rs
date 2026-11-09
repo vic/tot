@@ -1009,6 +1009,11 @@ impl<'c> Sim<'c> {
     }
 
     /// Upgrade picker time limit: 15 s at level 1, 0.5 s less per level, capped near a boss, never under 5 s.
+    /// Power-up offers waiting for the player: the open one and those queued behind it.
+    pub fn offers_waiting(&self) -> u16 {
+        u16::from(self.offer.is_some()) + self.pending
+    }
+
     pub fn pick_timeout_ms(&self) -> u64 {
         let by_level = PICK_MAX_MS.saturating_sub(u64::from(self.p.level.saturating_sub(1)) * PICK_STEP_MS);
         let hz = self.c.hz().get();

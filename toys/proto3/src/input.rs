@@ -138,6 +138,8 @@ pub enum Action {
     Card(u8),
     /// number key in play: cast the special of bar slot n
     Special(u8),
+    /// open the waiting power-up offer (it waits until the player opens it)
+    OpenPick,
     Skip,
     CurUp,
     CurDown,
@@ -189,6 +191,7 @@ impl Action {
             "special6" => Special(5),
             "special7" => Special(6),
             "special8" => Special(7),
+            "pick" => OpenPick,
             "card1" => Card(0),
             "card2" => Card(1),
             "card3" => Card(2),
@@ -368,6 +371,10 @@ pub struct Ui {
     hack: bool,
     pick: Option<PickChoice>,
     pub pick_open_ms: u64,
+    /// the sim holds a power-up offer the player has not opened yet (p opens it)
+    pub offer_waiting: bool,
+    /// clock of the last key event (ms), for actions that start a timer
+    now_ms: u64,
     /// command typed by the human (`:spawn`), sent through the sim validator with src `human`
     pub human: Option<Cmd>,
 }
@@ -404,6 +411,8 @@ impl Ui {
             hack: false,
             pick: None,
             pick_open_ms: 0,
+            offer_waiting: false,
+            now_ms: 0,
             human: None,
         }
     }
@@ -415,14 +424,11 @@ impl Ui {
         Ui { autowalk: walk, ..Ui::new(fire) }
     }
 
-    /// Enter / leave PICK when the sim opens / closes an offer.
-    pub fn sync(&mut self, offer_open: bool, now_ms: u64) {
-        if offer_open && self.mode != Mode::Pick {
-            self.mode = Mode::Pick;
-            self.sel = 0;
-            self.seq.clear();
-            self.pick_open_ms = now_ms;
-        } else if !offer_open && self.mode == Mode::Pick {
+    /// Track the sim's power-up offer. It does not pop up by itself (that interrupts play): it waits until the
+    /// player opens it with p; PICK closes when the offer is taken or gone.
+    pub fn sync(&mut self, offer_open: bool) {
+        self.offer_waiting = offer_open;
+        if !offer_open && self.mode == Mode::Pick {
             self.mode = Mode::Play;
         }
     }
@@ -447,6 +453,7 @@ impl Ui {
     }
 
     pub fn key(&mut self, ev: KeyEv, c: &Content, now_ms: u64) {
+        self.now_ms = now_ms;
         if ev.kind == Kind::Release {
             if ev.key == Key::Shift && self.shift_clean && self.bound(c, &[Key::Shift]) == Some(Action::Dodge) {
                 self.dodge = true;
@@ -625,6 +632,12 @@ impl Ui {
             Action::Autowalk => self.msg = self.set_autowalk(!self.choice().0),
             Action::Fire => self.fire = true,
             Action::Special(n) => self.special = Some(n),
+            Action::OpenPick if self.offer_waiting => {
+                self.mode = Mode::Pick;
+                self.sel = 0;
+                self.pick_open_ms = self.now_ms;
+            }
+            Action::OpenPick => self.msg = "no power-up waiting".into(),
             Action::Look => {
                 self.mode = Mode::Look;
                 self.cursor = (0, 0);
@@ -1006,7 +1019,10 @@ mod tests {
     fn pick_mode_keys_choose_and_block_moves_when_paused() {
         let c = content();
         let mut ui = Ui::new(true);
-        ui.sync(true, 0);
+        ui.sync(true);
+        assert_eq!(ui.mode, Mode::Play, "the offer waits, it does not pop up");
+        ui.key(press('p'), &c, 500);
+        assert_eq!((ui.mode, ui.pick_open_ms), (Mode::Pick, 500), "p opens it, the timer starts now");
         ui.key(press('l'), &c, 0);
         ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
         let i = ui.input(true);
