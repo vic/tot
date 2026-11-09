@@ -138,6 +138,16 @@ pub enum Cause {
     Blast,
 }
 
+/// What the last number-key press did; the face answers refusals.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpecialTry {
+    Cast,
+    Reloading,
+    Passive,
+    NoTarget,
+    Empty,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Win,
@@ -826,6 +836,8 @@ pub struct Sim<'c> {
     pub log: Vec<LogRow>,
     pub stats: Stats,
     pub outcome: Option<Outcome>,
+    /// last number-key press: what it did and the tick it was pressed
+    pub special_try: Option<(SpecialTry, u32)>,
     pub narration: Option<(usize, u32)>,
     /// short-lived world events the view shows as floating text (sim stays text-free)
     pub barks: Vec<Bark>,
@@ -904,6 +916,7 @@ impl<'c> Sim<'c> {
                 hijacked_peak: 0,
             },
             outcome: None,
+            special_try: None,
             narration: None,
             barks: Vec::with_capacity(64),
             hijacked: 0,

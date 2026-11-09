@@ -1,6 +1,7 @@
 //! Pure render: sim state -> cell grid -> diff bytes (design sec 5). One buffer per frame, diff
 //! against the front buffer, hand decimal writer (no core::fmt in the frame path, PF sec 1c).
 use crate::data::{Content, Glyph, Hue, Rgb, Role};
+use crate::face::{self, Face, Mood};
 use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
@@ -29,15 +30,11 @@ const XP_BAR_W: u16 = 18;
 /// Chest sprite (3x2, centred on the chest cell) and its glow pulse period (ticks).
 const CHEST: [&str; 2] = ["▛▀▜", "▙▄▟"];
 const CHEST_PULSE: u32 = 8;
-/// Bottom bar: size, orb width, face width, HP percent under which the face suffers, faces (3 rows x FACE_W).
+/// Bottom bar: size, orb width, face width (face rows come from `face::rows`).
 const BAR_W: u16 = 76;
 const BAR_H: u16 = 5;
 const ORB_W: u16 = 9;
 const FACE_W: u16 = 7;
-const FACE_HURT_PCT: i32 = 35;
-const FACE_CALM: [&str; 3] = [" .---. ", " (o o) ", "  \\_/  "];
-const FACE_RAGE: [&str; 3] = [" \\---/ ", " (>.<) ", "  /W\\  "];
-const FACE_HURT: [&str; 3] = [" .~~~. ", " (x x) ", "  /~\\  "];
 /// Fed-thief gold glow strength (permille toward gold): base, per loot point, max.
 const FED_GLOW_MIN: u32 = 250;
 /// Fear tint strength on panicked foes (permille toward the fear colour).
@@ -128,6 +125,8 @@ pub struct Frame {
     /// kill bursts (world x, y, sim tick of the death) and the boss ROAR (boss id, sim tick it appeared)
     pops: Vec<(i32, i32, u32)>,
     roar: Option<(u32, u32)>,
+    /// Doom face memory (moods, barks) for the bottom bar
+    face: Face,
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
@@ -198,6 +197,7 @@ impl Frame {
             tick_ms: 0,
             level: None,
             level_flash: None,
+            face: Face::default(),
             pops: Vec::with_capacity(POPS_MAX),
             roar: None,
         }
@@ -906,18 +906,30 @@ impl Frame {
                 }
             }
         }
-        // face: suffering when low, rage in a crowd, calm otherwise
-        let crowd = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile && dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y) <= i64::from(c.view.crowd_r).pow(2)).count();
-        let (face, fg) = if sim.p.hp * 100 < sim.p.max_hp * FACE_HURT_PCT {
-            (FACE_HURT, pal.alarm)
-        } else if crowd >= usize::from(c.view.crowd_n) {
-            (FACE_RAGE, pal.of(Hue::Therm))
-        } else {
-            (FACE_CALM, pal.player)
-        };
+        // Doom face: mood from what just happened, eyes on the nearest foe on screen, barks above the bar
         let fx = left + half + 1;
-        for (r, line) in face.iter().enumerate() {
+        self.face.observe(sim);
+        let (cc, _) = self.centre();
+        let near = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile).map(|k| (dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y), k)).min();
+        let toward = near.filter(|&(d2, _)| d2 <= i64::from(c.view.view_r).pow(2)).map(|(_, k)| self.scr(f64::from(sim.e.x[k]), f64::from(sim.e.y[k])).0 - cc);
+        let fighting = near.is_some_and(|(d2, _)| d2 <= i64::from(c.view.crowd_r).pow(2)) && sim.bolts().next().is_some();
+        let mood = self.face.mood(sim, fighting);
+        let fg = match mood {
+            Mood::Calm => pal.player,
+            Mood::Fencing => pal.of(Hue::Therm),
+            Mood::Pain | Mood::Grim => pal.alarm,
+            Mood::Laugh => pal.xp,
+            Mood::Frozen => pal.of(Hue::Code),
+            Mood::Dead => pal.dim,
+        };
+        for (r, line) in face::rows(mood, Face::eyes(sim, toward)).iter().enumerate() {
             self.text(y0 + 1 + r as u16, fx, line, fg);
+        }
+        if let Some(line) = self.face.bark(sim) {
+            let say = format!("\"{line}\"");
+            let w = say.chars().count() as u16;
+            let sx = (fx + FACE_W / 2).saturating_sub(w / 2);
+            self.text(y0.saturating_sub(1), sx, &say, pal.text);
         }
     }
 
@@ -1555,6 +1567,7 @@ impl Frame {
     /// New run: forget the explored map (the arena is a new one).
     pub fn reset_run(&mut self) {
         self.seen.clear();
+        self.face = Face::default();
     }
 }
 
@@ -2016,8 +2029,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: hotkey slots show the special reload gauge (or "passive") instead of the rank bar
-    const GOLDEN: u64 = 0x308d_411d_12ff_b34a;
+    // re-pinned 2026-11-08: Doom face (moods, eyes tracking foes, barks) replaces the 3 static faces
+    const GOLDEN: u64 = 0xb6c7_ca0f_03a4_e314;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

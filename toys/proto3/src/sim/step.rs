@@ -542,9 +542,18 @@ impl<'c> Sim<'c> {
             o.sp = o.sp.saturating_sub(1);
         }
         let Some(k) = inp.special.map(usize::from) else { return };
-        let Some(o) = self.owned.get(k).copied() else { return };
-        if o.sp > 0 || !self.c.skill(o.id).kind.has_special() {
-            return;
+        let tried = self.try_special(k);
+        self.special_try = Some((tried, self.tick));
+    }
+
+    /// Cast slot k's special if it can: what happened, for the face to answer.
+    fn try_special(&mut self, k: usize) -> SpecialTry {
+        let Some(o) = self.owned.get(k).copied() else { return SpecialTry::Empty };
+        if !self.c.skill(o.id).kind.has_special() {
+            return SpecialTry::Passive;
+        }
+        if o.sp > 0 {
+            return SpecialTry::Reloading;
         }
         let f = self.eff(&o);
         let big = Eff { dmg: f.dmg.saturating_mul(SPECIAL_DMG), area: f.area.saturating_mul(2), count: f.count.saturating_mul(3), pierce: f.pierce.saturating_add(2), ..f };
@@ -557,9 +566,11 @@ impl<'c> Sim<'c> {
             SkillKind::Mine => self.drop_mines(&o, &big),
             _ => false,
         };
-        if cast {
-            self.owned[k].sp = self.special_reload(o.rank);
+        if !cast {
+            return SpecialTry::NoTarget;
         }
+        self.owned[k].sp = self.special_reload(o.rank);
+        SpecialTry::Cast
     }
 
     /// Bolts at the target; with nothing in range only the held fire key shoots, along the facing.

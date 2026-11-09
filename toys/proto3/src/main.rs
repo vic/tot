@@ -3,6 +3,7 @@ mod bot;
 mod cam;
 mod data;
 mod director;
+mod face;
 mod floorgen;
 mod input;
 mod iso;
