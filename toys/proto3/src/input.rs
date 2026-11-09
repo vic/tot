@@ -339,6 +339,8 @@ pub struct Ui {
     pub gear_drop: Option<Slot>,
     /// one-shot: special slot asked by a number key (taken by `input`)
     pub special: Option<u8>,
+    /// auto-walk and auto-fire as they were before a popup opened (popups force both on so play goes on)
+    popup_saved: Option<(bool, bool)>,
     /// shop offer count (set by `sync_shop`); `shop_buy` is the one-shot buy request
     pub shop_len: usize,
     pub shop_buy: Option<usize>,
@@ -376,6 +378,7 @@ impl Ui {
             gear_sel: 0,
             gear_drop: None,
             special: None,
+            popup_saved: None,
             shop_len: 0,
             shop_buy: None,
             shop_left: false,
@@ -395,7 +398,9 @@ impl Ui {
 
     /// New run: clean state, same settings (the toggles).
     pub fn fresh(&self) -> Ui {
-        Ui { autowalk: self.autowalk, ..Ui::new(self.autofire) }
+        // a popup open at restart forced the toggles on: the player's own choice is the saved one
+        let (walk, fire) = self.choice();
+        Ui { autowalk: walk, ..Ui::new(fire) }
     }
 
     /// Enter / leave PICK when the sim opens / closes an offer.
@@ -503,10 +508,10 @@ impl Ui {
         self.msg = match words.as_slice() {
             ["autofire", "on"] => self.set_autofire(true),
             ["autofire", "off"] => self.set_autofire(false),
-            ["autofire"] => self.set_autofire(!self.autofire),
+            ["autofire"] => self.set_autofire(!self.choice().1),
             ["autowalk", "on"] => self.set_autowalk(true),
             ["autowalk", "off"] => self.set_autowalk(false),
-            ["autowalk"] => self.set_autowalk(!self.autowalk),
+            ["autowalk"] => self.set_autowalk(!self.choice().0),
             ["cam", "left"] | ["cam"] => {
                 self.heading = self.heading.left();
                 format!("camera {}", self.heading.name())
@@ -537,7 +542,11 @@ impl Ui {
     }
 
     fn set_autofire(&mut self, on: bool) -> String {
-        self.autofire = on;
+        // inside a popup both stay forced on; the toggle sets the choice restored when it closes
+        match self.popup_saved.as_mut() {
+            Some(s) => s.1 = on,
+            None => self.autofire = on,
+        }
         format!("autofire {}", if on { "on" } else { "off (aim = facing, x = hack)" })
     }
 
@@ -558,8 +567,16 @@ impl Ui {
         }
     }
 
+    /// The player's own (auto-walk, auto-fire): the saved pair while a popup forces both on.
+    fn choice(&self) -> (bool, bool) {
+        self.popup_saved.unwrap_or((self.autowalk, self.autofire))
+    }
+
     fn set_autowalk(&mut self, on: bool) -> String {
-        self.autowalk = on;
+        match self.popup_saved.as_mut() {
+            Some(s) => s.0 = on,
+            None => self.autowalk = on,
+        }
         format!("autowalk {}", if on { "on" } else { "off" })
     }
 
@@ -574,7 +591,7 @@ impl Ui {
             Action::Hack => self.hack = true,
             Action::RotLeft => self.heading = self.heading.left(),
             Action::RotRight => self.heading = self.heading.right(),
-            Action::Autofire => self.msg = self.set_autofire(!self.autofire),
+            Action::Autofire => self.msg = self.set_autofire(!self.choice().1),
             Action::OpenGear => self.mode = Mode::Gear,
             Action::ShopTake(n) => self.shop_buy = (usize::from(n) < self.shop_len).then_some(usize::from(n)),
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
@@ -587,7 +604,7 @@ impl Ui {
                 }
             }
             Action::TreeSpend => self.msg = self.spend(c),
-            Action::Autowalk => self.msg = self.set_autowalk(!self.autowalk),
+            Action::Autowalk => self.msg = self.set_autowalk(!self.choice().0),
             Action::Fire => self.fire = true,
             Action::Special(n) => self.special = Some(n),
             Action::Look => {
@@ -644,6 +661,20 @@ impl Ui {
 
     /// Per-tick sim input; one-shot actions are consumed.
     pub fn input(&mut self, pick_pauses: bool) -> Input {
+        // a popup (picker, tree, gear, shop) keeps the game going: auto-walk and auto-fire on while it is open,
+        // restored to what they were when it closes
+        let popup = matches!(self.mode, Mode::Pick | Mode::Tree | Mode::Gear | Mode::Shop);
+        match (popup, self.popup_saved) {
+            (true, None) => {
+                self.popup_saved = Some((self.autowalk, self.autofire));
+                (self.autowalk, self.autofire) = (true, true);
+            }
+            (false, Some((walk, fire))) => {
+                (self.autowalk, self.autofire) = (walk, fire);
+                self.popup_saved = None;
+            }
+            _ => {}
+        }
         // fire is a PLAY hold: any mode change drops it. The kitty protocol is required (NoKitty
         // otherwise), so release events always arrive; without them fire would stick until a mode change.
         if self.mode != Mode::Play {
@@ -799,6 +830,29 @@ mod tests {
         assert!(ui.tree_owned.has(ui.tree_sel) && ui.tree_points() == 0, "{}", ui.msg);
         ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
         assert_eq!(ui.mode, Mode::Play);
+    }
+
+    #[test]
+    fn popups_keep_play_going_and_restore_toggles() {
+        let c = content();
+        let mut ui = Ui::new(false);
+        ui.autowalk = false;
+        let _ = ui.input(false);
+        assert!(!ui.autowalk && !ui.autofire, "control: both off in play");
+        ui.key(press('t'), &c, 0);
+        assert_eq!(ui.mode, Mode::Tree);
+        let _ = ui.input(false);
+        assert!(ui.autowalk && ui.autofire, "tree open: the hero walks and fights on");
+        ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
+        let _ = ui.input(false);
+        assert!(!ui.autowalk && !ui.autofire, "closed: restored");
+        // toggled inside a shop (play keys fall through): that choice sticks
+        ui.sync_shop(Some(2));
+        let _ = ui.input(false);
+        ui.key(KeyEv { key: Key::Char('F'), kind: Kind::Press, text: Some('F') }, &c, 0);
+        ui.sync_shop(None);
+        let _ = ui.input(false);
+        assert!(ui.autofire && !ui.autowalk, "auto-fire toggled on in the shop stays on, auto-walk restored off");
     }
 
     #[test]

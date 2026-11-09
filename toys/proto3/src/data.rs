@@ -2234,7 +2234,7 @@ pub mod tests {
     fn shipped_data_loads() {
         let c = content();
         assert_eq!(c.hz(), Hz::H30);
-        assert!(c.opt.pick_pauses);
+        assert!(!c.opt.pick_pauses, "picks keep play going (popups force auto-walk and auto-fire)");
         assert_eq!(c.player.speed, 167);
         assert!(c.skills.len() >= 6 && c.fams.len() >= 5);
     }

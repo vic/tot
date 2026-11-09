@@ -132,6 +132,8 @@ pub struct Frame {
     /// weather last frame, and the change banner (weather, frame clock ms it turned)
     sky: Option<Weather>,
     sky_banner: Option<(Weather, u64)>,
+    /// clickable cell spans this frame: [start, end) cell index and the URL (OSC 8 in `emit`)
+    links: Vec<(usize, usize, &'static str)>,
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
@@ -211,6 +213,7 @@ impl Frame {
             died_ms: None,
             sky: None,
             sky_banner: None,
+            links: Vec::new(),
             pops: Vec::with_capacity(POPS_MAX),
             roar: None,
         }
@@ -328,6 +331,7 @@ impl Frame {
     }
 
     pub fn compose(&mut self, sim: &Sim, v: &View) {
+        self.links.clear();
         let c = sim.c;
         let ui = v.ui;
         let pal = &c.pal;
@@ -1136,7 +1140,7 @@ impl Frame {
         let top = i32::from(self.play_rows()) / 4;
         // a dark red plate behind banner and text, so it reads over anything
         let plate = mix(pal.alarm, pal.hud_bg, 820);
-        let (pw, ph) = (YOU_DIED_W + 16, YOU_DIED.len() as i32 + 5);
+        let (pw, ph) = (SUPPORT_PLEA.chars().count() as i32 + 6, YOU_DIED.len() as i32 + 7);
         let pl = i32::from(self.cols) / 2 - pw / 2;
         self.plate(pl, top - 1, pw, ph, plate);
         for (r, line) in YOU_DIED.iter().enumerate() {
@@ -1154,6 +1158,16 @@ impl Frame {
             for (i, ch) in line.chars().enumerate() {
                 self.flash_cell(col + i as i32, top + YOU_DIED.len() as i32 + 1 + dr as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
             }
+        }
+        // the plea: below the plate, a clickable sponsor link
+        let w = SUPPORT_PLEA.chars().count() as i32;
+        let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + YOU_DIED.len() as i32 + 5);
+        for (i, ch) in SUPPORT_PLEA.chars().enumerate() {
+            self.flash_cell(col + i as i32, row, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.chest);
+        }
+        if col >= 0 && row >= 0 && row < i32::from(self.play_rows()) {
+            let i = row as usize * usize::from(self.cols) + col as usize;
+            self.links.push((i, i + w as usize, SUPPORT_URL));
         }
     }
 
@@ -1641,10 +1655,17 @@ impl Frame {
         };
         // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
         let key_bg = key_bg(pal);
+        // the sponsor button owns the right end of row C; hints never cover it
+        let sw = SUPPORT_LABEL.chars().count() as u16;
+        let sx = self.cols.saturating_sub(sw + 1);
+        self.text(rcm, sx, SUPPORT_LABEL, pal.alarm);
+        let si = usize::from(rcm) * cols + usize::from(sx);
+        self.links.push((si, si + usize::from(sw), SUPPORT_URL));
+        let limit = [self.cols, sx.saturating_sub(1)];
         let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
         for h in &entries {
             let w = (h.keys.chars().count() + 1 + h.label.chars().count() + 2) as u16;
-            let Some(slot) = (0..2).find(|&s| ends[s] + w <= self.cols) else { continue };
+            let Some(slot) = (0..2).find(|&s| ends[s] + w <= limit[s]) else { continue };
             let (row, x) = ([rb, rcm][slot], ends[slot]);
             ends[slot] += w;
             for (k, ch) in h.keys.chars().enumerate() {
@@ -1752,8 +1773,17 @@ impl Frame {
                 _ => sgr(&mut self.out, b"\x1b[38;2;", b.fg, Some(b.bg)),
             }
             pen = Some((b.fg, b.bg));
+            let link = self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2);
+            if let Some(url) = link {
+                self.out.extend_from_slice(b"\x1b]8;id=tot;");
+                self.out.extend_from_slice(url.as_bytes());
+                self.out.extend_from_slice(b"\x1b\\");
+            }
             let mut u = [0u8; 4];
             self.out.extend_from_slice(b.ch.ch().encode_utf8(&mut u).as_bytes());
+            if link.is_some() {
+                self.out.extend_from_slice(b"\x1b]8;;\x1b\\");
+            }
             *f = Some(*b);
             cursor = if (i + 1) % cols == 0 { None } else { Some(i + 1) };
         }
@@ -1873,6 +1903,10 @@ const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█
 /// Death: the banner (3 rows), its width, how long it shakes, the crowd hop period, cheers and taunts.
 const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
 const YOU_DIED_W: i32 = 29;
+/// Sponsor link: always at the bottom right, and pleaded on the death screen.
+const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
+const SUPPORT_LABEL: &str = "support tot <3";
+const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and sponsor me";
 /// Sky: tint strength (permille) per weather, one streak cell in SKY_STREAK_1_IN, fall speed, banner life.
 const SKY_ACID_CAST: u32 = 90;
 const SKY_BLOOD_CAST: u32 = 160;
@@ -2345,6 +2379,27 @@ mod tests {
     }
 
     #[test]
+    fn support_link_bottom_right_and_on_death() {
+        use crate::sim::{Cause, Outcome};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let last = f.plain().lines().nth(39).unwrap().to_string();
+        assert!(last.trim_end().ends_with(SUPPORT_LABEL), "{last}");
+        f.emit();
+        let out = String::from_utf8_lossy(&f.out).to_string();
+        assert!(out.contains(&format!("\x1b]8;id=tot;{SUPPORT_URL}")), "OSC 8 link emitted");
+        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count(), "each link cell closed");
+        let fam = c.fam_ids().next().unwrap();
+        sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(f.plain().contains(SUPPORT_PLEA), "death plea");
+        assert_eq!(f.links.len(), 2, "button + plea are both links");
+    }
+
+    #[test]
     fn bottom_rows_list_every_key_fixed_and_highlighted() {
         let c = Content::parse(&texts()).unwrap();
         let mut sim = Sim::new(&c, 7, None);
@@ -2391,8 +2446,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: key rows list every binding (keys highlighted, fixed), message line on top, phase+NET in the panel, hotkey digits highlighted
-    const GOLDEN: u64 = 0xba76_858b_e298_005b;
+    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right
+    const GOLDEN: u64 = 0x51ce_2fc0_ffbd_8e2f;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -2855,8 +2910,9 @@ mod tests {
 
     #[test]
     fn pick_pause_frame_is_still_and_resume_is_smooth_and_forget_control_flickers() {
-        let c = Content::parse(&texts()).unwrap();
-        assert!(c.opt.pick_pauses, "armed: picks pause the sim");
+        // the pause option stays available: this test arms it
+        let mut c = Content::parse(&texts()).unwrap();
+        c.opt.pick_pauses = true;
         let (r, [out, neg], moved) = pause(&c);
         assert!(r.len() == PAUSE_HOLD, "armed: the sim was frozen for {PAUSE_HOLD} frames ({r:?})");
         let held = &out[r.clone()];
