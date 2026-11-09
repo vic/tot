@@ -20,6 +20,7 @@ const PANEL_H: u16 = PANEL_CAST_ROW + 1 + Cast::ALL.len() as u16;
 /// Stats panel: power rows shown, first row of the foe list, XP bar width.
 const PANEL_POWERS: usize = 4;
 const MORALE_BAR_W: u16 = 10;
+const FOOD_BAR_W: u16 = 8;
 const PANEL_FOES_ROW: u16 = 12;
 /// Hostile (family, tier) rows under FOES, then the CAST block (hero, allies, panicked, thieves).
 const PANEL_FOE_ROWS: u16 = 5;
@@ -397,6 +398,12 @@ impl Frame {
             let (x, y) = (f64::from(sim.drops.x[k]), f64::from(sim.drops.y[k]));
             if let crate::sim::Drop::Chest = sim.drops.kind[k] {
                 self.chest(sim, x, y);
+                continue;
+            }
+            if let crate::sim::Drop::Food = sim.drops.kind[k]
+                && let Some(i) = self.cell_of(x, y)
+            {
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: Glyph::of('%').unwrap_or(Glyph::SPACE), fg: pal.role(Role::Heal), bg: None });
                 continue;
             }
             if let crate::sim::Drop::Magnet = sim.drops.kind[k]
@@ -1673,7 +1680,11 @@ impl Frame {
         let mut x = self.text(r, x0 + 1, "GOLD ", pal.text);
         x = self.num(r, x, i64::from(sim.p.gold), pal.chest);
         x = self.text(r, x + 2, "PALS ", pal.text);
-        self.num(r, x, i64::from(sim.world.pals), pal.player);
+        x = self.num(r, x, i64::from(sim.world.pals), pal.player);
+        // the belly: green when fed, red when hungry
+        x = self.text(r, x + 2, "FOOD ", pal.text);
+        let fed = sim.p.food >= crate::sim::FOOD_LOW;
+        self.bar(r, x, i64::from(sim.p.food), i64::from(crate::sim::FOOD_FULL), FOOD_BAR_W, pal.role(if fed { Role::Heal } else { Role::Danger }));
         r += 1;
         // sky: weather now, what comes next and when (a full or blood moon is the threat)
         let fc = sim.world.forecast(sim.tick);
@@ -2996,7 +3007,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x7fd5_acb5_3250_b0ec;
+    const GOLDEN: u64 = 0x0151_d675_25fc_9bf2;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

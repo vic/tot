@@ -38,6 +38,8 @@ impl<'c> Sim<'c> {
         self.tick += 1;
         self.player_step(inp);
         self.walls.follow(&self.arena, self.p.x, self.p.y);
+        // the belly empties over FOOD_LAST_S seconds
+        self.p.food = (self.p.food - FOOD_FULL / (FOOD_LAST_S * self.c.hz().get() as i32)).max(0);
         self.p.unhurt = self.p.unhurt.saturating_add(1);
         self.morale_step();
         self.world_step();
@@ -160,7 +162,7 @@ impl<'c> Sim<'c> {
             self.p.face = (mx, my);
         }
         let sky = self.world.forecast(self.tick).now;
-        let speed = sky.hero_speed().apply(scale(pd.speed, 1000 + self.gear.sum(self.c, Stat::Speed)).max(0));
+        let speed = self.hunger_pace().apply(sky.hero_speed().apply(scale(pd.speed, 1000 + self.gear.sum(self.c, Stat::Speed)).max(0)));
         let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(speed, i64::from(HERO_FROZEN_SPEED)) } else { speed };
         let step = if mx != 0 && my != 0 { scale(walk, 707) } else { walk };
         // the wind pushes the hero too (walls stop it like any move)
@@ -283,7 +285,7 @@ impl<'c> Sim<'c> {
                         (tx, ty, td2) = (x + (x - px), y + (y - py), dp2);
                     } else if let Some(k) = (0..self.drops.x.len()).max_by_key(|&k| {
                         // best loot first: value squared over distance squared (a chest is worth a detour)
-                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) | Drop::Magnet => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
+                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) | Drop::Magnet | Drop::Food => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
                         v * v * 1_000_000_000 / (dist2(self.drops.x[k] - x, self.drops.y[k] - y) + 1)
                     }) {
                         (tx, ty) = (self.drops.x[k], self.drops.y[k]);
@@ -551,6 +553,19 @@ impl<'c> Sim<'c> {
                 self.owned[k].cd = f.cd;
             }
         }
+    }
+
+    /// Hunger slows the hero: below FOOD_LOW it walks at HUNGRY_PACE, on an empty belly at STARVED_PACE.
+    pub(super) fn hunger_pace(&self) -> Permille {
+        Permille(match self.p.food {
+            0 => STARVED_PACE,
+            f if f < FOOD_LOW => HUNGRY_PACE,
+            _ => 1000,
+        })
+    }
+
+    fn eat(&mut self) {
+        self.p.food = (self.p.food + FOOD_MEAL).min(FOOD_FULL);
     }
 
     /// How fast the horde runs this tick (permille): the sky sets it, a hero sheltering from rain or acid draws
@@ -1124,6 +1139,7 @@ impl<'c> Sim<'c> {
                     self.gear.wear(self.c, id);
                 }
                 Drop::Magnet => self.magnet_pull(),
+                Drop::Food => self.eat(),
             }
             return;
         }
@@ -1172,7 +1188,12 @@ impl<'c> Sim<'c> {
             self.stats.kills += 1;
             self.p.flux = (self.p.flux + self.c.player.flux_per_kill).min(self.c.player.flux);
             match tier {
-                Tier::Trash => self.drop_at(x, y, Drop::Xp(sp.xp_trash)),
+                Tier::Trash => {
+                    self.drop_at(x, y, Drop::Xp(sp.xp_trash));
+                    if mix(u64::from(self.e.id[i]) ^ ITEM_SALT.rotate_left(41)).is_multiple_of(FOOD_1_IN) {
+                        self.drop_at(x + 500, y, Drop::Food);
+                    }
+                }
                 Tier::Elite => {
                     self.drop_at(x, y, Drop::Xp(sp.xp_elite));
                     if mix(u64::from(self.e.id[i]) ^ ITEM_SALT.rotate_left(7)).is_multiple_of(MAGNET_1_IN) {
@@ -1231,7 +1252,7 @@ impl<'c> Sim<'c> {
             let bite = match self.drops.kind[k] {
                 Drop::Xp(_) => LOOT_XP,
                 Drop::Chest | Drop::Item(_) => LOOT_CHEST,
-                Drop::Magnet => LOOT_XP,
+                Drop::Magnet | Drop::Food => LOOT_XP,
             };
             let before = self.e.loot[j];
             self.e.loot[j] = before.saturating_add(bite);
@@ -1312,6 +1333,7 @@ impl<'c> Sim<'c> {
                         self.gear.wear(self.c, id);
                     }
                     Drop::Magnet => magnet = true,
+                    Drop::Food => self.eat(),
                 }
                 let d = &mut self.drops;
                 d.x.swap_remove(i);

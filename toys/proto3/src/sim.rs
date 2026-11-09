@@ -238,6 +238,8 @@ pub enum Drop {
     Item(ItemId),
     /// XP magnet: picking it up pulls every XP orb on the floor (and a stream from beyond sight) to the hero
     Magnet,
+    /// food: eating it fills the belly by FOOD_MEAL
+    Food,
 }
 
 /// How a melee foe closes on the hero, fixed by its id (O(1), no state): a crowd mixes all four.
@@ -388,6 +390,15 @@ const SHELTER_DRAW: u32 = 1200;
 /// Day and night: one cycle every DAY_S seconds (night is its last third); foes run NIGHT_PACE (permille).
 pub const DAY_S: u32 = 360;
 pub(crate) const NIGHT_PACE: u32 = 1100;
+/// Hunger: a full belly (ppm) empties in FOOD_LAST_S seconds; a meal adds FOOD_MEAL; trash drops food one in
+/// FOOD_1_IN (by id). Below FOOD_LOW the hero walks at HUNGRY_PACE, empty at STARVED_PACE (permille).
+pub const FOOD_FULL: i32 = 1_000_000;
+const FOOD_LAST_S: i32 = 300;
+const FOOD_MEAL: i32 = 400_000;
+const FOOD_1_IN: u64 = 25;
+pub const FOOD_LOW: i32 = 300_000;
+const HUNGRY_PACE: u32 = 800;
+const STARVED_PACE: u32 = 600;
 const MAGNET_FAR: u32 = 24;
 const MAGNET_RING_MIN: i32 = 4_000;
 const MAGNET_RING_SPAN: i32 = 20_000;
@@ -534,6 +545,8 @@ pub struct Player {
     pub unhurt: u32,
     /// coins picked up (goblin trails and catch bursts)
     pub gold: u32,
+    /// how fed the hero is, parts per million of a full belly (FOOD_FULL); hunger slows it down
+    pub food: i32,
     /// burning / frozen (slowed) by foe hues; Raging never lands on the hero
     pub status: Status,
     dash_left: u16,
@@ -898,6 +911,7 @@ impl<'c> Sim<'c> {
                 dodge_cd: 0,
                 unhurt: 0,
                 gold: 0,
+                food: FOOD_FULL,
                 status: Status::None,
                 dash_left: 0,
                 dash_dir: (0, 0),
@@ -1698,10 +1712,11 @@ mod tests {
     /// Re-pinned 2026-11-08: cave walls (72 m rooms, noisy rock bands) and bolts hold fire with auto-fire off.
     /// Re-pinned 2026-11-08: blocked chasers walk the flow field round walls.
     /// Re-pinned 2026-11-09: a hero sheltering from rain or acid draws foes faster.
+    /// Re-pinned 2026-11-09: hunger (walking pace) and food drops from trash.
     #[test]
     fn iso_render_leaves_sim_hash_unchanged() {
         let h = run_hash(&content(), 7, 900);
-        assert_eq!(h, 0x61a4_1c31_5f38_62e8, "sim hash {h:#x}");
+        assert_eq!(h, 0x918c_7c4c_6401_3d3f, "sim hash {h:#x}");
     }
 
     #[test]
@@ -1794,6 +1809,41 @@ mod tests {
         }
         assert!(s.drops.x.is_empty(), "every orb arrived");
         assert!((s.p.level, s.p.xp) > xp0, "the bar grew (or levelled up)");
+    }
+
+    /// The belly empties over FOOD_LAST_S; hunger slows the hero; eating food fills it again.
+    #[test]
+    fn hunger_slows_and_food_restores() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        s.world.npcs.clear();
+        assert_eq!((s.p.food, s.hunger_pace().0), (FOOD_FULL, 1000), "control: fed");
+        let hz = c.hz().get() as i32;
+        for _ in 0..(FOOD_LAST_S * hz * 72 / 100) {
+            s.p.hp = s.p.max_hp;
+            s.step(&Input::default());
+        }
+        assert!(s.p.food < FOOD_LOW && s.p.food > 0, "hungry after 72% of the belly's life ({})", s.p.food);
+        assert_eq!(s.hunger_pace().0, HUNGRY_PACE);
+        s.p.food = 0;
+        assert_eq!(s.hunger_pace().0, STARVED_PACE, "empty belly: slower still");
+        let (x, y) = (s.p.x, s.p.y);
+        s.drops.x.push(x);
+        s.drops.y.push(y);
+        s.drops.kind.push(Drop::Food);
+        s.drops.pulled.push(false);
+        s.step(&Input::default());
+        assert!(s.p.food > FOOD_MEAL - FOOD_FULL / 100, "a meal fills the belly");
+        let hits = (0..2000u32).filter(|&id| mix(u64::from(id) ^ ITEM_SALT.rotate_left(41)).is_multiple_of(FOOD_1_IN)).count();
+        assert!((50..110).contains(&hits), "food drop rate {hits}/2000");
+        let stride = |food: i32| {
+            let mut s = Sim::new(&c, 7, None);
+            s.p.food = food;
+            let x0 = s.p.x;
+            s.step(&Input { mv: (1, 0), ..Input::default() });
+            s.p.x - x0
+        };
+        assert!(stride(0) < stride(FOOD_FULL), "a starved hero walks slower ({} vs {})", stride(0), stride(FOOD_FULL));
     }
 
     #[test]

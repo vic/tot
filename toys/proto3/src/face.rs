@@ -27,6 +27,7 @@ pub enum Event {
     Streak,
     Special,
     Frozen,
+    Hungry,
     Gold,
 }
 
@@ -41,6 +42,7 @@ impl Event {
             Event::Streak => "HA HA!",
             Event::Special => "BOOM!",
             Event::Frozen => "BRR!",
+            Event::Hungry => "FOOD!",
             Event::Gold => "SHINY!",
         }
     }
@@ -54,6 +56,7 @@ impl Event {
             Event::Gold => &["Shiny!", "Cha-ching.", "Retirement fund +1.", "Mine. All mine.", "Coin! My one true love.", "The merchant will hear about this."],
             Event::Special => &["Special delivery!", "Ka-BOOM.", "Say hello to my reload timer!", "Behold! ...ok, behold faster."],
             Event::Frozen => &["B-b-brr!", "Who left the door open?", "C-can't feel my t-toes."],
+            Event::Hungry => &["My stomach is louder than the boss.", "Is that a sandwich? Please be a sandwich.", "Hero needs food, badly.", "I could eat a mimic."],
             Event::Reloading => &["Still reloading!", "Patience, I am not a vending machine.", "Give it a second!"],
             Event::Passive => &["That one works on its own.", "Passive. Like me on Mondays.", "No button for that, friend."],
             Event::NoTarget => &["Nothing to hit!", "Save it for a crowd.", "Who am I aiming at, the air?"],
@@ -80,6 +83,7 @@ struct Seen {
     gold: u32,
     low: bool,
     frozen: bool,
+    hungry: bool,
     reloads: u64,
     tried_at: Option<u32>,
     win_tick: u32,
@@ -101,6 +105,7 @@ fn seen(sim: &Sim) -> Seen {
         gold: sim.p.gold,
         low: i64::from(sim.p.hp) * 100 < i64::from(sim.p.max_hp) * LOW_HP_PCT,
         frozen: matches!(sim.p.status, Status::Frozen { .. }),
+        hungry: sim.p.food < crate::sim::FOOD_LOW,
         reloads: sim.owned.iter().map(|o| u64::from(o.sp)).sum(),
         tried_at: sim.special_try.map(|(_, at)| at),
         win_tick: sim.tick,
@@ -134,6 +139,9 @@ impl Face {
         }
         if now.gold > old.gold {
             say(self, Event::Gold);
+        }
+        if now.hungry && !old.hungry {
+            say(self, Event::Hungry);
         }
         if now.frozen && !old.frozen {
             say(self, Event::Frozen);
