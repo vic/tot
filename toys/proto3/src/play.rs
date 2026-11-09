@@ -81,6 +81,9 @@ fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) 
     let mut agents: Vec<crate::peer::Session> = Vec::new();
     let mut link: Option<crate::agentic::Link> = None;
     let mut news: Option<String> = None;
+    // start screen clock (ms) and when the running request went out
+    let clock = Instant::now();
+    let mut asked_ms: Option<u64> = None;
     tty.send(b"\x1b[2J")?;
     let sync = |ui: &Ui, advs: &[ProfileInfo], adv: &mut Option<(usize, Content)>, frame: &mut Frame| -> Result<()> {
         let want = match ui.start {
@@ -124,7 +127,10 @@ fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) 
                 if link.is_none() {
                     news = None;
                     match agents.get(agent).cloned().map(|to| crate::agentic::Link::ask(lib, socks, to, &ui.brief)) {
-                        Some(Ok(l)) => link = Some(l),
+                        Some(Ok(l)) => {
+                            link = Some(l);
+                            asked_ms = Some(clock.elapsed().as_millis() as u64);
+                        }
                         Some(Err(e)) => {
                             news = Some(base.texts.fill(t::AGENT_FAILED, [&e.to_string()]));
                             ui.start = Start::Agent { adv: back, sel: agent };
@@ -158,7 +164,8 @@ fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) 
             Start::Agent { .. } => agents.len(),
             Start::Describe { .. } | Start::Asking { .. } => 0,
         };
-        frame.start(c, &ui, &crate::render::StartView { advs: &advs, agents: &agents, news: news.as_deref() });
+        let now_ms = clock.elapsed().as_millis() as u64;
+        frame.start(c, &ui, &crate::render::StartView { advs: &advs, agents: &agents, news: news.as_deref(), now_ms, asked_ms: asked_ms.filter(|_| link.is_some()) });
         frame.emit();
         tty.send(&frame.out)?;
     }

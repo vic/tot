@@ -8,7 +8,8 @@ use crate::input::Start;
 use crate::peer::Session;
 use crate::text::{a, t};
 
-/// Row of the title art's first row.
+/// Row of the title art's first row; how long one frame of the agent loading animation shows (ms).
+const LOADING_FRAME_MS: u64 = 150;
 const TITLE_TOP: u16 = 2;
 
 /// What the start screen lists besides the content: the installed adventures, the live local Claude sessions,
@@ -17,6 +18,9 @@ pub struct StartView<'a> {
     pub advs: &'a [ProfileInfo],
     pub agents: &'a [Session],
     pub news: Option<&'a str>,
+    /// wall clock (ms) and, while an agent writes, when the request went out (drives the wait animation)
+    pub now_ms: u64,
+    pub asked_ms: Option<u64>,
 }
 
 impl Frame {
@@ -80,6 +84,19 @@ impl Frame {
             self.text(row, left + 2, name, if lit { pal.role(Role::Accent) } else { pal.text });
             self.text(row + 1, left + 2, desc, pal.dim);
             row += 3;
+        }
+        // while the agent writes: the adventure's loading animation (one frame per LOADING_FRAME_MS) and the time
+        // it has been writing, so the wait never looks frozen
+        if let (Start::Asking { .. }, Some(at)) = (ui.start, v.asked_ms) {
+            let frames = tx.art(a::AGENT_LOADING);
+            let ms = v.now_ms.saturating_sub(at);
+            if let Some(frame) = frames.get((ms / LOADING_FRAME_MS) as usize % frames.len().max(1)).filter(|_| row + 2 < self.play_rows()) {
+                self.text(row, centre(self.cols, frame.chars().count()), frame, pal.role(Role::Accent));
+                let secs = ms / 1000;
+                let took = tx.fill(t::AGENT_ELAPSED, [&format!("{}:{:02}", secs / 60, secs % 60)]);
+                self.text(row + 1, centre(self.cols, took.chars().count()), &took, pal.dim);
+                row += 3;
+            }
         }
         if let Some(news) = v.news.filter(|_| row < self.play_rows()) {
             let fit: String = news.chars().take(usize::from(self.cols.saturating_sub(4))).collect();

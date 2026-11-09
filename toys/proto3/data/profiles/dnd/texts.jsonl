@@ -277,3 +277,5 @@
 {"t":"text","id":"agent_wait","text":"The agent is writing your adventure. This takes a few minutes. esc cancels."}
 {"t":"text","id":"agent_refused","text":"The game refused the answer and sent the error back: {error}"}
 {"t":"text","id":"agent_failed","text":"Could not ask the agent: {error}"}
+{"t":"art","id":"agent_loading","rows":["▐██████▓▓░░░░░░░░░░░░░░░░▌","▐░▓▓██████▓▓░░░░░░░░░░░░░▌","▐░░░░▓▓██████▓▓░░░░░░░░░░▌","▐░░░░░░░▓▓██████▓▓░░░░░░░▌","▐░░░░░░░░░░▓▓██████▓▓░░░░▌","▐░░░░░░░░░░░░░▓▓██████▓▓░▌","▐░░░░░░░░░░░░░░░░▓▓██████▌","▐░░░░░░░░░░░░░░░░▓▓██████▌","▐░░░░░░░░░░░░░▓▓██████▓▓░▌","▐░░░░░░░░░░▓▓██████▓▓░░░░▌","▐░░░░░░░▓▓██████▓▓░░░░░░░▌","▐░░░░▓▓██████▓▓░░░░░░░░░░▌","▐░▓▓██████▓▓░░░░░░░░░░░░░▌","▐██████▓▓░░░░░░░░░░░░░░░░▌"]}
+{"t":"text","id":"agent_elapsed","text":"writing for {time}"}

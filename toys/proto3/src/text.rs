@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 177] = [
+pub const TXTS: [Spec; 178] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -38,6 +38,7 @@ pub const TXTS: [Spec; 177] = [
     line("agent_busy", &[], "Agentic step 2: tag after a session that is working right now."),
     line("asking", &["agent"], "Agentic step 3: the request went out to this session; tell the player to accept it there."),
     line("agent_wait", &[], "Agentic step 3: dim line under asking while the agent writes."),
+    line("agent_elapsed", &["time"], "Agentic step 3: how long the agent has been writing (m:ss), under the animation."),
     line("agent_refused", &["error"], "Agentic step 3: the game refused the answer and sent the error back to the agent."),
     line("agent_failed", &["error"], "Agentic step 3: the request could not be sent (the session closed, the socket failed)."),
     // upgrade picker (centred popup over the arena)
@@ -253,7 +254,7 @@ const fn face(id: &'static str, doc: &'static str) -> ArtSpec {
     ArtSpec { id, rows: (3, 3), cols: 7, exact: true, doc }
 }
 
-pub const ARTS: [ArtSpec; 18] = [
+pub const ARTS: [ArtSpec; 19] = [
     ArtSpec { id: "title", rows: (1, 10), cols: 60, exact: false, doc: "Start screen top: the game title, rows centred as one block from row 2, in the Legendary role colour." },
     // the hero's face in the middle of the bottom bar (Doom style): 3 rows x 7 cols, drawn in the mood's colour
     face("face_calm", "Hero face, calm (nothing near), eyes ahead."),
@@ -273,6 +274,7 @@ pub const ARTS: [ArtSpec; 18] = [
     ArtSpec { id: "roar_sign", rows: (3, 3), cols: 15, exact: true, doc: "Over an uber boss that appears: its sign (3 rows x 15 cols), drawn at double size." },
     ArtSpec { id: "chest", rows: (2, 2), cols: 3, exact: true, doc: "A treasure chest on the floor (2 rows x 3 cols), glowing gold." },
     ArtSpec { id: "kill_burst", rows: (3, 3), cols: 3, exact: true, doc: "Where a foe dies: 3 frames of 3 cols played in order (one row per frame), over the foe's head row." },
+    ArtSpec { id: "agent_loading", rows: (2, 16), cols: 40, exact: false, doc: "Agentic step 3, while the agent writes: an animation, one frame per row, played in a loop (one frame every 150 ms), centred under the asking line in the accent colour." },
 ];
 
 /// An art piece (see `ARTS`).
@@ -394,6 +396,7 @@ pub mod t {
     pub const AGENT_BUSY: Txt<0> = Txt::named("agent_busy");
     pub const ASKING: Txt<1> = Txt::named("asking");
     pub const AGENT_WAIT: Txt<0> = Txt::named("agent_wait");
+    pub const AGENT_ELAPSED: Txt<1> = Txt::named("agent_elapsed");
     pub const AGENT_REFUSED: Txt<1> = Txt::named("agent_refused");
     pub const AGENT_FAILED: Txt<1> = Txt::named("agent_failed");
     pub const PICK_TITLE: Txt<0> = Txt::named("pick_title");
@@ -555,6 +558,7 @@ pub mod a {
     pub const ROAR_SIGN: ArtId = ArtId::named("roar_sign");
     pub const CHEST: ArtId = ArtId::named("chest");
     pub const KILL_BURST: ArtId = ArtId::named("kill_burst");
+    pub const AGENT_LOADING: ArtId = ArtId::named("agent_loading");
 }
 
 /// One sprite glyph: a single width-1 cell glyph the world draws (`glyph` records).

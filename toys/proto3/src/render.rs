@@ -3293,7 +3293,7 @@ mod tests {
         let mut ui = Ui::new(true);
         ui.mode = Mode::Start;
         let mut f = Frame::new(&base, 120, 40);
-        f.start(&base, &ui, &StartView { advs: &advs, agents: &[], news: None });
+        f.start(&base, &ui, &StartView { advs: &advs, agents: &[], news: None, now_ms: 0, asked_ms: None });
         let s = f.plain();
         let art = base.texts.art(crate::text::a::TITLE);
         assert!(art.iter().all(|r| s.contains(r.trim())), "title art\n{s}");
@@ -3304,7 +3304,7 @@ mod tests {
         let dark = Content::load_profile(d, Some("hellish")).unwrap();
         ui.start = crate::input::Start::Class { adv: dark_ix, sel: 0 };
         let mut f = Frame::new(&dark, 120, 40);
-        f.start(&dark, &ui, &StartView { advs: &advs, agents: &[], news: None });
+        f.start(&dark, &ui, &StartView { advs: &advs, agents: &[], news: None, now_ms: 0, asked_ms: None });
         let s = f.plain();
         assert!(s.contains(dark.texts.get(crate::text::t::PICK_CLASS)) && dark.classes.iter().all(|k| s.contains(&k.name) && s.contains(&k.desc)), "{s}");
         assert!(!base.classes.iter().any(|k| s.contains(&k.name)), "control: not the base classes");
@@ -3356,6 +3356,28 @@ mod tests {
     }
 
     #[test]
+    fn the_agent_wait_animates_and_counts_time() {
+        use crate::input::Start;
+        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        let c = Content::load_profile(d, None).unwrap();
+        let advs = crate::data::profiles(d).unwrap();
+        let agents = crate::peer::tests::sessions_named(&["a"]);
+        let frames = c.texts.art(crate::text::a::AGENT_LOADING);
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        ui.start = Start::Asking { adv: advs.len(), agent: 0 };
+        let shot = |now_ms: u64, asked_ms: Option<u64>| {
+            let mut f = Frame::new(&c, 120, 40);
+            f.start(&c, &ui, &StartView { advs: &advs, agents: &agents, news: None, now_ms, asked_ms });
+            f.plain()
+        };
+        let (a, b, late) = (shot(1_000, Some(1_000)), shot(1_000 + 150, Some(1_000)), shot(1_000 + 65_000, Some(1_000)));
+        assert!(a.contains(&frames[0]) && b.contains(&frames[1]) && !b.contains(&frames[0]), "the frames move on");
+        assert!(a.contains(&c.texts.fill(t::AGENT_ELAPSED, ["0:00"])) && late.contains(&c.texts.fill(t::AGENT_ELAPSED, ["1:05"])), "the time counts");
+        assert!(!shot(5_000, None).contains(&frames[0]), "control: no request out, no animation");
+    }
+
+    #[test]
     fn every_start_step_has_the_sponsor_button() {
         use crate::input::Start;
         let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
@@ -3370,7 +3392,7 @@ mod tests {
         for step in steps {
             ui.start = step;
             let mut f = Frame::new(&c, 120, 40);
-            f.start(&c, &ui, &StartView { advs: &advs, agents: &agents, news: None });
+            f.start(&c, &ui, &StartView { advs: &advs, agents: &agents, news: None, now_ms: 0, asked_ms: None });
             let last = f.plain().lines().last().unwrap_or_default().to_string();
             assert!(last.contains(label), "{step:?}: the button on the last row: {last}");
             assert!((0..120).any(|x| f.link_at(x, 39) == Some(url)), "{step:?}: the button opens the sponsor page");
@@ -3388,7 +3410,7 @@ mod tests {
         ui.mode = Mode::Start;
         let shot = |ui: &Ui, agents: &[crate::peer::Session], news: Option<&str>| {
             let mut f = Frame::new(&c, 120, 40);
-            f.start(&c, ui, &StartView { advs: &advs, agents, news });
+            f.start(&c, ui, &StartView { advs: &advs, agents, news, now_ms: 0, asked_ms: None });
             f.plain()
         };
         let s = shot(&ui, &[], None);
