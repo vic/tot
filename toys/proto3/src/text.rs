@@ -224,7 +224,7 @@ pub const POOLS: [Spec; 10] = [
     line("foe_quip", &[], "Look tooltip, after what a foe ate: one picked per foe."),
     line("cheer", &[], "Death screen: a short cheer hopping over every third foe of the crowd (keep it within 6 chars)."),
     line("death_taunt", &[], "Death screen: one taunt line picked per run, under slain_by."),
-    line("wall_lore", &[], "Written on the lit faces of the walls, one line per wall block, read left to right then row after row, in the accent colour (runes, carved lore, neon signs, graffiti). Width-1 glyphs only; spaces show the bare wall."),
+    line("wall_lore", &[], "Engraved in the lit faces of the walls as shadow only, never shown as letters: one line per wall block, read left to right then row after row; every non-space char darkens that wall cell, a space leaves it bare. Write lore whose letter shapes and gaps make a pattern of the fantasy (runes, rows of script, circuit lines)."),
 ];
 
 /// One art piece: rows of width-1 glyphs. `rows` = (fewest, most) rows; `cols` = the width every row must have

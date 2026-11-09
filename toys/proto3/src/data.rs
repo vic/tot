@@ -2793,16 +2793,23 @@ pub mod tests {
         assert!([kawai.pal.text, kawai.pal.player, kawai.pal.of(Hue::Kin), kawai.pal.of(Hue::Therm), kawai.pal.of(Hue::Emp), kawai.pal.of(Hue::Code), kawai.pal.xp, kawai.pal.chest].into_iter().all(pastel), "kawai pastels");
         assert!([kawai.pal.ring, kawai.pal.alarm, kawai.pal.role(Role::Unique), kawai.pal.role(Role::Accent)].into_iter().all(pink), "kawai pinks");
         assert!(!pastel(hell.pal.of(Hue::Kin)), "control: hellish hues are not pastel");
-        // moriah: gold everywhere (red over green over blue, warm and bright) on near-black stone
+        // moriah: silver stone (grey, cool, no gold) and sapphire blue gems on near-black stone
         let moria = load("moriah");
-        let gold = |c: Rgb| c.0 >= c.1 && c.1 > c.2.saturating_add(0x30) && c.0 >= 0x90;
-        assert!(moria.pal.floor.0 >= moria.pal.floor.1 && moria.pal.floor.1 > moria.pal.floor.2.saturating_add(0x30), "moriah gold-dark stone floor");
-        assert!([moria.pal.text, moria.pal.xp, moria.pal.chest, moria.pal.ring, moria.pal.role(Role::Accent), moria.pal.role(Role::Legendary)].into_iter().all(gold), "moriah golds");
-        assert!(!gold(kawai.pal.text), "control: kawai text is not gold");
+        let silver = |c: Rgb| c.2 >= c.0 && c.0.max(c.1).max(c.2) - c.0.min(c.1).min(c.2) <= 0x50;
+        let gold = |c: Rgb| c.0 >= c.1 && c.1 > c.2.saturating_add(0x30);
+        let sapphire = |c: Rgb| c.2 >= 0xe0 && c.2 > c.0.saturating_add(0x80);
+        assert!([moria.pal.floor, moria.pal.text, moria.pal.ring, moria.pal.of(Hue::Kin), moria.pal.role(Role::Accent)].into_iter().all(silver), "moriah silver");
+        assert!([moria.pal.xp, moria.pal.chest, moria.pal.of(Hue::Emp), moria.pal.role(Role::Rare)].into_iter().all(sapphire), "moriah blue gems");
+        assert!(![moria.pal.floor, moria.pal.text, moria.pal.xp, moria.pal.chest, moria.pal.ring].into_iter().any(gold), "moriah has no gold");
+        assert!(gold(hell.pal.chest) && !silver(hell.pal.floor), "control: hellish chests are gold, its floor not silver");
         // cyberpunk: saturated neons (one channel near full, one near empty) on a near-black background
         let neon = |c: Rgb| c.0.max(c.1).max(c.2) >= 0xf0 && c.0.min(c.1).min(c.2) <= 0x40;
         assert!([base.pal.ring, base.pal.alarm, base.pal.xp, base.pal.chest, base.pal.of(Hue::Kin), base.pal.of(Hue::Therm), base.pal.of(Hue::Emp), base.pal.role(Role::Accent)].into_iter().all(neon), "cyberpunk neons");
         assert!(!neon(kawai.pal.of(Hue::Emp)), "control: kawai pastels are not neon");
+        // cyan and purple, not pink: the frame colours lean blue (blue over red) and green-free purples or cyans
+        let cyan_purple = |c: Rgb| c.2 >= 0xd0 && c.2 >= c.0;
+        assert!([base.pal.ring, base.pal.xp, base.pal.floor, base.pal.of(Hue::Therm), base.pal.of(Hue::Emp), base.pal.of(Hue::Code), base.pal.role(Role::Accent), base.pal.role(Role::Unique), base.pal.role(Role::Magic)].into_iter().all(cyan_purple), "cyberpunk cyan-purple");
+        assert!(!cyan_purple(kawai.pal.ring), "control: kawai pink is not cyan-purple");
     }
 
     /// The base palette record without its own inline base24 (tests that add a scheme or base24 start here).
