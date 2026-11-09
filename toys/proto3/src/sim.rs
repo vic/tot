@@ -11,6 +11,10 @@ mod solid;
 mod step;
 mod weather;
 mod world;
+pub use npc::Npc;
+#[cfg(test)]
+pub use npc::Placed;
+pub use world::hazard::TrapState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickChoice {

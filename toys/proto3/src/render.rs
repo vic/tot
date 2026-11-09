@@ -382,6 +382,7 @@ impl Frame {
             let (x, y) = sim.treasures[k];
             self.chest(sim, f64::from(x), f64::from(y));
         }
+        self.world_layer(sim);
         self.enemies(sim);
         self.fed(sim);
         self.sound_fx(sim);
@@ -1017,6 +1018,59 @@ impl Frame {
         }
     }
 
+    /// World layer: NPCs (friends in the hero colour, keepers in gold, neutrals dim), goblins and their gold,
+    /// world chests (a revealed fake gets a red `!`), boss blast fuses and traps (dim while arming).
+    fn world_layer(&mut self, sim: &Sim) {
+        use crate::sim::Npc;
+        let pal = &sim.c.pal;
+        let w = &sim.world;
+        let at = |f: &mut Self, x: i32, y: i32, p: Prio, ch: char, fg: Rgb| {
+            let (x, y) = (f64::from(x), f64::from(y));
+            if let Some(i) = f.cell_of(x, y) {
+                f.put(i, p, f.vd(x, y), Ink { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: None });
+            }
+        };
+        for g in &w.gold_piles {
+            at(self, g.x, g.y, Prio::Pickup, '$', pal.chest);
+        }
+        for c in &w.chests {
+            self.chest(sim, f64::from(c.x), f64::from(c.y));
+            if c.tell {
+                at(self, c.x, c.y - sim.c.view.floor_cell, Prio::IncomingHit, '!', pal.alarm);
+            }
+        }
+        for t in &w.traps {
+            let fg = match t.state(sim.c.hz().get()) {
+                crate::sim::TrapState::Arming => pal.dim,
+                crate::sim::TrapState::Armed | crate::sim::TrapState::Expired => pal.alarm,
+            };
+            at(self, t.x, t.y, Prio::IncomingHit, '^', fg);
+        }
+        for b in &w.blasts {
+            at(self, b.x, b.y, Prio::IncomingHit, '*', pal.alarm);
+        }
+        for g in &w.goblins {
+            at(self, g.x, g.y, Prio::EliteBoss, 'g', pal.chest);
+        }
+        for p in &w.npcs {
+            let (ch, fg) = match p.npc {
+                Npc::Pal { .. } => ('p', pal.player),
+                Npc::Merchant { .. } => ('m', pal.chest),
+                Npc::Blacksmith { .. } => ('b', pal.chest),
+                Npc::Witch { .. } => ('w', pal.chest),
+                Npc::Neutral => ('n', pal.dim),
+            };
+            at(self, p.x, p.y, Prio::EliteBoss, ch, fg);
+            // a pal still standing calls for help
+            if matches!(p.npc, Npc::Pal { .. }) && let Some(i) = self.cell_of(f64::from(p.x), f64::from(p.y)) {
+                let (col, row) = (i % usize::from(self.cols), i / usize::from(self.cols));
+                if row > 0 {
+                    self.text(row as u16 - 1, (col as u16).saturating_sub(2), "HELP!", pal.player);
+                }
+            }
+        }
+    }
+
     /// Chest: 3x2 gold sprite on a pulsing gold glow, centred on the chest's cell.
     fn chest(&mut self, sim: &Sim, x: f64, y: f64) {
         let pal = &sim.c.pal;
@@ -1076,6 +1130,9 @@ impl Frame {
         }
         for &(x, y) in &sim.treasures {
             self.pointer(sim, x, y, c.pal.chest);
+        }
+        for p in sim.world.npcs.iter().filter(|p| matches!(p.npc, crate::sim::Npc::Pal { .. })) {
+            self.pointer(sim, p.x, p.y, c.pal.player);
         }
     }
 
@@ -1178,7 +1235,13 @@ impl Frame {
         x = self.bar(r, x, i64::from(nerve), 1000, MORALE_BAR_W, if nerve >= CONF_PANIC { pal.player } else { pal.dim });
         x = self.text(r, x + 2, "PANIC ", pal.text);
         self.bar(r, x, panicked as i64, hostile.max(1) as i64, MORALE_BAR_W, pal.of(Hue::Emp));
-        r += 2;
+        r += 1;
+        // purse (shops take it) and pals won (rescued or befriended)
+        let mut x = self.text(r, x0 + 1, "GOLD ", pal.text);
+        x = self.num(r, x, i64::from(sim.p.gold), pal.chest);
+        x = self.text(r, x + 2, "PALS ", pal.text);
+        self.num(r, x, i64::from(sim.world.pals), pal.player);
+        r += 1;
         // powers: name in the power's type colour (same colour as the picker popup)
         self.text(r, x0 + 1, "POWERS", pal.dim);
         r += 1;
@@ -1835,6 +1898,45 @@ mod tests {
     }
 
     #[test]
+    fn pal_on_screen_calls_help_and_far_pal_gets_an_arrow() {
+        use crate::sim::{Npc, Placed};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let view = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let play = |f: &Frame| (0..usize::from(f.play_rows())).map(|r| f.cells[r * 120..(r + 1) * 120].iter().map(|c| c.ch.ch()).collect::<String>()).collect::<Vec<_>>().join("\n");
+        let arrows = |f: &Frame| [ARROW_E, ARROW_W, ARROW_S, ARROW_N].iter().map(|&a| play(f).matches(a).count()).sum::<usize>();
+        sim.world.npcs.clear();
+        sim.world.goblins.clear();
+        f.compose(&sim, &view);
+        let base = arrows(&f);
+        assert!(!play(&f).contains("HELP!"), "control: no pal, no call");
+        sim.world.npcs = vec![Placed { npc: Npc::Pal { traitor: false }, x: sim.p.x + 3000, y: sim.p.y }];
+        f.compose(&sim, &view);
+        assert!(play(&f).contains("HELP!") && play(&f).contains('p'), "{}", play(&f));
+        assert_eq!(arrows(&f), base, "on screen: no arrow");
+        sim.world.npcs[0].x = sim.p.x + 400_000;
+        f.compose(&sim, &view);
+        assert!(!play(&f).contains("HELP!"));
+        assert_eq!(arrows(&f), base + 1, "far pal: one more arrow");
+    }
+
+    #[test]
+    fn panel_shows_gold_and_pals() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let view = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        f.compose(&sim, &view);
+        assert!(f.plain().contains("GOLD 0  PALS 0"), "control: empty purse");
+        (sim.p.gold, sim.world.pals) = (437, 2);
+        f.compose(&sim, &view);
+        assert!(f.plain().contains("GOLD 437  PALS 2"), "{}", f.plain());
+    }
+
+    #[test]
     fn reset_run_forgets_explored_cells() {
         let c = Content::parse(&texts()).unwrap();
         let mut f = Frame::new(&c, 120, 40);
@@ -1874,8 +1976,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: integration: all lanes (wave 1)
-    const GOLDEN: u64 = 0x79e0_bff1_07ca_9e31;
+    // re-pinned 2026-11-08: panel GOLD/PALS row; world layer drawn (NPCs + HELP!, goblins, gold, world chests, blasts, traps)
+    const GOLDEN: u64 = 0x37d1_cfa0_07ce_90d5;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
