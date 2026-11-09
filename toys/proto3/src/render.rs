@@ -6,7 +6,7 @@ use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
 use crate::iso::{Heading, Proj};
-use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, FxShape, Shape, Side, Sim, TeleKind, Tier, dist2};
+use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, dist2};
 use std::collections::HashSet;
 
 /// Map box (top-left of the play area): cols x rows of the map.
@@ -127,6 +127,8 @@ pub struct Frame {
     roar: Option<(u32, u32)>,
     /// Doom face memory (moods, barks) for the bottom bar
     face: Face,
+    /// frame clock (ms) when the death show began; None while alive
+    died_ms: Option<u64>,
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
@@ -198,6 +200,7 @@ impl Frame {
             level: None,
             level_flash: None,
             face: Face::default(),
+            died_ms: None,
             pops: Vec::with_capacity(POPS_MAX),
             roar: None,
         }
@@ -996,6 +999,89 @@ impl Frame {
         }
     }
 
+    /// Death is loud: a shaking YOU DIED banner, who did it, the killer crowned HERO-SLAYER, and every foe in
+    /// sight cheering and hopping. Sim time is frozen at death, so this runs on the frame clock (`now_ms`).
+    fn death_fx(&mut self, sim: &Sim, now_ms: u64) {
+        let Some(o @ Outcome::Dead { cause, .. }) = sim.outcome else {
+            self.died_ms = None;
+            return;
+        };
+        let pal = &sim.c.pal;
+        let t = now_ms.saturating_sub(*self.died_ms.get_or_insert(now_ms));
+        let sight2 = i64::from(sim.c.view.fog_end).pow(2);
+        let fam = match cause {
+            Cause::Contact { fam, .. } | Cause::Shot { fam } | Cause::BossAttack { fam } => Some(fam),
+            Cause::Blast => None,
+        };
+        // the killer: the nearest foe in sight of the family that dealt the blow
+        let killer = fam.and_then(|f| {
+            (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile && sim.e.fam[k] == f).map(|k| (dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y), k)).filter(|&(d2, _)| d2 <= sight2).min().map(|(_, k)| k)
+        });
+        // the crowd cheers: every foe in sight hops, some shout
+        for k in 0..sim.e.len() {
+            if sim.e.side[k] != Side::Hostile || Some(k) == killer || dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y) > sight2 {
+                continue;
+            }
+            let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
+            let id = u64::from(sim.e.id[k]);
+            let hop = (now_ms / CHEER_HOP_MS + id).is_multiple_of(2);
+            self.flash_cell(col, row - 1 - i32::from(hop), Glyph::of('^').unwrap_or(Glyph::SPACE), pal.alarm);
+            if id.is_multiple_of(3) && hop {
+                let word = CHEERS[(id / 3) as usize % CHEERS.len()];
+                for (i, ch) in word.chars().enumerate() {
+                    self.flash_cell(col - 1 + i as i32, row - 3, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.chest);
+                }
+            }
+        }
+        if let Some(k) = killer {
+            let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
+            let gold = if (now_ms / CHEER_HOP_MS).is_multiple_of(2) { pal.chest } else { pal.xp };
+            let title = format!("{} THE HERO-SLAYER", sim.c.fam(sim.e.fam[k]).name);
+            for (i, ch) in "\\^/".chars().enumerate() {
+                self.flash_cell(col - 1 + i as i32, row - 2, Glyph::of(ch).unwrap_or(Glyph::SPACE), gold);
+            }
+            let start = col - title.chars().count() as i32 / 2;
+            for (i, ch) in title.chars().enumerate() {
+                self.flash_cell(start + i as i32, row - 4, Glyph::of(ch).unwrap_or(Glyph::SPACE), gold);
+            }
+            for (i, ch) in "✦ ✦".chars().enumerate() {
+                self.flash_cell(col - 1 + i as i32, row - 3, Glyph::of(ch).unwrap_or(Glyph::SPACE), gold);
+            }
+        }
+        // banner: shakes for the first DIED_SHAKE_MS, then stands
+        let shake = if t < DIED_SHAKE_MS { if (now_ms / 50).is_multiple_of(2) { -1 } else { 1 } } else { 0 };
+        let left = i32::from(self.cols) / 2 - YOU_DIED_W / 2 + shake;
+        let top = i32::from(self.play_rows()) / 4;
+        // a dark red plate behind banner and text, so it reads over anything
+        let plate = mix(pal.alarm, pal.hud_bg, 820);
+        let (pw, ph) = (YOU_DIED_W + 16, YOU_DIED.len() as i32 + 5);
+        let pl = i32::from(self.cols) / 2 - pw / 2;
+        for r in top - 1..top - 1 + ph {
+            for col in pl..pl + pw {
+                if col >= 0 && r >= 0 && col < i32::from(self.cols) && r < i32::from(self.play_rows()) {
+                    let i = r as usize * usize::from(self.cols) + col as usize;
+                    self.cells[i] = Cell { ch: Glyph::SPACE, fg: pal.text, bg: plate };
+                }
+            }
+        }
+        for (r, line) in YOU_DIED.iter().enumerate() {
+            for (i, ch) in line.chars().enumerate() {
+                if ch != ' ' {
+                    self.flash_cell(left + i as i32, top + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.alarm);
+                }
+            }
+        }
+        let by = format!("slain by {}", crate::bot::cause_name(sim.c, &o));
+        let taunt = DEATH_TAUNTS[(sim.tick as usize).wrapping_mul(31) % DEATH_TAUNTS.len()];
+        for (dr, (line, fg)) in [(by.as_str(), pal.text), (taunt, pal.dim), ("r new run   q quit", pal.player)].into_iter().enumerate() {
+            let w = line.chars().count() as i32;
+            let col = i32::from(self.cols) / 2 - w / 2;
+            for (i, ch) in line.chars().enumerate() {
+                self.flash_cell(col + i as i32, top + YOU_DIED.len() as i32 + 1 + dr as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+            }
+        }
+    }
+
     fn flash_cell(&mut self, col: i32, row: i32, ch: Glyph, fg: Rgb) {
         if col >= 0 && row >= 0 && col < i32::from(self.cols) && row < i32::from(self.play_rows()) {
             let i = row as usize * usize::from(self.cols) + col as usize;
@@ -1137,6 +1223,7 @@ impl Frame {
         self.boss_bar(sim);
         self.popup(sim, ui, now_ms);
         self.menu(sim, ui);
+        self.death_fx(sim, now_ms);
         let c = sim.c;
         let unit = c.view.floor_cell.max(1) * MAP_K;
         let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
@@ -1569,6 +1656,7 @@ impl Frame {
     pub fn reset_run(&mut self) {
         self.seen.clear();
         self.face = Face::default();
+        self.died_ms = None;
     }
 }
 
@@ -1652,6 +1740,14 @@ const ROAR_GAP: i32 = 1;
 const ROAR_ROWS: usize = 3;
 const ROAR_W: i32 = 15;
 const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█▀▄ █ █ █▀█ █▀▄", "▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"];
+
+/// Death: the banner (3 rows), its width, how long it shakes, the crowd hop period, cheers and taunts.
+const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
+const YOU_DIED_W: i32 = 29;
+const DIED_SHAKE_MS: u64 = 1200;
+const CHEER_HOP_MS: u64 = 250;
+const CHEERS: [&str; 6] = ["HA!", "GG", "WOO!", "EZ", "LOL", "YAY"];
+const DEATH_TAUNTS: [&str; 5] = ["The horde sends its regards.", "They are already telling the story wrong.", "Your loot looks better on them.", "Respawn, rematch, revenge.", "Even the trash is dancing."];
 
 /// Positions of ids in `prev` that are gone from `cur` (both sorted by id): the foes that died this tick.
 fn vanished<'a>(prev: &'a [(u32, i32, i32)], cur: &'a [(u32, i32, i32)]) -> impl Iterator<Item = (i32, i32)> + 'a {
@@ -1959,6 +2055,33 @@ mod tests {
         sim.world.npcs[0].x = sim.p.x + 400_000;
         f.compose(&sim, &view);
         assert_eq!(arrows(&f), base, "NEG: pal out of earshot: no arrow");
+    }
+
+    #[test]
+    fn death_is_loud_banner_killer_crowned_crowd_cheers() {
+        use crate::sim::{Cause, Outcome};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        sim.world.npcs.clear();
+        for k in 0..6 {
+            sim.push_enemy(fam, Tier::Trash, (sim.p.x + 4_000 + k * 1_500, sim.p.y + 2_000), 1_000_000, (false, false));
+        }
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let at = |f: &mut Frame, sim: &Sim, ms: u64| {
+            f.compose(sim, &View { ui: &ui, now_ms: ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let alive = at(&mut f, &sim, 0);
+        assert!(!alive.contains("HERO-SLAYER") && !alive.contains("slain by"), "control: alive, no death show");
+        sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
+        let s0 = at(&mut f, &sim, 1000);
+        assert!(s0.contains(YOU_DIED[0].trim_end()) || s0.contains(&YOU_DIED[1][1..20]), "banner\n{s0}");
+        assert!(s0.contains("slain by") && s0.contains("HERO-SLAYER"), "{s0}");
+        // the crowd hops: two frames a hop apart differ
+        let s1 = at(&mut f, &sim, 1000 + CHEER_HOP_MS);
+        assert_ne!(s0, s1, "the crowd moves while the hero lies dead");
     }
 
     #[test]

@@ -1149,7 +1149,7 @@ impl<'c> Sim<'c> {
     }
 
 
-    fn push_enemy(&mut self, fam: FamId, tier: Tier, (x, y): (i32, i32), hp: i32, (purger, swift): (bool, bool)) {
+    pub(crate) fn push_enemy(&mut self, fam: FamId, tier: Tier, (x, y): (i32, i32), hp: i32, (purger, swift): (bool, bool)) {
         let base = self.c.fam(fam).radius;
         let rad = BossClass::of_kind(tier, &self.c.fam(fam).kind).map_or(base, |k| k.radius(base));
         let (x, y) = self.free_near(x, y, rad);
