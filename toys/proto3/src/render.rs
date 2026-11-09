@@ -6,7 +6,7 @@ use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
 use crate::iso::{Heading, Proj};
-use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
+use crate::sim::{BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 #[cfg(test)]
 use crate::sim::ItemId;
 use std::collections::HashSet;
@@ -670,7 +670,13 @@ impl Frame {
             let (x, y) = self.pos[k];
             let Some(i) = self.cell_of(x, y) else { continue };
             let fam = c.fam(e.fam[k]);
-            let hue = self.fogged(c, pal.of(fam.hue), x, y);
+            // boss class reads like loot rarity: mini keeps the family hue, the others take colours no family uses (tot-751.7)
+            let tint = match BossClass::of_kind(e.tier[k], &fam.kind) {
+                Some(BossClass::Super) => pal.role(Role::Legendary),
+                Some(BossClass::Uber) => pal.role(Role::Danger),
+                Some(BossClass::Mini) | None => pal.of(fam.hue),
+            };
+            let hue = self.fogged(c, tint, x, y);
             let d = self.vd(x, y);
             let mk = |ch: Glyph, fg: Rgb| match e.side[k] {
                 Side::Hostile => Ink { ch, fg, bg: None },
@@ -714,7 +720,9 @@ impl Frame {
         let c = sim.c;
         let Some(def) = c.boss_of(sim.e.fam[k]) else { return };
         let cols = usize::from(self.cols);
-        let (w, h) = (i32::from(def.w), i32::from(def.h));
+        // the cloud grows with the class, as the sim body radius does
+        let cls = BossClass::of_kind(Tier::Boss, &c.fam(sim.e.fam[k]).kind).unwrap_or(BossClass::Mini);
+        let (w, h) = (cls.radius(i32::from(def.w)), cls.radius(i32::from(def.h)));
         let lift = if c.view.actor_rows[2] == 0 { h / 2 } else { h };
         let (x0, y0) = ((i % cols) as i32 - w / 2, (i / cols) as i32 - lift);
         if lift == h {
@@ -2269,9 +2277,9 @@ impl Roar {
     fn of(sim: &Sim, k: usize) -> Option<Roar> {
         match sim.e.tier[k] {
             Tier::Champion => Some(Roar::Champion),
-            Tier::Boss => Some(match crate::sim::BossClass::of_kind(Tier::Boss, &sim.c.fam(sim.e.fam[k]).kind) {
-                Some(crate::sim::BossClass::Uber) => Roar::Uber,
-                Some(crate::sim::BossClass::Super) => Roar::Super,
+            Tier::Boss => Some(match BossClass::of_kind(Tier::Boss, &sim.c.fam(sim.e.fam[k]).kind) {
+                Some(BossClass::Uber) => Roar::Uber,
+                Some(BossClass::Super) => Roar::Super,
                 _ => Roar::Mini,
             }),
             _ => None,
@@ -2842,6 +2850,32 @@ mod tests {
         let rows: Vec<Vec<char>> = lines.iter().map(|l| l.chars().collect()).collect();
         let lw = rows.iter().map(Vec::len).max().unwrap_or(0);
         (0..h.saturating_sub(rows.len())).any(|r0| (0..w.saturating_sub(lw)).any(|c0| rows.iter().enumerate().all(|(r, l)| l.iter().enumerate().all(|(k, &ch)| ch == ' ' || f.cells[(r0 + r) * w + c0 + k].ch.ch() == ch))))
+    }
+
+    #[test]
+    fn boss_cloud_grows_and_colours_by_class() {
+        let ui = Ui::new(true);
+        // one boss def (sweeper, 40k HP = Super); the control copy drops its HP into the Mini range
+        let mini_hp = texts().into_iter().map(|t| t.replace("\"hp_abs\":40000", "\"hp_abs\":4000")).collect::<Vec<_>>();
+        assert_ne!(mini_hp, texts(), "control edit applied");
+        // (boss cells, cells in the family hue, cells in the Legendary role colour), both fogged as drawn
+        let drawn = |texts: &[String]| {
+            let c = Content::parse(texts).unwrap();
+            let mut sim = Sim::new(&c, 7, None);
+            sim.world.npcs.clear();
+            let f_id = c.fam_ids().find(|&f| c.fam(f).key == "sweeper").unwrap();
+            sim.push_enemy(f_id, Tier::Boss, (sim.p.x + 3_000, sim.p.y + 2_000), 1_000_000, (false, false));
+            let mut f = Frame::new(&c, 160, 50);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let (x, y) = f.pos[0];
+            let (fam_hue, gold) = (f.fogged(&c, c.pal.of(c.fam(f_id).hue), x, y), f.fogged(&c, c.pal.role(Role::Legendary), x, y));
+            let boss = |col: Option<Rgb>| (0..f.cells.len()).filter(|&j| f.z[j] == Prio::EliteBoss && col.is_none_or(|col| f.cells[j].fg == col)).count();
+            (boss(None), boss(Some(fam_hue)), boss(Some(gold)))
+        };
+        let (mini, super_) = (drawn(&mini_hp), drawn(&texts()));
+        assert!(super_.0 > mini.0, "super cloud is bigger: {super_:?} vs {mini:?}");
+        assert!(mini.1 > 0 && mini.2 == 0, "control: mini keeps the family hue {mini:?}");
+        assert!(super_.2 > 0, "super core in the Legendary colour {super_:?}");
     }
 
     #[test]
