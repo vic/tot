@@ -110,6 +110,11 @@ impl World {
         self.forecast(tick).now.foe_hp()
     }
 
+    /// Wind push this tick (mm per tick), zero unless the sky is Wind.
+    pub fn wind(&self, tick: u32, hz: u32) -> (i32, i32) {
+        self.schedule.wind(tick, hz)
+    }
+
     pub fn foe_dmg(&self, tick: u32) -> Permille {
         self.forecast(tick).now.foe_dmg()
     }
@@ -530,6 +535,30 @@ mod tests {
             s.world.chests.iter().filter(|w| matches!(w.kind, chest::ChestKind::Bomb | chest::ChestKind::Mimic) && !w.tell).count()
         };
         assert_eq!((falls("kiosk"), falls("sweeper")), (1, 0), "mini leaves one false chest, super none");
+    }
+
+    /// Snow slows the hero, heat burns the exposed hero, wind pushes a standing hero downwind.
+    #[test]
+    fn snow_heat_and_wind_act_on_the_hero() {
+        let c = content();
+        let walk = |w: Weather, mv: (i32, i32)| {
+            let mut s = Sim::new(&c, 7, None);
+            s.world.npcs.clear();
+            s.tick = tick_of(&s, w);
+            let (x0, y0, hp0) = (s.p.x, s.p.y, s.p.hp);
+            s.step(&crate::sim::Input { mv, ..crate::sim::Input::default() });
+            ((s.p.x - x0, s.p.y - y0), hp0 - s.p.hp, s.world.wind(s.tick, c.hz().get()))
+        };
+        let (clear, _, calm) = walk(Weather::Clear, (1, 0));
+        let (snow, _, _) = walk(Weather::Snow, (1, 0));
+        assert!(calm == (0, 0) && snow.0 < clear.0 && snow.0 > 0, "snow slows: {snow:?} vs {clear:?}");
+        let (still, _, wind) = walk(Weather::Wind, (0, 0));
+        assert!(wind != (0, 0) && still == wind, "wind pushes a standing hero: {still:?} by {wind:?}");
+        let mut s = Sim::new(&c, 7, None);
+        s.tick = tick_of(&s, Weather::Heat);
+        (s.p.x, s.p.y, s.p.hp) = (0, 0, 100_000);
+        s.world_step();
+        assert!(s.p.hp < 100_000, "heat burns the exposed hero");
     }
 
     #[test]

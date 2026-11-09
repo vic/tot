@@ -737,8 +737,15 @@ impl Frame {
                 break;
             }
             let i = usize::from(row) * cols + x;
-            self.cells[i].ch = g;
+            // a wide glyph takes two cells: the glyph, then its hidden right half (it never splits at the edge)
+            let wide = g.is_wide() && x + 1 < cols;
+            self.cells[i].ch = if g.is_wide() && !wide { Glyph::SPACE } else { g };
             self.cells[i].fg = fg;
+            if wide {
+                self.cells[i + 1].ch = Glyph::CONT;
+                self.cells[i + 1].fg = fg;
+                x += 1;
+            }
             x += 1;
         }
         x as u16
@@ -1018,24 +1025,28 @@ impl Frame {
             self.sky = Some(w);
         }
         let (cols, rows) = (usize::from(self.cols), usize::from(self.play_rows()));
+        // streak glyph, colour and drift (cols, rows per step; snow drifts every third step), and the cast over all
+        let (wx, wy) = sim.world.wind(sim.tick, sim.c.hz().get());
         let (streak, cast) = match w {
-            Weather::Rain => (Some(('/', pal.of(Hue::Code))), None),
-            Weather::AcidRain => (Some(('/', pal.xp)), Some((pal.xp, SKY_ACID_CAST))),
+            Weather::Rain => (Some(('/', pal.of(Hue::Code), (0, 1))), None),
+            Weather::AcidRain => (Some(('/', pal.xp, (0, 1))), Some((pal.xp, SKY_ACID_CAST))),
+            Weather::Snow => (Some(('*', pal.text, (0, 1))), Some((pal.text, SKY_SNOW_CAST))),
+            Weather::Heat => (None, Some((pal.of(Hue::Therm), SKY_HEAT_CAST))),
+            Weather::Wind => (Some(('~', pal.dim, (wx.signum(), wy.signum()))), None),
             Weather::BloodMoon => (None, Some((pal.alarm, SKY_BLOOD_CAST))),
             Weather::FullMoon => (None, Some((pal.text, SKY_FULL_CAST))),
             Weather::Clear => (None, None),
         };
-        // streaks fall: the pattern shifts one row down every SKY_FALL_TICKS
-        let fall = sim.tick / SKY_FALL_TICKS;
+        let step = i64::from(sim.tick / SKY_FALL_TICKS / if w == Weather::Snow { 3 } else { 1 });
         for r in 0..rows {
             for col in 0..cols {
                 let i = r * cols + col;
                 if let Some((tint, f)) = cast {
                     self.cells[i].bg = mix(self.cells[i].bg, tint, f);
                 }
-                if let Some((ch, fg)) = streak
+                if let Some((ch, fg, (dc, dr))) = streak
                     && self.z[i] == Prio::Floor
-                    && hash((col as u64) << 32 ^ (r as u64).wrapping_sub(u64::from(fall)) ^ u64::from(fall).wrapping_add(col as u64) << 48).is_multiple_of(SKY_STREAK_1_IN)
+                    && hash(((col as i64 - step * i64::from(dc)) as u64) << 32 ^ (r as i64 - step * i64::from(dr)) as u64).is_multiple_of(SKY_STREAK_1_IN)
                 {
                     self.cells[i].ch = Glyph::of(ch).unwrap_or(Glyph::SPACE);
                     self.cells[i].fg = fg;
@@ -1176,11 +1187,7 @@ impl Frame {
                 self.sky_banner = None;
                 return;
             }
-            let fg = match bw {
-                Weather::BloodMoon | Weather::AcidRain => pal.alarm,
-                Weather::Rain => pal.of(Hue::Code),
-                Weather::FullMoon | Weather::Clear => pal.text,
-            };
+            let fg = sky_fg(pal, bw);
             let text = format!("{}!", bw.name());
             let left = (self.cols as usize / 2).saturating_sub(crate::bigtext::width(&text) / 2) as i32;
             self.plate(left - 2, 1, crate::bigtext::width(&text) as i32 + 4, 5, mix(fg, pal.hud_bg, 850));
@@ -1664,15 +1671,11 @@ impl Frame {
         r += 1;
         // sky: weather now, what comes next and when (a full or blood moon is the threat)
         let fc = sim.world.forecast(sim.tick);
-        let sky_fg = |w: Weather| match w {
-            Weather::BloodMoon | Weather::AcidRain => pal.alarm,
-            Weather::Rain => pal.of(Hue::Code),
-            Weather::FullMoon | Weather::Clear => pal.text,
-        };
+        let sky_fg = |w: Weather| sky_fg(pal, w);
         let mut x = self.text(r, x0 + 1, "SKY ", pal.text);
-        x = self.text(r, x, fc.now.name(), sky_fg(fc.now));
+        x = self.text(r, x, &format!("{} {}", fc.now.icon(), fc.now.name()), sky_fg(fc.now));
         x = self.text(r, x + 1, ">", pal.dim);
-        x = self.text(r, x + 1, fc.next.name(), sky_fg(fc.next));
+        x = self.text(r, x + 1, &format!("{} {}", fc.next.icon(), fc.next.name()), sky_fg(fc.next));
         self.clock(r, x + 1, fc.ticks_to_next / c.hz().get(), pal.dim);
         r += 1;
         // powers: name in the power's type colour (same colour as the picker popup)
@@ -1990,6 +1993,11 @@ impl Frame {
             if *f == Some(*b) {
                 continue;
             }
+            // the right half of a wide glyph: the terminal painted it with the glyph, nothing to send
+            if b.ch == Glyph::CONT && i % cols > 0 && self.cells[i - 1].ch.is_wide() {
+                *f = Some(*b);
+                continue;
+            }
             changed += 1;
             if cursor != Some(i) {
                 self.out.extend_from_slice(b"\x1b[");
@@ -2011,13 +2019,16 @@ impl Frame {
                 self.out.extend_from_slice(url.as_bytes());
                 self.out.extend_from_slice(b"\x1b\\");
             }
+            // an orphaned right half (its wide glyph was overwritten) shows as a space
+            let ch = if b.ch == Glyph::CONT { ' ' } else { b.ch.ch() };
             let mut u = [0u8; 4];
-            self.out.extend_from_slice(b.ch.ch().encode_utf8(&mut u).as_bytes());
+            self.out.extend_from_slice(ch.encode_utf8(&mut u).as_bytes());
             if link.is_some() {
                 self.out.extend_from_slice(b"\x1b]8;;\x1b\\");
             }
             *f = Some(*b);
-            cursor = if (i + 1) % cols == 0 { None } else { Some(i + 1) };
+            let next = i + if b.ch.is_wide() { 2 } else { 1 };
+            cursor = if next % cols == 0 || next / cols != i / cols { None } else { Some(next) };
         }
         if changed == 0 {
             self.out.clear();
@@ -2037,7 +2048,7 @@ impl Frame {
     pub fn plain(&self) -> String {
         let mut s = String::new();
         for row in self.cells.chunks(usize::from(self.cols)) {
-            s.extend(row.iter().map(|c| c.ch.ch()));
+            s.extend(row.iter().filter(|c| c.ch != Glyph::CONT).map(|c| c.ch.ch()));
             s.push('\n');
         }
         s
@@ -2066,6 +2077,16 @@ fn npc_ink(npc: crate::sim::Npc, pal: &crate::data::Palette) -> (char, Rgb) {
         Npc::Blacksmith { .. } => ('b', pal.chest),
         Npc::Witch { .. } => ('w', pal.chest),
         Npc::Neutral => ('n', pal.dim),
+    }
+}
+
+/// Colour a sky speaks in (panel, banner): danger skies in alarm red, wet ones cool, warm ones warm.
+fn sky_fg(pal: &crate::data::Palette, w: Weather) -> Rgb {
+    match w {
+        Weather::BloodMoon | Weather::AcidRain => pal.alarm,
+        Weather::Rain | Weather::Snow | Weather::Wind => pal.of(Hue::Code),
+        Weather::Heat => pal.of(Hue::Therm),
+        Weather::FullMoon | Weather::Clear => pal.text,
     }
 }
 
@@ -2203,6 +2224,8 @@ const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and s
 const SKY_ACID_CAST: u32 = 90;
 const SKY_BLOOD_CAST: u32 = 160;
 const SKY_FULL_CAST: u32 = 70;
+const SKY_SNOW_CAST: u32 = 60;
+const SKY_HEAT_CAST: u32 = 110;
 const SKY_STREAK_1_IN: u64 = 45;
 const SKY_FALL_TICKS: u32 = 2;
 const SKY_BANNER_MS: u64 = 2500;
@@ -2596,10 +2619,14 @@ mod tests {
         sim.tick = tick_of(&sim, Weather::Clear);
         let clear = at(&mut f, &sim, 0);
         let clear_bg: Vec<Rgb> = f.cells.iter().map(|c| c.bg).collect();
-        assert!(clear.contains("SKY CLEAR"), "panel names the sky");
+        assert!(clear.contains("SKY 🌞 CLEAR"), "panel names the sky with its icon\n{clear}");
         sim.tick = tick_of(&sim, Weather::BloodMoon);
         let blood = at(&mut f, &sim, 100);
-        assert!(blood.contains("SKY BLOOD MOON"), "{blood}");
+        assert!(blood.contains("SKY 🩸 BLOOD MOON"), "{blood}");
+        // the emoji goes out once, its hidden half never
+        f.emit();
+        let out = String::from_utf8_lossy(&f.out).to_string();
+        assert!(!out.contains('\u{1}'), "no continuation byte on the wire");
         let banner = |f: &Frame| {
             let text = "BLOOD MOON!";
             let left = 60 - crate::bigtext::width(text) / 2;
@@ -2938,7 +2965,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0xfdb3_e6de_11c7_8ad5;
+    const GOLDEN: u64 = 0x2099_41b9_080a_7b36;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

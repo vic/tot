@@ -159,10 +159,13 @@ impl<'c> Sim<'c> {
         if (mx, my) != (0, 0) {
             self.p.face = (mx, my);
         }
-        let speed = scale(pd.speed, 1000 + self.gear.sum(self.c, Stat::Speed)).max(0);
+        let sky = self.world.forecast(self.tick).now;
+        let speed = sky.hero_speed().apply(scale(pd.speed, 1000 + self.gear.sum(self.c, Stat::Speed)).max(0));
         let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(speed, i64::from(HERO_FROZEN_SPEED)) } else { speed };
         let step = if mx != 0 && my != 0 { scale(walk, 707) } else { walk };
-        let (ax, ay) = solid::slide(&self.walls.near(&self.arena), self.p.x, self.p.y, pd.radius, mx * step, my * step);
+        // the wind pushes the hero too (walls stop it like any move)
+        let (wx, wy) = self.world.wind(self.tick, self.c.hz().get());
+        let (ax, ay) = solid::slide(&self.walls.near(&self.arena), self.p.x, self.p.y, pd.radius, mx * step + wx, my * step + wy);
         self.p.x += ax;
         self.p.y += ay;
         if inp.dodge && self.p.dodge_cd == 0 {
@@ -233,6 +236,7 @@ impl<'c> Sim<'c> {
         let sky = self.world.forecast(self.tick).now;
         let drawn = matches!(sky, Weather::Rain | Weather::AcidRain) && super::weather::sheltered(&self.arena, self.p.x, self.p.y);
         let pace = if drawn { Permille(sky.foe_speed().0 * SHELTER_DRAW / 1000) } else { sky.foe_speed() };
+        let (wx, wy) = self.world.wind(self.tick, c.hz().get());
         let mut near = std::mem::take(&mut self.near);
         let e = &mut self.e;
         e.nx.clear();
@@ -247,7 +251,8 @@ impl<'c> Sim<'c> {
             // LOD: off-screen hostiles re-aim every LOD_EVERY ticks (staggered by id), else coast
             if dp2 > sep_r2 && e.side[i] == Side::Hostile && e.tier[i] != Tier::Boss && !(self.tick + e.id[i]).is_multiple_of(LOD_EVERY) {
                 // one query, no sliding, and none at all deep inside a tile: an off-screen coaster just stops at a wall
-                let (sx, sy) = if interior(x, y, e.rad[i] + e.vx[i].abs().max(e.vy[i].abs())) || !solid::blocked(&self.walls.near(&self.arena), x + e.vx[i], y + e.vy[i], e.rad[i]) { (e.vx[i], e.vy[i]) } else { (0, 0) };
+                let (vx, vy) = (e.vx[i] + wx, e.vy[i] + wy);
+                let (sx, sy) = if interior(x, y, e.rad[i] + vx.abs().max(vy.abs())) || !solid::blocked(&self.walls.near(&self.arena), x + vx, y + vy, e.rad[i]) { (vx, vy) } else { (0, 0) };
                 e.nx.push(x + sx);
                 e.ny.push(y + sy);
                 continue;
@@ -360,6 +365,7 @@ impl<'c> Sim<'c> {
                     }
                 }
             }
+            let (sx, sy) = (sx + wx, sy + wy);
             let (sx, sy) = if interior(x, y, e.rad[i] + sx.abs().max(sy.abs())) {
                 (sx, sy)
             } else {

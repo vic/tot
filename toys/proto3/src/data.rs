@@ -48,6 +48,16 @@ impl Glyph {
         self.0
     }
     pub const SPACE: Glyph = Glyph(' ');
+    /// The hidden right half of a wide glyph: never drawn (the terminal paints the wide glyph over two cells).
+    pub const CONT: Glyph = Glyph('\u{1}');
+    /// Always-wide emoji the frame may draw (two cells each); used sparingly, where no ASCII art fits.
+    const WIDE: [char; 8] = ['🌞', '☔', '🧪', '⛄', '🔥', '💨', '🌕', '🩸'];
+    pub fn wide(c: char) -> Option<Glyph> {
+        Self::WIDE.contains(&c).then_some(Glyph(c))
+    }
+    pub fn is_wide(self) -> bool {
+        Self::WIDE.contains(&self.0)
+    }
     pub fn of(c: char) -> Option<Glyph> {
         let u = u32::from(c);
         let ok = (0x20..0x7f).contains(&u)
@@ -60,7 +70,7 @@ impl Glyph {
     }
     /// Text to glyphs; non-cell chars become '?'.
     pub fn text(s: &str) -> impl Iterator<Item = Glyph> + '_ {
-        s.chars().map(|c| Glyph::of(c).unwrap_or(Glyph('?')))
+        s.chars().map(|c| Glyph::of(c).or_else(|| Glyph::wide(c)).unwrap_or(Glyph('?')))
     }
 }
 

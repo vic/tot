@@ -8,19 +8,30 @@ pub enum Weather {
     Clear,
     Rain,
     AcidRain,
+    /// everyone slower
+    Snow,
+    /// the exposed hero burns and drags
+    Heat,
+    /// pushes hero and foes along the segment.s wind direction
+    Wind,
     /// foes frenzied: faster
     FullMoon,
     BloodMoon,
 }
 
 /// Draw table in permille, in enum order; sums to 1000.
-const WEIGHTS: [(Weather, u64); 5] =
-    [(Weather::Clear, 450), (Weather::Rain, 250), (Weather::AcidRain, 150), (Weather::FullMoon, 80), (Weather::BloodMoon, 70)];
+const WEIGHTS: [(Weather, u64); 8] =
+    [(Weather::Clear, 550), (Weather::Rain, 150), (Weather::AcidRain, 70), (Weather::Snow, 70), (Weather::Heat, 60), (Weather::Wind, 60), (Weather::FullMoon, 25), (Weather::BloodMoon, 15)];
 /// A pillar within this many tiles shelters a point.
 const SHELTER_TILES: i32 = 2;
 /// Hero HP change per second in milli-HP when exposed.
 const RAIN_HEAL: i32 = 500;
 const ACID_HURT: i32 = 1000;
+const HEAT_HURT: i32 = 400;
+/// Wind push per second (mm), and the hero.s speed in snow and heat (permille).
+const WIND_MMPS: i32 = 1500;
+const SNOW_HERO: u32 = 800;
+const HEAT_HERO: u32 = 900;
 
 /// Multiplier in permille (1000 = unchanged).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -66,6 +77,19 @@ impl Schedule {
         let (k, into) = (tick / self.seg_ticks, tick % self.seg_ticks);
         Forecast { now: self.segment(k), next: self.segment(k.wrapping_add(1)), ticks_to_next: self.seg_ticks.get() - into }
     }
+
+    /// Wind push this tick (mm per tick, x and y): zero unless the sky is Wind; the direction is fixed per segment.
+    pub fn wind(&self, tick: u32, hz: u32) -> (i32, i32) {
+        let k = tick / self.seg_ticks;
+        if self.segment(k) != Weather::Wind {
+            return (0, 0);
+        }
+        let h = mix(self.key ^ u64::from(k).rotate_left(21));
+        let a = (h % 8) as usize;
+        let (dx, dy) = [(1000, 0), (707, 707), (0, 1000), (-707, 707), (-1000, 0), (-707, -707), (0, -1000), (707, -707)][a];
+        let per = WIND_MMPS / hz.max(1) as i32;
+        (dx * per / 1000, dy * per / 1000)
+    }
 }
 
 impl Weather {
@@ -75,6 +99,7 @@ impl Weather {
             (_, true) => 0,
             (Weather::Rain, false) => RAIN_HEAL,
             (Weather::AcidRain, false) => -ACID_HURT,
+            (Weather::Heat, false) => -HEAT_HURT,
             _ => 0,
         }
     }
@@ -98,7 +123,31 @@ impl Weather {
         match self {
             Weather::FullMoon => Permille(1250),
             Weather::BloodMoon => Permille(1100),
+            Weather::Snow => Permille(850),
             _ => Permille::ONE,
+        }
+    }
+
+    /// Hero walking speed: snow and heat drag.
+    pub fn hero_speed(self) -> Permille {
+        match self {
+            Weather::Snow => Permille(SNOW_HERO),
+            Weather::Heat => Permille(HEAT_HERO),
+            _ => Permille::ONE,
+        }
+    }
+
+    /// Icon for the forecast: always-wide emoji (2 cells), one per sky.
+    pub fn icon(self) -> char {
+        match self {
+            Weather::Clear => '🌞',
+            Weather::Rain => '☔',
+            Weather::AcidRain => '🧪',
+            Weather::Snow => '⛄',
+            Weather::Heat => '🔥',
+            Weather::Wind => '💨',
+            Weather::FullMoon => '🌕',
+            Weather::BloodMoon => '🩸',
         }
     }
 
@@ -108,6 +157,9 @@ impl Weather {
             Weather::Clear => "CLEAR",
             Weather::Rain => "RAIN",
             Weather::AcidRain => "ACID RAIN",
+            Weather::Snow => "SNOW",
+            Weather::Heat => "HEAT WAVE",
+            Weather::Wind => "WIND",
             Weather::FullMoon => "FULL MOON",
             Weather::BloodMoon => "BLOOD MOON",
         }
