@@ -925,7 +925,7 @@ impl Frame {
             }
         }
         // Doom face: mood from what just happened, eyes on the nearest foe on screen, barks above the bar
-        let fx = left + half + 1;
+        let Some((fx, _)) = self.face_origin() else { return };
         self.face.observe(sim);
         let (cc, _) = self.centre();
         let near = (0..sim.e.len()).filter(|&k| sim.e.side[k] == Side::Hostile).map(|k| (dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y), k)).min();
@@ -1086,33 +1086,41 @@ impl Frame {
         }
     }
 
-    /// The hero talks big: the shout word in block letters over its head, the line in a rounded speech
-    /// bubble under it, pointing at the hero. Smaller than a boss roar, never shaking.
+    /// The hero talks big: the shout word in block letters over its head (big enough to read while it moves),
+    /// and the line in a rounded speech bubble standing on the Doom face in the bar (still, so it reads).
     fn hero_shout(&mut self, sim: &Sim) {
         let Some((word, line)) = self.face.shout(sim) else { return };
         let pal = &sim.c.pal;
         let (col, row) = self.scr(f64::from(self.cur_p.0), f64::from(self.cur_p.1));
-        let head = row - i32::from(sim.c.view.actor_rows[0]) - 1;
         let big = crate::bigtext::rows(word);
-        let bw = big[0].chars().count() as i32;
-        // bubble: 3 rows just above the head, the big word above the bubble
+        let (bw, top) = (big[0].chars().count() as i32, row - i32::from(sim.c.view.actor_rows[0]) - 1 - big.len() as i32);
+        for (r, l) in big.iter().enumerate() {
+            for (i, ch) in l.chars().enumerate() {
+                if ch != ' ' {
+                    self.flash_cell(col - bw / 2 + i as i32, top + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.player);
+                }
+            }
+        }
+        let Some((fx, y0)) = self.face_origin() else { return };
         let say = format!(" {line} ");
         let sw = say.chars().count() as i32;
-        let (bl, bt) = (col - sw / 2 - 1, head - 3);
+        let fc = i32::from(fx + FACE_W / 2);
+        let (bl, bt) = ((fc - sw / 2 - 1).clamp(0, (i32::from(self.cols) - sw - 2).max(0)), i32::from(y0) - 3);
         self.plate(bl, bt, sw + 2, 3, pal.hud_bg);
         for (r, s) in [(bt, format!("╭{}╮", "─".repeat(sw as usize))), (bt + 1, format!("│{say}│")), (bt + 2, format!("╰{}╯", "─".repeat(sw as usize)))] {
             for (i, ch) in s.chars().enumerate() {
                 self.flash_cell(bl + i as i32, r, Glyph::of(ch).unwrap_or(Glyph::SPACE), if r == bt + 1 && i > 0 && (i as i32) < sw + 1 { pal.text } else { pal.player });
             }
         }
-        self.flash_cell(col, bt + 2, Glyph::of('┬').unwrap_or(Glyph::SPACE), pal.player);
-        for (r, l) in big.iter().enumerate() {
-            for (i, ch) in l.chars().enumerate() {
-                if ch != ' ' {
-                    self.flash_cell(col - bw / 2 + i as i32, bt - 3 + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.player);
-                }
-            }
-        }
+        // the tail points down at the face
+        self.flash_cell(fc, bt + 2, Glyph::of('┬').unwrap_or(Glyph::SPACE), pal.player);
+    }
+
+    /// Top-left (col, row) of the Doom face in the bottom bar.
+    fn face_origin(&self) -> Option<(u16, u16)> {
+        let (x0, y0) = self.bar_origin()?;
+        let half = (BAR_W - 2 * ORB_W - FACE_W - 4) / 2;
+        Some((x0 + ORB_W + 1 + half + 1, y0))
     }
 
     /// The weather-change banner: big letters on a dark plate, drawn last so nothing covers it.
@@ -2573,6 +2581,9 @@ mod tests {
         let s = f.plain();
 
         assert!(painted(&f, &crate::bigtext::rows("SHINY!")) && s.contains('╭') && s.contains('┬'), "big shout + bubble\n{s}");
+        // the bubble stands on the Doom face: its tail is right above the face centre
+        let (fx, y0) = f.face_origin().unwrap();
+        assert_eq!(f.cells[(usize::from(y0) - 1) * 120 + usize::from(fx + FACE_W / 2)].ch.ch(), '┬', "bubble on the face");
     }
 
     #[test]
