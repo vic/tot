@@ -12,6 +12,7 @@ use crate::sim::ItemId;
 use std::collections::HashSet;
 
 mod heropane;
+mod start;
 
 /// Hero levels where the shoulders grow, and the quadrant glyphs (left, right) of each tier (tot-rcn.6).
 /// shortcut: fixed in code, move to tuning data when a profile wants its own.
@@ -932,7 +933,7 @@ impl Frame {
                 (format!("SHOP  gold {}   1-4 buy{forge}", sim.p.gold), rows.collect(), None)
             }
             // the skill tree and the gear live in the hero pane, not in a popup
-            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear | Mode::Bags => return,
+            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear | Mode::Bags | Mode::Start => return,
         };
         let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
         self.text(y0 + 1, x0 + 2, &title, pal.alarm);
@@ -2478,6 +2479,7 @@ fn mode_tag(mode: Mode, ended: bool) -> (&'static str, ModeInk) {
         (_, Mode::Gear) => ("-- GEAR --", ModeInk::Role(Role::Rare)),
         (_, Mode::Shop) => ("-- SHOP --", ModeInk::Role(Role::Legendary)),
         (_, Mode::Bags) => ("-- BAGS --", ModeInk::Role(Role::Rare)),
+        (_, Mode::Start) => ("-- START --", ModeInk::Player),
     }
 }
 
@@ -3211,6 +3213,33 @@ mod tests {
     }
 
     #[test]
+    fn start_screen_shows_title_adventures_then_the_picked_adventures_classes_in_its_colours() {
+        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        let base = Content::load_profile(d, None).unwrap();
+        let advs = crate::data::profiles(d).unwrap();
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        let mut f = Frame::new(&base, 120, 40);
+        f.start(&base, &ui, &advs);
+        let s = f.plain();
+        let art = base.texts.art(crate::data::Art::Title);
+        assert!(art.iter().all(|r| s.contains(r.trim())), "title art\n{s}");
+        assert!(s.contains(base.texts.msg(crate::data::Msg::PickAdventure)) && advs.iter().all(|a| s.contains(&a.name) && s.contains(&a.blurb)));
+        assert!(f.cells.iter().any(|cl| cl.bg == base.pal.role(Role::Select)), "the cursor's entry is lit");
+        // step 2: the dark adventure, loaded: its classes, in its colours
+        let dark_ix = advs.iter().position(|a| a.id == "dark-fantasy").unwrap();
+        let dark = Content::load_profile(d, Some("dark-fantasy")).unwrap();
+        ui.start = crate::input::Start::Class { adv: dark_ix, sel: 0 };
+        let mut f = Frame::new(&dark, 120, 40);
+        f.start(&dark, &ui, &advs);
+        let s = f.plain();
+        assert!(s.contains(dark.texts.msg(crate::data::Msg::PickClass)) && dark.classes.iter().all(|k| s.contains(&k.name) && s.contains(&k.desc)), "{s}");
+        assert!(!base.classes.iter().any(|k| s.contains(&k.name)), "control: not the base classes");
+        assert_ne!(dark.pal.bg, base.pal.bg, "control: the adventures differ in colour");
+        assert_eq!(f.cells[0].bg, dark.pal.bg, "painted in the adventure's colours");
+    }
+
+    #[test]
     fn hero_pane_highlights_the_selection_in_every_tab() {
         let c = Content::parse(&texts()).unwrap();
         let sim = Sim::new(&c, 7, None);
@@ -3245,7 +3274,7 @@ mod tests {
         };
         ui.mode = Mode::Tree;
         let tree = show(&ui, &sim);
-        let root = &crate::input::hero_tree(&c).unwrap().nodes[0].name;
+        let root = &crate::input::hero_tree(&c, crate::data::ClassId::FIRST).unwrap().nodes[0].name;
         assert!(tree.contains("SKILLS") && tree.contains(&format!("◇{root}")), "tree grid in the pane");
         let worn = ItemId(0);
         sim.gear.wear(&c, worn);

@@ -1,6 +1,6 @@
 {"t":"head","schema_version":1,"file":"trees"}
-{"t":"class","id":"scripter","name":"SCRIPTER"}
-{"t":"class","id":"janitor","name":"JANITOR"}
+{"t":"class","id":"scripter","name":"SCRIPTER","desc":"Writes kill scripts on the fly. Code skills, overclocked hands."}
+{"t":"class","id":"janitor","name":"JANITOR","desc":"Cleans the grid by force. Heavy tools, thick plating."}
 {"t":"tree","id":"packet","name":"PACKET ARTS","class":"scripter","tag":"magic"}
 {"t":"node","tree":"packet","id":"packet0","name":"SYN FLOOD","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
 {"t":"node","tree":"packet","id":"packet1","name":"BURST","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}

@@ -138,7 +138,7 @@ impl Frame {
     fn pane_skills(&mut self, sim: &Sim, ui: &Ui, (l, t): (i32, i32)) {
         let c = sim.c;
         let pal = &c.pal;
-        let Some(tree): Option<&Tree> = crate::input::hero_tree(c) else {
+        let Some(tree): Option<&Tree> = crate::input::hero_tree(c, ui.class) else {
             self.text((t + 1) as u16, l as u16, "no skill tree", pal.dim);
             return;
         };

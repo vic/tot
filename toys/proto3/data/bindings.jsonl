@@ -108,3 +108,12 @@
 {"t":"bind","mode":"bags","keys":["t"],"action":"tree","label":"tree"}
 {"t":"bind","mode":"gear","keys":["t"],"action":"tree","label":"tree"}
 {"t":"bind","mode":"gear","keys":["b"],"action":"bags","label":"bags"}
+{"t":"bind","mode":"start","keys":["k"],"action":"start_prev","label":"up"}
+{"t":"bind","mode":"start","keys":["up"],"action":"start_prev","label":"up"}
+{"t":"bind","mode":"start","keys":["j"],"action":"start_next","label":"down"}
+{"t":"bind","mode":"start","keys":["down"],"action":"start_next","label":"down"}
+{"t":"bind","mode":"start","keys":["enter"],"action":"start_pick","label":"choose"}
+{"t":"bind","mode":"start","keys":["l"],"action":"start_pick","label":"choose"}
+{"t":"bind","mode":"start","keys":["esc"],"action":"start_back","label":"back"}
+{"t":"bind","mode":"start","keys":["h"],"action":"start_back","label":"back"}
+{"t":"bind","mode":"start","keys":["q"],"action":"quit","label":"quit"}

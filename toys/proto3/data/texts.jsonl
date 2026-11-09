@@ -1,0 +1,4 @@
+{"t":"head","schema_version":1,"file":"texts"}
+{"t":"art","id":"title","rows":["████████╗            ████████╗","╚══██╔══╝            ╚══██╔══╝","   ██║     ██████╗      ██║   ","   ██║    ██╔═══██╗     ██║   ","   ██║    ██║   ██║     ██║   ","   ██║    ╚██████╔╝     ██║   ","   ╚═╝     ╚═════╝      ╚═╝   "]}
+{"t":"text","id":"pick_adventure","text":"CHOOSE YOUR ADVENTURE"}
+{"t":"text","id":"pick_class","text":"CHOOSE YOUR HERO"}

@@ -1,8 +1,8 @@
 //! Human play loop + session telemetry (results/play-<unix>.jsonl).
 use crate::bot::{Autopilot, MoveBot, PickBot, cause_name};
-use crate::data::Content;
+use crate::data::{ClassId, Content, ProfileInfo};
 use crate::director::Director;
-use crate::input::{Event, Mode, Ui};
+use crate::input::{Event, Mode, Start, Ui};
 use crate::render::{Frame, View};
 use crate::sim::{Outcome, PickChoice, Sim};
 use crate::tty::Tty;
@@ -63,16 +63,76 @@ pub fn entropy_seed() -> Result<u64> {
     Ok(u64::from_le_bytes(b))
 }
 
-pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveBot, PickBot)>) -> Result<()> {
+/// The start screen loop: pick an adventure (it loads, and the screen repaints in its palette, texts and classes),
+/// then a hero class. None = the player quit. Keys are applied one at a time with the adventure loaded first, so a
+/// class key always reads the adventure it is shown for.
+/// shortcut: no resize while on this screen, upgrade if players resize before a run.
+fn start_screen(tty: &mut Tty, base: &Content, data: &Path, advs: &[ProfileInfo], size: (u16, u16)) -> Result<Option<(Content, ClassId)>> {
+    let mut ui = Ui::new(base.opt.autofire);
+    ui.mode = Mode::Start;
+    let mut adv: Option<(usize, Content)> = None;
+    let mut frame = Frame::new(base, size.0, size.1);
+    let dt = Duration::from_micros(1_000_000 / u64::from(base.view.fps));
+    tty.send(b"\x1b[2J")?;
+    let sync = |ui: &Ui, adv: &mut Option<(usize, Content)>, frame: &mut Frame| -> Result<()> {
+        let want = match ui.start {
+            Start::Class { adv, .. } => Some(adv),
+            Start::Adventure { .. } => None,
+        };
+        if want != adv.as_ref().map(|a| a.0) {
+            *adv = match want.and_then(|a| advs.get(a).map(|p| (a, p))) {
+                Some((a, p)) => Some((a, Content::load_profile(data, Some(&p.id))?)),
+                None => None,
+            };
+            *frame = Frame::new(adv.as_ref().map_or(base, |a| &a.1), size.0, size.1);
+        }
+        Ok(())
+    };
+    loop {
+        for e in tty.wait(dt) {
+            sync(&ui, &mut adv, &mut frame)?;
+            if let Event::Key(k) = e {
+                ui.key(k, adv.as_ref().map_or(base, |a| &a.1), 0);
+            }
+            if ui.quit {
+                return Ok(None);
+            }
+            if ui.mode != Mode::Start {
+                return Ok(adv.map(|(_, c)| (c, ui.class)));
+            }
+        }
+        sync(&ui, &mut adv, &mut frame)?;
+        let c = adv.as_ref().map_or(base, |a| &a.1);
+        ui.start_len = match ui.start {
+            Start::Adventure { .. } => advs.len(),
+            Start::Class { .. } => c.classes.len(),
+        };
+        frame.start(c, &ui, advs);
+        frame.emit();
+        tty.send(&frame.out)?;
+    }
+}
+
+/// `--auto` (the demo) skips the start screen and plays `base`.
+pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveBot, PickBot)>) -> Result<()> {
     let mut tty = Tty::open()?;
     if !tty.probe_kitty()? {
         return Err(Error::NoKitty);
     }
-    let need = (c.view.min_cols, c.view.min_rows);
+    let need = (base.view.min_cols, base.view.min_rows);
     let mut size = tty.size()?;
     if size.0 < need.0 || size.1 < need.1 {
         return Err(Error::TooSmall { need, have: size });
     }
+    let picked = match auto {
+        Some(_) => None,
+        None => match start_screen(&mut tty, base, data, &crate::data::profiles(data)?, size)? {
+            Some(p) => Some(p),
+            None => return Ok(()),
+        },
+    };
+    let (c, class) = picked.as_ref().map_or((base, ClassId::FIRST), |(c, k)| (c, *k));
+    tty.send(b"\x1b[2J")?;
     std::fs::create_dir_all(out_dir)?;
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let path = out_dir.join(format!("play-{ts}.jsonl"));
@@ -89,6 +149,7 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
     let mut sim = Sim::new(c, seed, None);
     let mut dir = Director::new(seed);
     let mut ui = Ui::new(c.opt.autofire);
+    ui.class = class;
     // demo: `--auto` plays itself, restarts a new run 4 s after each end
     let (auto_mv, auto_pk) = auto.unwrap_or((MoveBot::Kiter, PickBot::Skip));
     let mut pilot = Autopilot::new(seed, auto_mv, auto_pk);

@@ -61,6 +61,7 @@ impl From<serde_json::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 const USAGE: &str = "proto2 play [--data DIR] [--profile NAME] [--seed N] [--out DIR]
+proto2 schema   (adventure schema docs: every shown message, art and field, where it shows)
 proto2 snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
 proto2 bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
 proto2 controls --seeds N [--data DIR]";
@@ -119,7 +120,11 @@ fn run() -> Result<()> {
             } else {
                 None
             };
-            play::play(&c, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
+            play::play(&c, &dir, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
+        }
+        Some("schema") => {
+            print!("{}", data::schema_doc());
+            Ok(())
         }
         Some("snapshot") => {
             let (mut sim, mut dir) = bot::sim_at(&c, args.num("--seed", 1)?, args.num("--secs", 60)? as u32);

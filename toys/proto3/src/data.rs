@@ -971,14 +971,170 @@ const POWER_TAGS: [(&str, PowerTag); 6] = [
 pub struct ClassId(u8);
 
 impl ClassId {
+    /// Every adventure has at least one class (load fails otherwise).
+    pub const FIRST: ClassId = ClassId(0);
     pub fn ix(self) -> usize {
         self.0.into()
+    }
+}
+
+impl Content {
+    /// The `ix`-th class, if the adventure has one.
+    pub fn class_id(&self, ix: usize) -> Option<ClassId> {
+        (ix < self.classes.len()).then(|| u8::try_from(ix).ok().map(ClassId)).flatten()
     }
 }
 
 pub struct Class {
     pub key: String,
     pub name: String,
+    /// one line shown when the hero picks a class
+    pub desc: String,
+}
+
+// ---------- texts and art ----------
+
+/// Every message the game shows. Each has exactly one `text` record in texts.jsonl: a missing or unknown id fails
+/// the load, so a shown message always exists. Declaration order = `ALL` order (the index into `Texts`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Msg {
+    /// start screen, over the adventure list
+    PickAdventure,
+    /// start screen, over the class list
+    PickClass,
+}
+
+impl Msg {
+    pub const ALL: [Msg; 2] = [Msg::PickAdventure, Msg::PickClass];
+    fn id(self) -> &'static str {
+        match self {
+            Msg::PickAdventure => "pick_adventure",
+            Msg::PickClass => "pick_class",
+        }
+    }
+    /// Where the text is shown and how it is drawn (the schema doc an adventure author reads).
+    pub fn doc(self) -> &'static str {
+        match self {
+            Msg::PickAdventure => "Start screen, step 1: one header line centred under the title art, above the list of adventures. Text colour of the base palette.",
+            Msg::PickClass => "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure. Drawn in that adventure's palette.",
+        }
+    }
+}
+
+/// Every ascii art piece the game shows (`art` records: rows of glyphs), complete the same way as `Msg`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Art {
+    /// the game title on the start screen
+    Title,
+}
+
+impl Art {
+    pub const ALL: [Art; 1] = [Art::Title];
+    fn id(self) -> &'static str {
+        match self {
+            Art::Title => "title",
+        }
+    }
+    /// Where the art is shown and how it is drawn (the schema doc an adventure author reads).
+    pub fn doc(self) -> &'static str {
+        match self {
+            Art::Title => "Start screen top: the game title, rows centred as one block from row 2, in the Legendary role colour. Keep it within 10 rows x 60 cols so both lists fit under it on a 120x40 screen.",
+        }
+    }
+}
+
+/// Text fields of other records that the screen shows: (file, record.field, where it is shown, most chars, kind of
+/// chars). The parsers read their limits from here, so the doc and the check cannot disagree.
+pub const SHOWN_FIELDS: [(&str, &str, &str, usize, &str); 4] = [
+    ("profiles/<id>/profile.jsonl", "profile.name", "Start screen, step 1: the adventure's line in the list; the cursor line is lit.", 40, "printable ASCII"),
+    ("profiles/<id>/profile.jsonl", "profile.blurb", "Start screen, step 1: dim line under the adventure's name.", 80, "printable ASCII"),
+    ("trees.jsonl", "class.name", "Start screen, step 2: the class's line in the list; the cursor line is lit.", 24, "printable ASCII"),
+    ("trees.jsonl", "class.desc", "Start screen, step 2: dim line under the class name.", 70, "drawable chars"),
+];
+
+/// The adventure schema docs as markdown: every message, art piece and shown field, where it shows, its limits.
+pub fn schema_doc() -> String {
+    let mut s = format!("# adventure schema: shown content\n\n## texts.jsonl `text` records (each id required once, 1..={TEXT_MAX} drawable chars)\n\n");
+    for m in Msg::ALL {
+        s += &format!("- `{}`: {}\n", m.id(), m.doc());
+    }
+    s += &format!("\n## texts.jsonl `art` records (each id required once; rows of width-1 glyphs, at most {TEXT_MAX} cols)\n\n");
+    for a in Art::ALL {
+        s += &format!("- `{}`: {}\n", a.id(), a.doc());
+    }
+    s += "\n## shown fields of other records\n\n";
+    for (file, field, doc, max, kind) in SHOWN_FIELDS {
+        s += &format!("- {file} `{field}` (1..={max} {kind}): {doc}\n");
+    }
+    s
+}
+
+/// One text per `Msg` and rows per `Art`; built only by `texts`, so every slot is filled.
+pub struct Texts {
+    msg: [String; Msg::ALL.len()],
+    art: [Vec<String>; Art::ALL.len()],
+}
+
+impl Texts {
+    pub fn msg(&self, m: Msg) -> &str {
+        &self.msg[m as usize]
+    }
+    pub fn art(&self, a: Art) -> &[String] {
+        &self.art[a as usize]
+    }
+}
+
+/// Shown text: 1..=max chars, each one the terminal draws (a cell glyph or a whitelisted wide one).
+fn shown(r: &Rec, k: &str, max: usize) -> Result<String> {
+    let s = r.text(k)?;
+    if (1..=max).contains(&s.chars().count()) && s.chars().all(|ch| Glyph::of(ch).or_else(|| Glyph::wide(ch)).is_some()) {
+        Ok(s.to_string())
+    } else {
+        Err(r.err(k, format!("need 1..={max} drawable chars")))
+    }
+}
+
+/// Longest message and art row (chars).
+const TEXT_MAX: usize = 120;
+
+/// `text` and `art` records of texts.jsonl.
+fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
+    let mut msg: [Option<String>; Msg::ALL.len()] = Default::default();
+    let mut art: [Option<Vec<String>>; Art::ALL.len()] = Default::default();
+    for (t, r) in recs {
+        let id = r.text("id")?;
+        let slot = match t.as_str() {
+            "text" => {
+                r.allow(&["t", "id", "text"])?;
+                let m = Msg::ALL.into_iter().find(|m| m.id() == id).ok_or_else(|| r.err("id", format!("no message '{id}'")))?;
+                msg[m as usize].replace(shown(r, "text", TEXT_MAX)?).is_some()
+            }
+            "art" => {
+                r.allow(&["t", "id", "rows"])?;
+                let a = Art::ALL.into_iter().find(|a| a.id() == id).ok_or_else(|| r.err("id", format!("no art '{id}'")))?;
+                let rows = r.list("rows")?.iter().map(|v| v.as_str().filter(|s| s.chars().count() <= TEXT_MAX && s.chars().all(|ch| Glyph::of(ch).is_some())).map(String::from).ok_or_else(|| r.err("rows", format!("need rows of at most {TEXT_MAX} width-1 glyphs")))).collect::<Result<Vec<_>>>()?;
+                if rows.is_empty() {
+                    return Err(r.err("rows", "need at least one row"));
+                }
+                art[a as usize].replace(rows).is_some()
+            }
+            _ => return Err(r.err("t", "need \"text\" or \"art\"")),
+        };
+        if slot {
+            return Err(r.err("id", format!("duplicate '{id}'")));
+        }
+    }
+    let missing = |what: &str, id: &str| scheme_err("texts.jsonl", 0, "", format!("missing {what} '{id}'"));
+    let msg = Msg::ALL.map(|m| msg[m as usize].take().ok_or_else(|| missing("text", m.id())));
+    let art = Art::ALL.map(|a| art[a as usize].take().ok_or_else(|| missing("art", a.id())));
+    Ok(Texts { msg: all(msg)?, art: all(art)? })
+}
+
+/// Every slot or the first error.
+fn all<T, const N: usize>(xs: [Result<T>; N]) -> Result<[T; N]> {
+    let v = xs.into_iter().collect::<Result<Vec<T>>>()?;
+    // the Vec holds exactly N items (one per input slot)
+    v.try_into().map_err(|_| scheme_err("texts.jsonl", 0, "", "slot count"))
 }
 
 /// Nodes per tree: `Owned` is one u64.
@@ -1055,12 +1211,12 @@ fn index_of<'a>(keys: impl Iterator<Item = &'a str>, k: &str) -> Option<usize> {
 fn trees(recs: &[(String, Rec)], skill_id: &dyn Fn(&Rec, &str, &str) -> Result<SkillId>) -> Result<(Vec<Class>, Vec<Tree>)> {
     let mut classes: Vec<Class> = Vec::new();
     for (_, r) in recs.iter().filter(|(t, _)| t == "class") {
-        r.allow(&["t", "id", "name"])?;
+        r.allow(&["t", "id", "name", "desc"])?;
         let key = label(r, "id", 24)?;
         if classes.iter().any(|c| c.key == key) {
             return Err(r.err("id", "duplicate class"));
         }
-        classes.push(Class { key, name: label(r, "name", 24)? });
+        classes.push(Class { key, name: label(r, "name", SHOWN_FIELDS[2].3)?, desc: shown(r, "desc", SHOWN_FIELDS[3].3)? });
     }
     if classes.is_empty() || classes.len() > 255 {
         return Err(scheme_err("trees.jsonl", 0, "", "need 1..=255 class records"));
@@ -1311,12 +1467,14 @@ pub struct Content {
     pub binds: Vec<Bind>,
     pub groups: Vec<Group>,
     pub classes: Vec<Class>,
+    /// every shown message and art piece of the adventure
+    pub texts: Texts,
     pub trees: Vec<Tree>,
     pub items: Vec<Item>,
 }
 
 pub const MAX_SKILLS: usize = 32;
-const FILES: [&str; 10] = [
+const FILES: [&str; 11] = [
     "options.jsonl",
     "tuning.jsonl",
     "palette.jsonl",
@@ -1327,11 +1485,12 @@ const FILES: [&str; 10] = [
     "bindings.jsonl",
     "trees.jsonl",
     "items.jsonl",
+    "texts.jsonl",
 ];
 
 /// Files a profile may replace: the content, never the options or the key bindings.
-const PROFILE_FILES: [&str; 8] =
-    ["tuning.jsonl", "palette.jsonl", "enemies.jsonl", "skills.jsonl", "bosses.jsonl", "waves.jsonl", "trees.jsonl", "items.jsonl"];
+const PROFILE_FILES: [&str; 9] =
+    ["tuning.jsonl", "palette.jsonl", "enemies.jsonl", "skills.jsonl", "bosses.jsonl", "waves.jsonl", "trees.jsonl", "items.jsonl", "texts.jsonl"];
 
 /// Header of a profile directory (`profile.jsonl`).
 #[derive(Debug, PartialEq, Eq)]
@@ -1367,7 +1526,7 @@ fn manifest(pdir: &Path, id: &str) -> Result<ProfileInfo> {
     if got != id {
         return Err(r.err("id", format!("must equal the directory name '{id}'")));
     }
-    Ok(ProfileInfo { id: got, name: label(r, "name", 40)?, blurb: label(r, "blurb", 80)? })
+    Ok(ProfileInfo { id: got, name: label(r, "name", SHOWN_FIELDS[0].3)?, blurb: label(r, "blurb", SHOWN_FIELDS[1].3)? })
 }
 
 /// Directory of an installed profile; a name that is not one is a usage error that lists the real ones.
@@ -1420,7 +1579,7 @@ impl Content {
         }
         let mut it = recs.into_iter();
         let mut next = || it.next().unwrap_or_default();
-        let (o, tu, pa, en, sk, bo, wa, bi, tr, it) = (next(), next(), next(), next(), next(), next(), next(), next(), next(), next());
+        let (o, tu, pa, en, sk, bo, wa, bi, tr, it, tx) = (next(), next(), next(), next(), next(), next(), next(), next(), next(), next(), next());
         let opt = options(only(&o, "options", "options.jsonl")?)?;
         let hz = opt.hz;
         let fams = en.iter().map(|(t, r)| want(t, r, "family").and_then(|_| family(r, hz))).collect::<Result<Vec<_>>>()?;
@@ -1485,6 +1644,7 @@ impl Content {
             binds,
             groups,
             classes,
+            texts: shown_texts(&tx)?,
             trees,
             items: items(&it)?,
         })
@@ -2190,7 +2350,7 @@ fn waves(recs: &[(String, Rec)], hz: Hz, fam_id: &dyn Fn(&Rec, &str) -> Result<F
 fn binds(recs: &[(String, Rec)]) -> Result<(Vec<Bind>, Vec<Group>)> {
     let (mut bs, mut gs) = (Vec::new(), Vec::new());
     for (t, r) in recs {
-        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags)])?;
+        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start)])?;
         let keys = r.strs("keys")?.iter().map(|k| Key::parse(k).ok_or_else(|| r.err("keys", format!("unknown key '{k}'")))).collect::<Result<Vec<_>>>()?;
         if keys.is_empty() {
             return Err(r.err("keys", "empty"));
@@ -2467,6 +2627,29 @@ pub mod tests {
 
     fn data_dir() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("data")
+    }
+
+    #[test]
+    fn texts_are_complete_and_documented_or_the_load_fails() {
+        let at = FILES.iter().position(|&f| f == "texts.jsonl").unwrap();
+        let with = |t: String| {
+            let mut ts = texts();
+            ts[at] = t;
+            Content::parse(&ts).err().map(|e| e.to_string()).unwrap_or_default()
+        };
+        let base = texts()[at].clone();
+        assert_eq!(with(base.clone()), "", "control: the shipped texts load");
+        let drop = |id: &str| base.lines().filter(|l| !l.contains(&format!("\"id\":\"{id}\""))).collect::<Vec<_>>().join("\n");
+        assert!(with(drop("pick_class")).contains("missing text 'pick_class'"));
+        assert!(with(drop("title")).contains("missing art 'title'"));
+        assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"nope\",\"text\":\"x\"}}\n")).contains("no message 'nope'"));
+        assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"pick_class\",\"text\":\"x\"}}\n")).contains("duplicate 'pick_class'"));
+        assert!(with(base.replace("CHOOSE YOUR HERO", "CHOOSE €")).contains("drawable"), "a char the terminal cannot draw");
+        // the index is the declaration order, and every entry says where it is shown
+        assert!(Msg::ALL.iter().enumerate().all(|(i, &m)| m as usize == i) && Art::ALL.iter().enumerate().all(|(i, &a)| a as usize == i));
+        assert!(Msg::ALL.iter().all(|m| m.doc().len() > 20) && Art::ALL.iter().all(|a| a.doc().len() > 20));
+        let doc = schema_doc();
+        assert!(Msg::ALL.iter().all(|m| doc.contains(m.id())) && Art::ALL.iter().all(|a| doc.contains(a.id())) && doc.contains("class.desc"));
     }
 
     #[test]

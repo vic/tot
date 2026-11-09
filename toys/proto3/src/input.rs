@@ -1,18 +1,23 @@
 //! Kitty keyboard events + modal UI (design sec 6): PLAY, PICK, LOOK, CMD; which-key on prefixes.
 //! Held directions come only from press/release (no autorepeat path, design sec 6.1).
-use crate::data::{Content, Owned, Slot, Tree};
+use crate::data::{ClassId, Content, Owned, Slot, Tree};
 use crate::iso::{Heading, screen_dir};
 use crate::sim::{BAG_SLOTS, BagAct, Cmd, Input, PickChoice};
 /// Bag grid columns (BAG_SLOTS / BAG_COLS rows).
 pub const BAG_COLS: usize = 6;
 
-/// Class the hero plays (class picking is a later screen).
-const HERO_CLASS: usize = 0;
-
 /// The tree the TREE screen shows: the hero class's first tree.
-/// shortcut: one tree per class on screen, a tree switcher comes with class choice.
-pub fn hero_tree(c: &Content) -> Option<&Tree> {
-    c.trees.iter().find(|t| t.class.ix() == HERO_CLASS)
+/// shortcut: one tree per class on screen, upgrade with a tree switcher when a class has several.
+pub fn hero_tree(c: &Content, class: ClassId) -> Option<&Tree> {
+    c.trees.iter().find(|t| t.class == class)
+}
+
+/// Start screen step: the list shown and its cursor (an index into the adventures, or into the picked
+/// adventure's classes).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Start {
+    Adventure { sel: usize },
+    Class { adv: usize, sel: usize },
 }
 
 /// Cursor step on the node grid: sideways along the row, up/down to the nearest column of the next row.
@@ -109,6 +114,8 @@ pub enum Mode {
     Bags,
     /// merchant / blacksmith / witch offers
     Shop,
+    /// start screen: pick an adventure, then a class
+    Start,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -157,6 +164,10 @@ pub enum Action {
     CurLeft,
     CurRight,
     Back,
+    /// start screen: cursor step, take the highlighted entry, step back (from the adventures: quit)
+    StartMove(i8),
+    StartPick,
+    StartBack,
 }
 
 impl Action {
@@ -220,6 +231,10 @@ impl Action {
             "cur_left" => CurLeft,
             "cur_right" => CurRight,
             "back" => Back,
+            "start_prev" => StartMove(-1),
+            "start_next" => StartMove(1),
+            "start_pick" => StartPick,
+            "start_back" => StartBack,
             _ => return None,
         })
     }
@@ -403,6 +418,11 @@ pub struct Ui {
     now_ms: u64,
     /// command typed by the human (`:spawn`), sent through the sim validator with src `human`
     pub human: Option<Cmd>,
+    /// start screen step, and the length of the list it shows (set by the start loop)
+    pub start: Start,
+    pub start_len: usize,
+    /// the class the hero plays (picked on the start screen)
+    pub class: ClassId,
 }
 
 impl Ui {
@@ -444,6 +464,9 @@ impl Ui {
             offer_waiting: false,
             now_ms: 0,
             human: None,
+            start: Start::Adventure { sel: 0 },
+            start_len: 0,
+            class: ClassId::FIRST,
         }
     }
 
@@ -451,7 +474,7 @@ impl Ui {
     pub fn fresh(&self) -> Ui {
         // a popup open at restart forced the toggles on: the player's own choice is the saved one
         let (walk, fire) = self.choice();
-        Ui { autowalk: walk, ..Ui::new(fire) }
+        Ui { autowalk: walk, class: self.class, ..Ui::new(fire) }
     }
 
     /// Track the sim's power-up offer. It does not pop up by itself (that interrupts play): it waits until the
@@ -611,7 +634,7 @@ impl Ui {
     }
 
     fn spend(&mut self, c: &Content) -> String {
-        let Some(t) = hero_tree(c) else { return "no skill tree".into() };
+        let Some(t) = hero_tree(c, self.class) else { return "no skill tree".into() };
         match t.spend(self.tree_owned, self.tree_points(), self.tree_sel) {
             Ok((owned, left)) => {
                 self.tree_spent = self.tree_earned.saturating_sub(left);
@@ -665,7 +688,7 @@ impl Ui {
             Action::GearDrop => self.gear_drop = Slot::ALL.get(self.gear_sel).copied(),
             Action::OpenTree => self.mode = Mode::Tree,
             Action::TreeMove(dc, dr) => {
-                if let Some(t) = hero_tree(c) {
+                if let Some(t) = hero_tree(c, self.class) {
                     self.tree_sel = tree_step(t, self.tree_sel, dc, dr);
                 }
             }
@@ -702,6 +725,25 @@ impl Ui {
                 self.mode = Mode::Play;
                 self.cmdline.clear();
             }
+            Action::StartMove(d) => {
+                let n = self.start_len.max(1) as isize;
+                let (Start::Adventure { sel } | Start::Class { sel, .. }) = &mut self.start;
+                *sel = (*sel as isize + isize::from(d)).rem_euclid(n) as usize;
+            }
+            // an adventure opens its class list; a class starts the run (the start loop sees the mode leave Start)
+            Action::StartPick => match self.start {
+                Start::Adventure { sel } => self.start = Start::Class { adv: sel, sel: 0 },
+                Start::Class { sel, .. } => {
+                    if let Some(k) = c.class_id(sel) {
+                        self.class = k;
+                        self.mode = Mode::Play;
+                    }
+                }
+            },
+            Action::StartBack => match self.start {
+                Start::Adventure { .. } => self.quit = true,
+                Start::Class { adv, .. } => self.start = Start::Adventure { sel: adv },
+            },
             Action::Up | Action::Down | Action::Left | Action::Right => {}
         }
     }
@@ -938,7 +980,7 @@ mod tests {
         let enter = KeyEv { key: Key::Enter, kind: Kind::Press, text: None };
         ui.key(press('t'), &c, 0);
         assert_eq!(ui.mode, Mode::Tree);
-        let t = hero_tree(&c).unwrap();
+        let t = hero_tree(&c, ClassId::FIRST).unwrap();
         let node = |i: usize| (t.nodes[i].col, t.nodes[i].row);
         assert_eq!(node(ui.tree_sel), (1, 0), "starts on the root");
         ui.key(press('h'), &c, 0);
@@ -990,7 +1032,7 @@ mod tests {
         let c = content();
         let mut s = Sim::new(&c, 7, None);
         let mut ui = Ui::new(true);
-        let tree = hero_tree(&c).unwrap();
+        let tree = hero_tree(&c, ClassId::FIRST).unwrap();
         ui.key(press('t'), &c, 0);
         ui.tree_earned = 2;
         let root = tree.nodes[0].effect;
@@ -1015,6 +1057,35 @@ mod tests {
         ui.key(press('3'), &c, 0);
         assert_eq!(ui.input(true).special, Some(2), "key 3 = slot 3");
         assert_eq!(ui.input(true).special, None, "one cast per press");
+    }
+
+    #[test]
+    fn start_screen_picks_adventure_then_class_and_steps_back() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        let hit = |ui: &mut Ui, key: Key| ui.key(KeyEv { key, kind: Kind::Press, text: None }, &c, 0);
+        ui.start_len = 2;
+        hit(&mut ui, Key::Char('j'));
+        hit(&mut ui, Key::Char('j'));
+        assert_eq!(ui.start, Start::Adventure { sel: 0 }, "the cursor wraps");
+        hit(&mut ui, Key::Char('k'));
+        assert_eq!(ui.start, Start::Adventure { sel: 1 });
+        hit(&mut ui, Key::Enter);
+        assert_eq!((ui.start, ui.mode), (Start::Class { adv: 1, sel: 0 }, Mode::Start), "an adventure opens its classes");
+        hit(&mut ui, Key::Esc);
+        assert_eq!(ui.start, Start::Adventure { sel: 1 }, "back keeps the adventure under the cursor");
+        hit(&mut ui, Key::Enter);
+        ui.start_len = c.classes.len();
+        hit(&mut ui, Key::Char('j'));
+        hit(&mut ui, Key::Enter);
+        assert_eq!((ui.mode, ui.class), (Mode::Play, c.class_id(1).unwrap()), "a class starts the run as that class");
+        assert!(!ui.quit, "control: picking never quits");
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        hit(&mut ui, Key::Esc);
+        assert!(ui.quit, "back from the adventures quits");
+        assert_eq!(ui.fresh().class, ui.class, "a new run keeps the class");
     }
 
     #[test]
