@@ -154,6 +154,11 @@ pub struct View<'a> {
     pub last_bytes: usize,
 }
 
+/// Background that marks a key on the key rows and the hotkey bar.
+fn key_bg(pal: &crate::data::Palette) -> Rgb {
+    mix(pal.player, pal.bg, 700)
+}
+
 fn mix(a: Rgb, b: Rgb, f: u32) -> Rgb {
     let m = |x: u8, y: u8| ((u32::from(x) * (1000 - f) + u32::from(y) * f) / 1000) as u8;
     Rgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2))
@@ -895,7 +900,10 @@ impl Frame {
                 4 | 5 => (left + (k % 2) * (half / 2), y0 + 3),
                 _ => (right + (k % 2) * (half / 2), y0 + 3),
             };
-            let x = self.text(row, hx, &(k + 1).to_string(), pal.dim);
+            // the digit is a key: highlighted like every key hint
+            let x = self.text(row, hx, &(k + 1).to_string(), pal.player);
+            let ki = usize::from(row) * cols + usize::from(hx);
+            self.cells[ki].bg = key_bg(pal);
             match sim.owned.get(usize::from(k)) {
                 Some(o) => {
                     let s = c.skill(o.id);
@@ -911,7 +919,7 @@ impl Frame {
                     }
                 }
                 None => {
-                    self.text(row, x + 1, "-", pal.dim);
+                    self.text(row, x + 1, "empty", pal.dim);
                 }
             }
         }
@@ -1296,7 +1304,8 @@ impl Frame {
         self.bar(0, x + 1, i64::from(sim.e.hp[b]), i64::from(sim.e.max[b]), BOSS_BAR_W, pal.alarm);
     }
 
-    fn overlays(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
+    fn overlays(&mut self, sim: &Sim, v: &View) {
+        let (ui, now_ms) = (v.ui, v.now_ms);
         self.sky_fx(sim, now_ms);
         self.boss_bar(sim);
         self.popup(sim, ui, now_ms);
@@ -1312,7 +1321,7 @@ impl Frame {
             t.push((sim.e.x[b], sim.e.y[b], sim.e.fam[b].ix()));
         }
         self.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures);
-        self.panel(sim);
+        self.panel(sim, v.phase, v.last_bytes);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
             self.pointer(sim, x, y, c.pal.alarm);
@@ -1369,7 +1378,7 @@ impl Frame {
         }
     }
 
-    fn panel(&mut self, sim: &Sim) {
+    fn panel(&mut self, sim: &Sim, phase: &str, bytes: usize) {
         let c = sim.c;
         let pal = &c.pal;
         if self.cols < PANEL_W || self.play_rows() < PANEL_H {
@@ -1464,7 +1473,12 @@ impl Frame {
         }
         // foes: one row per (family, tier), glyph + name in the foe's own render colour
         r = y0 + PANEL_FOES_ROW;
-        self.text(r, x0 + 1, "FOES", pal.dim);
+        let x = self.text(r, x0 + 1, "FOES  ", pal.dim);
+        // director phase and the last frame size (kB): status numbers live here, not on the key rows
+        let x = self.text(r, x, phase, pal.text);
+        let x = self.text(r, x + 2, "NET ", pal.dim);
+        let x = self.num(r, x, (bytes / 1024) as i64, pal.dim);
+        self.text(r, x, "k", pal.dim);
         let tiers = [Tier::Trash, Tier::Elite, Tier::Champion, Tier::Boss];
         let mut cnt = vec![0u32; c.fams.len() * tiers.len()];
         for k in 0..sim.e.len() {
@@ -1589,32 +1603,22 @@ impl Frame {
         }
     }
 
+    /// The last two rows: every key of the current mode (or of the pending which-key group), key highlighted,
+    /// in a fixed layout with no numbers or live text, so walking never makes it shift or flicker. Toggles show
+    /// on/off by colour only. What just happened goes on the message line at the top of the play area.
     fn strip(&mut self, sim: &Sim, v: &View) {
-        self.overlays(sim, v.ui, v.now_ms);
+        self.overlays(sim, v);
         let c = sim.c;
         let pal = &c.pal;
-        let (rb, rcm) = (self.rows - 2, self.rows - 1);
         let ui = v.ui;
-        // row B: pick cards | which-key | look tooltip | narration
-        if let (Mode::Pick, Some(_)) = (ui.mode, sim.offer) {
-            self.text(rb, 1, "PICK  wasd/hjkl/arrows move  1-3 or enter take  backspace skip  (popup above)", pal.alarm);
-        } else if let Some((prefix, items)) = ui.whichkey(c, v.now_ms) {
-            let mut x = self.text(rb, 1, &prefix, pal.alarm);
-            x = self.text(rb, x, ":", pal.dim);
-            for (k, label) in &items {
-                x = self.text(rb, x + 2, k, pal.player);
-                x = self.text(rb, x + 1, label, pal.text);
-            }
-        } else if ui.mode == Mode::Look {
-            self.tooltip(sim, ui, rb);
-        } else if let Some((ev, at)) = sim.narration.filter(|(_, at)| sim.tick.saturating_sub(*at) < c.hz().get() * 6) {
-            let _ = at;
-            if let Some(crate::data::WaveEv::Narrate { text, .. }) = c.waves.get(ev) {
-                self.text(rb, 1, text, pal.of(Hue::Therm));
-            }
-        }
-        // row C: coloured vim-mode tag, then the keys that work right now
+        let (rb, rcm) = (self.rows - 2, self.rows - 1);
         let ended = sim.outcome.is_some();
+        let cols = usize::from(self.cols);
+        for r in [rb, rcm] {
+            let i = usize::from(r) * cols;
+            self.cells[i..i + cols].fill(Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.bg });
+        }
+        self.message(sim, v);
         let (tag, ink) = mode_tag(ui.mode, ended);
         let tag_fg = match ink {
             ModeInk::Player => pal.player,
@@ -1624,38 +1628,69 @@ impl Frame {
             ModeInk::Dim => pal.dim,
             ModeInk::Role(r) => pal.role(r),
         };
-        let mut x = self.text(rcm, 1, tag, tag_fg);
-        match ui.mode {
-            Mode::Cmd => {
-                x = self.text(rcm, x + 1, ":", pal.player);
-                x = self.text(rcm, x, &ui.cmdline, pal.player);
-                x = self.text(rcm, x, "_", pal.alarm);
-                self.text(rcm, x + 2, keyhints(ui.mode, ended), pal.dim);
+        let tag_end = self.text(rcm, 1, tag, tag_fg);
+        if ui.mode == Mode::Cmd {
+            let x = self.text(rcm, tag_end + 1, ":", pal.player);
+            let x = self.text(rcm, x, &ui.cmdline, pal.player);
+            self.text(rcm, x, "_", pal.alarm);
+        }
+        let entries = match ui.whichkey(c, v.now_ms) {
+            Some((_, items)) => items.into_iter().map(|(k, l)| Hint { keys: k, label: l, on: None }).collect(),
+            None if ended => vec![Hint { keys: "r".into(), label: "new run".into(), on: None }, Hint { keys: "q".into(), label: "quit".into(), on: None }],
+            None => hints(c, ui),
+        };
+        // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
+        let key_bg = key_bg(pal);
+        let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
+        for h in &entries {
+            let w = (h.keys.chars().count() + 1 + h.label.chars().count() + 2) as u16;
+            let Some(slot) = (0..2).find(|&s| ends[s] + w <= self.cols) else { continue };
+            let (row, x) = ([rb, rcm][slot], ends[slot]);
+            ends[slot] += w;
+            for (k, ch) in h.keys.chars().enumerate() {
+                let i = usize::from(row) * cols + usize::from(x) + k;
+                self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: pal.player, bg: key_bg };
             }
-            Mode::Pick => {
-                let desc = sim.offer.and_then(|o| o.cards.get(usize::from(ui.sel)).copied().flatten()).map(|cd| c.skill(cd.skill).desc.as_str()).unwrap_or("");
-                x = self.text(rcm, x + 2, keyhints(ui.mode, ended), pal.dim);
-                self.text(rcm, x + 2, desc, pal.text);
-            }
-            _ => {
-                x = self.text(rcm, x + 2, "AUTO ", pal.dim);
-                x = self.text(rcm, x, if ui.autofire { "on" } else { "off" }, pal.text);
-                x = self.text(rcm, x + 2, "CAM ", pal.dim);
-                x = self.text(rcm, x, ui.heading.name(), pal.text);
-                x = self.text(rcm, x + 2, v.phase, pal.dim);
-                x = self.text(rcm, x + 2, &ui.msg, pal.of(Hue::Kin));
-                x = self.text(rcm, x + 2, "B ", pal.dim);
-                x = self.num(rcm, x, (v.last_bytes / 1024) as i64, pal.dim);
-                // hints go last and only when they fit whole: a clipped hint is worse than none
-                let hint = keyhints(ui.mode, ended);
-                if usize::from(x) + 2 + hint.chars().count() <= usize::from(self.cols) {
-                    self.text(rcm, x + 2, hint, pal.dim);
-                }
-            }
+            let lx = x + h.keys.chars().count() as u16 + 1;
+            let fg = match h.on {
+                Some(true) => pal.player,
+                Some(false) => pal.dim,
+                None => pal.text,
+            };
+            self.text(row, lx, &h.label, fg);
         }
     }
 
-    fn tooltip(&mut self, sim: &Sim, ui: &Ui, row: u16) {
+    /// Message line at the top of the play area (between map and panel): look tooltip, the picked card, narration,
+    /// or the last action's result.
+    fn message(&mut self, sim: &Sim, v: &View) {
+        let (c, ui) = (sim.c, v.ui);
+        let pal = &c.pal;
+        if ui.mode == Mode::Look {
+            self.tooltip(sim, ui, 0, MAP_W + 1);
+            return;
+        }
+        let narration = sim.narration.filter(|(_, at)| sim.tick.saturating_sub(*at) < c.hz().get() * 6).and_then(|(ev, _)| match c.waves.get(ev) {
+            Some(crate::data::WaveEv::Narrate { text, .. }) => Some(text.as_str()),
+            _ => None,
+        });
+        let card = (ui.mode == Mode::Pick).then(|| sim.offer.and_then(|o| o.cards.get(usize::from(ui.sel)).copied().flatten()).map(|cd| c.skill(cd.skill).desc.as_str())).flatten();
+        let (text, fg) = match (card, narration) {
+            (Some(d), _) => (d, pal.text),
+            (None, Some(n)) => (n, pal.of(Hue::Therm)),
+            (None, None) => (ui.msg.as_str(), pal.of(Hue::Kin)),
+        };
+        if text.is_empty() {
+            return;
+        }
+        let (lo, hi) = (usize::from(MAP_W) + 1, usize::from(self.cols.saturating_sub(PANEL_W + 1)));
+        let room = hi.saturating_sub(lo);
+        let line: String = text.chars().take(room).collect();
+        let x = lo + (room - line.chars().count()) / 2;
+        self.text(0, x as u16, &line, fg);
+    }
+
+    fn tooltip(&mut self, sim: &Sim, ui: &Ui, row: u16, x0: u16) {
         let c = sim.c;
         let (cc, rc) = self.centre();
         let (wx, wy) = self.world(cc + ui.cursor.0, rc + ui.cursor.1);
@@ -1663,11 +1698,11 @@ impl Frame {
         let best = (0..sim.e.len()).map(|k| (dist2(sim.e.x[k] - ax, sim.e.y[k] - ay), k)).min().filter(|(d2, _)| *d2 <= 2_250_000);
         let pal = &c.pal;
         let Some((_, k)) = best else {
-            self.text(row, 1, "LOOK: move cursor with h j k l, esc back. nothing under cursor", pal.dim);
+            self.text(row, x0, "LOOK: move cursor with h j k l, esc back. nothing under cursor", pal.dim);
             return;
         };
         let fam = c.fam(sim.e.fam[k]);
-        let mut x = self.text(row, 1, &fam.name, pal.of(fam.hue));
+        let mut x = self.text(row, x0, &fam.name, pal.of(fam.hue));
         let tier = match sim.e.tier[k] {
             Tier::Trash => " trash",
             Tier::Elite => " ELITE",
@@ -1948,18 +1983,59 @@ fn mode_tag(mode: Mode, ended: bool) -> (&'static str, ModeInk) {
     }
 }
 
-/// Keys that do something right now, for the status line.
-fn keyhints(mode: Mode, ended: bool) -> &'static str {
-    match (ended, mode) {
-        (true, _) => "r new run  q quit",
-        (_, Mode::Play) => "wasd/hjkl move  shift dodge  x hack  q/e rotate  spc menu  : cmd",
-        (_, Mode::Pick) => "h/l select  enter take  1-3  bksp skip |",
-        (_, Mode::Look) => "h j k l cursor  esc back",
-        (_, Mode::Cmd) => "enter run  esc back",
-        (_, Mode::Tree) => "h/l j/k move  enter spend  esc back",
-        (_, Mode::Gear) => "j/k select  x drop  esc back",
-        (_, Mode::Shop) => "1-4 buy  walk on or esc to leave",
+/// One key hint on the bottom rows: keys (highlighted), what they do, and for toggles whether they are on.
+struct Hint {
+    keys: String,
+    label: String,
+    on: Option<bool>,
+}
+
+/// Every binding of the current mode as hints, read from the binding data (nothing to keep in sync by hand).
+/// Movement, specials, cards and shop offers fold into one hint each; digit runs read "1-8". In a shop the play
+/// keys the shop does not bind still work, so they are listed too.
+fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
+    use crate::input::Action;
+    let shadowed = |b: &crate::data::Bind| ui.mode == Mode::Shop && c.binds.iter().any(|s| s.mode == Mode::Shop && s.keys == b.keys);
+    let binds = c.binds.iter().filter(|b| b.mode == ui.mode || (ui.mode == Mode::Shop && b.mode == Mode::Play && !shadowed(b)));
+    let mut groups: Vec<(String, Vec<String>, Option<bool>)> = Vec::new();
+    for b in binds {
+        let (label, on) = match b.action {
+            // a key sequence lives in a which-key group: one entry for the group, its keys show when it opens
+            _ if b.keys.len() > 1 => match c.groups.iter().find(|g| g.mode == b.mode && b.keys.starts_with(&g.keys)) {
+                Some(g) => (format!("+{}", g.label), None),
+                None => (b.label.clone(), None),
+            },
+            Action::Up | Action::Down | Action::Left | Action::Right => ("move".to_string(), None),
+            Action::RotLeft | Action::RotRight => ("turn".into(), None),
+            Action::Special(_) => ("special".into(), None),
+            Action::Card(_) => ("take".into(), None),
+            Action::ShopTake(_) => ("buy".into(), None),
+            Action::Autofire => (b.label.clone(), Some(ui.autofire)),
+            Action::Autowalk => (b.label.clone(), Some(ui.autowalk)),
+            _ => (b.label.clone(), None),
+        };
+        // a group entry shows only its prefix key
+        let key = if label.starts_with('+') { b.keys[0].name() } else { b.keys.iter().map(|k| k.name()).collect::<Vec<_>>().join(" ") };
+        match groups.iter_mut().find(|g| g.0 == label) {
+            Some(g) if !g.1.contains(&key) => g.1.push(key),
+            Some(_) => {}
+            None => groups.push((label, vec![key], on)),
+        }
     }
+    groups
+        .into_iter()
+        .map(|(label, keys, on)| {
+            let digits = keys.iter().all(|k| k.len() == 1 && k.as_bytes()[0].is_ascii_digit());
+            let keys = if label == "move" {
+                "wasd/hjkl/arrows".to_string()
+            } else if digits && keys.len() > 2 {
+                format!("{}-{}", keys[0], keys[keys.len() - 1])
+            } else {
+                keys.join("/")
+            };
+            Hint { keys, label, on }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -2269,14 +2345,41 @@ mod tests {
     }
 
     #[test]
+    fn bottom_rows_list_every_key_fixed_and_highlighted() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let rows = |f: &Frame| f.plain().lines().skip(38).collect::<Vec<_>>().join("\n");
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let a = rows(&f);
+        for b in c.binds.iter().filter(|b| b.mode == Mode::Play) {
+            let shown = hints(&c, &ui).into_iter().any(|h| a.contains(&format!("{} {}", h.keys, h.label)) && (h.label == b.label || ["move", "special", "turn", "+camera"].contains(&h.label.as_str())));
+            assert!(shown, "binding {:?} ({}) not on the bottom rows:\n{a}", b.keys, b.label);
+        }
+        assert!(a.contains("spc fire") && a.contains("Q quit") && a.contains("1-8 special"), "{a}");
+        // walking, time and bytes change: the rows do not
+        for k in 0..40 {
+            sim.step(&Input { mv: (1, 0), autofire: true, ..Input::default() });
+            f.compose(&sim, &View { ui: &ui, now_ms: k * 33, alpha: 1.0, phase: "SWARM", last_bytes: 99_999 });
+        }
+        assert_eq!(rows(&f), a, "fixed layout");
+        // keys are highlighted: the key cells of "spc" carry the key background, its label does not
+        let at = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("spc fire").map(|x| (38 + r, l[..x].chars().count()))).unwrap();
+        let cell = |dx: usize| f.cells[at.0 * 120 + at.1 + dx].bg;
+        assert!(cell(0) == cell(2) && cell(0) != cell(5), "key highlighted, label plain");
+        // a toggle shows on/off by colour, same text
+        ui.autofire = false;
+        f.compose(&sim, &View { ui: &ui, now_ms: 9_999, alpha: 1.0, phase: "SWARM", last_bytes: 0 });
+        assert_eq!(rows(&f), a, "same text with auto-fire off");
+    }
+
+    #[test]
     fn status_line_tags_and_keys_follow_mode_and_end() {
         for (m, tag) in [(Mode::Play, "PLAY"), (Mode::Pick, "PICK"), (Mode::Look, "LOOK"), (Mode::Cmd, "CMD")] {
             assert!(mode_tag(m, false).0.contains(tag));
-            assert!(!keyhints(m, false).is_empty());
         }
-        assert!(mode_tag(Mode::Play, true).0.contains("END") && keyhints(Mode::Play, true).contains("new run"));
-        // negative control: a live run must not advertise the restart key
-        assert!(!keyhints(Mode::Play, false).contains("new run"));
+        assert!(mode_tag(Mode::Play, true).0.contains("END"));
         let inks = [Mode::Play, Mode::Pick, Mode::Look, Mode::Cmd].map(|m| mode_tag(m, false).1);
         assert!(inks.iter().enumerate().all(|(i, a)| inks.iter().skip(i + 1).all(|b| a != b)));
     }
@@ -2288,8 +2391,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: sky (weather tint, streaks, moon, banner) and the SKY panel row (4 power rows)
-    const GOLDEN: u64 = 0x5997_9319_9d55_541b;
+    // re-pinned 2026-11-08: key rows list every binding (keys highlighted, fixed), message line on top, phase+NET in the panel, hotkey digits highlighted
+    const GOLDEN: u64 = 0xba76_858b_e298_005b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -2416,7 +2519,7 @@ mod tests {
         // the picker is a popup in the play area: the card name shows there, the strip only points at it
         assert!((0..37).any(|r| row(r).contains(&format!("1 {name}"))), "popup shows card 1");
         assert!(!row(38).contains(&name), "{}", row(38));
-        assert!(row(38).contains("popup above"));
+        assert!((38..40).any(|r| row(r).contains("take")), "pick keys on the key rows");
     }
 
     #[test]
@@ -2436,7 +2539,7 @@ mod tests {
         let n = usize::from(c.view.actor_rows[0]);
         let pi = (rc as usize - n) * 120 + cc as usize;
         assert_eq!(f.cells[pi].ch.ch(), '@');
-        assert!(f.cells[(40 - 2) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg));
+        assert!(f.cells[(40 - 2) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg || cell.bg == key_bg(&c.pal)));
     }
 
     fn headings() -> [Heading; 4] {

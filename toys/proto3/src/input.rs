@@ -716,28 +716,29 @@ mod tests {
     }
 
     #[test]
-    fn autowalk_toggles_by_leader_and_cmd_fire_key_is_held() {
+    fn autowalk_toggles_by_shift_w_and_cmd_space_fire_is_held() {
         let c = content();
         let mut ui = Ui::new(false);
         assert!(!ui.autowalk && !ui.fire);
-        ui.key(press(' '), &c, 0);
         ui.key(press('w'), &c, 0);
+        assert!(!ui.autowalk, "NEG: plain w walks, it does not toggle");
+        ui.key(KeyEv { key: Key::Char('W'), kind: Kind::Press, text: Some('W') }, &c, 0);
         assert!(ui.autowalk);
         ui.run_cmd("autowalk off", &c);
         assert!(!ui.autowalk);
-        ui.key(press('f'), &c, 0);
+        ui.key(press(' '), &c, 0);
         assert!(ui.fire);
-        ui.key(release('f'), &c, 0);
+        ui.key(release(' '), &c, 0);
         assert!(!ui.fire);
         // negative controls: other key release keeps it, a direction key never sets it
-        ui.key(press('f'), &c, 0);
+        ui.key(press(' '), &c, 0);
         ui.key(release('d'), &c, 0);
         assert!(ui.fire);
-        ui.key(release('f'), &c, 0);
+        ui.key(release(' '), &c, 0);
         ui.key(press('d'), &c, 0);
         assert!(!ui.fire);
         // mode change drops a held fire even without its release
-        ui.key(press('f'), &c, 0);
+        ui.key(press(' '), &c, 0);
         ui.key(press('t'), &c, 0);
         let _ = ui.input(true);
         assert!(!ui.fire);
@@ -833,13 +834,14 @@ mod tests {
     fn whichkey_waits_then_lists_group_and_never_fires_early() {
         let c = content();
         let mut ui = Ui::new(true);
-        ui.key(press(' '), &c, 1000);
+        ui.key(press('c'), &c, 1000);
         assert!(ui.whichkey(&c, 1100).is_none(), "before 250 ms");
         let (_, items) = ui.whichkey(&c, 1300).unwrap();
-        assert!(items.contains(&("a".into(), "autofire".into())), "{items:?}");
-        assert!(items.contains(&("c".into(), "+camera".into())), "{items:?}");
-        ui.key(press('a'), &c, 1400);
-        assert!(!ui.autofire && ui.whichkey(&c, 9999).is_none());
+        assert!(items.contains(&("q".into(), "turn left".into())), "{items:?}");
+        assert!(items.contains(&("e".into(), "turn right".into())), "{items:?}");
+        let before = ui.heading;
+        ui.key(press('q'), &c, 1400);
+        assert!(ui.heading != before && ui.whichkey(&c, 9999).is_none(), "c q turns the camera, menu closes");
     }
 
     #[test]
