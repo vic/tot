@@ -14,6 +14,7 @@ mod render;
 mod rng;
 mod sim;
 mod trig;
+mod skill;
 mod text;
 mod tty;
 
@@ -63,6 +64,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 const USAGE: &str = "proto2 play [--data DIR] [--profile NAME] [--seed N] [--out DIR]
 proto2 schema   (adventure schema docs: every shown message, art and field, where it shows)
+proto2 skill [--data DIR]   (agent skill: write and update adventures; schema + every shipped adventure as examples)
 proto2 snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
 proto2 bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
 proto2 controls --seeds N [--data DIR]";
@@ -122,6 +124,10 @@ fn run() -> Result<()> {
                 None
             };
             play::play(&c, &dir, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
+        }
+        Some("skill") => {
+            print!("{}", skill::skill(&dir)?);
+            Ok(())
         }
         Some("schema") => {
             print!("{}", data::schema_doc());

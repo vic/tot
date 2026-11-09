@@ -1646,6 +1646,19 @@ fn manifest(pdir: &Path, id: &str) -> Result<ProfileInfo> {
     Ok(ProfileInfo { id: got, name: label(r, "name", SHOWN_FIELDS[0].3)?, blurb: label(r, "blurb", SHOWN_FIELDS[1].3)? })
 }
 
+/// The files that make adventure `id`, as the game loads them: its profile.jsonl, then each content file it may
+/// replace (its own copy, else the base one). (file name, text) in `PROFILE_FILES` order.
+pub fn adventure_files(dir: &Path, id: &str) -> Result<Vec<(&'static str, String)>> {
+    let pdir = profile_dir(dir, id)?;
+    let read = |p: std::path::PathBuf| std::fs::read_to_string(&p).map_err(|e| scheme_err(&p.display().to_string(), 0, "", e.to_string()));
+    let mut out = vec![("profile.jsonl", read(pdir.join("profile.jsonl"))?)];
+    for f in PROFILE_FILES {
+        let own = pdir.join(f);
+        out.push((f, read(if own.exists() { own } else { dir.join(f) })?));
+    }
+    Ok(out)
+}
+
 /// Directory of an installed profile; a name that is not one is a usage error that lists the real ones.
 fn profile_dir(dir: &Path, name: &str) -> Result<std::path::PathBuf> {
     let plain = !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
