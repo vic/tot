@@ -21,6 +21,7 @@ impl Heading {
         self.0
     }
     /// world -> view (the inverse quarter turn)
+    #[cfg(test)]
     pub(crate) fn rot(self, x: i32, y: i32) -> (i32, i32) {
         Heading((4 - self.0) % 4).unrot(x, y)
     }
@@ -61,7 +62,7 @@ impl Proj {
     }
 
     /// world -> view
-    fn rot(self, x: f64, y: f64) -> (f64, f64) {
+    pub(crate) fn rot(self, x: f64, y: f64) -> (f64, f64) {
         (x * self.c - y * self.s, x * self.s + y * self.c)
     }
 

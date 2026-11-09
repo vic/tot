@@ -1531,13 +1531,26 @@ impl Frame {
                 self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: if ch == '■' { chest_glow(pal, sim.tick) } else if known { pal.hud_bg } else { pal.fog } };
             }
         }
-        // compass on the border: each letter sits on the edge its world direction points to now
+        self.rose(pal);
+    }
+    /// Compass rose in the map's bottom-right corner: a star, a ring, and N E S W on it. It turns with the eased
+    /// camera (the same rotation the map makes at rest), so a q/e turn swings it smoothly. N in the alarm colour.
+    fn rose(&mut self, pal: &crate::data::Palette) {
+        let (cx, cy) = (f64::from(MAP_W) - ROSE_RX - 2.0, f64::from(MAP_H) - ROSE_RY - 2.0);
+        let p = self.eye.p;
+        let at = |(x, y): (f64, f64)| ((cx + x * ROSE_RX).round() as i32, (cy + y * ROSE_RY).round() as i32);
+        for k in 0..8 {
+            let a = f64::from(k) * std::f64::consts::FRAC_PI_4;
+            let (col, row) = at((a.cos(), a.sin()));
+            self.flash_cell(col, row, Glyph::of('·').unwrap_or(Glyph::SPACE), pal.dim);
+        }
+        self.flash_cell(cx as i32, cy as i32, Glyph::of('✦').unwrap_or(Glyph::SPACE), pal.chest);
         for (letter, wx, wy) in COMPASS {
-            let (col, row) = compass_cell(heading, wx, wy);
-            let i = usize::from(row) * cols + usize::from(col);
-            self.cells[i] = Cell { ch: Glyph::of(letter).unwrap_or(Glyph::SPACE), fg: if letter == 'N' { pal.alarm } else { pal.text }, bg: pal.hud_bg };
+            let (col, row) = at(p.rot(f64::from(wx), f64::from(wy)));
+            self.flash_cell(col, row, Glyph::of(letter).unwrap_or(Glyph::SPACE), if letter == 'N' { pal.alarm } else { pal.text });
         }
     }
+
 
     fn panel(&mut self, sim: &Sim, phase: &str, bytes: usize) {
         let c = sim.c;
@@ -2176,19 +2189,11 @@ fn chest_glow(pal: &crate::data::Palette, tick: u32) -> Rgb {
     mix(pal.chest, pal.bg, if (tick / CHEST_PULSE).is_multiple_of(2) { 550 } else { 750 })
 }
 
+/// Rose radii in cells (cells are about twice as tall as wide, so the ring is a wide ellipse).
+const ROSE_RX: f64 = 3.0;
+const ROSE_RY: f64 = 1.5;
 /// Compass letters with their world direction (y grows south).
 const COMPASS: [(char, i32, i32); 4] = [('N', 0, -1), ('E', 1, 0), ('S', 0, 1), ('W', -1, 0)];
-
-/// Map cell (col, row) on the border where a world direction points under heading `h`.
-fn compass_cell(h: Heading, wx: i32, wy: i32) -> (u16, u16) {
-    let (vx, vy) = h.rot(wx, wy);
-    let edge = |d: i32, n: u16| match d {
-        -1 => 0,
-        1 => n - 1,
-        _ => n / 2,
-    };
-    (edge(vx, MAP_W), edge(vy, MAP_H))
-}
 
 /// Character kinds besides hostile foes that the stats pane counts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2368,23 +2373,28 @@ mod tests {
     }
 
     #[test]
-    fn map_compass_follows_heading_and_matches_camera_turns() {
+    fn rose_turns_with_the_map_and_swings_smoothly() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut f = Frame::new(&c, 120, 40);
+        let n_at = |f: &mut Frame, q: f64| {
+            f.eye.p = Proj::at(q);
+            f.rose(&c.pal);
+            let i = (0..usize::from(MAP_H) * 120).find(|&i| i % 120 < usize::from(MAP_W) && f.cells[i].ch.ch() == 'N' && f.cells[i].fg == c.pal.alarm).unwrap();
+            for row in 0..usize::from(MAP_H) {
+                f.cells[row * 120..row * 120 + usize::from(MAP_W)].fill(Cell { ch: Glyph::SPACE, fg: c.pal.text, bg: c.pal.bg });
+            }
+            ((i % 120) as f64 - (f64::from(MAP_W) - ROSE_RX - 2.0), (i / 120) as f64 - (f64::from(MAP_H) - ROSE_RY - 2.0))
+        };
         let mut h = Heading::default();
-        assert_eq!(compass_cell(h, 0, -1), (MAP_W / 2, 0), "N on top at heading N");
-        let mut tops = Vec::new();
-        for _ in 0..4 {
-            // same convention as iso::screen_dir: view +x is world screen_dir(1,1)
-            assert_eq!(h.unrot(1, 0), crate::iso::screen_dir(h, 1, 1));
-            assert_eq!(h.unrot(0, 1), crate::iso::screen_dir(h, -1, 1), "view +y axis");
-            let (n, e) = (compass_cell(h, 0, -1), compass_cell(h, 1, 0));
-            assert_ne!(n, e, "N and E never share a cell");
-            tops.push(n);
+        for k in 0..4 {
+            let (dx, dy) = n_at(&mut f, f64::from(k));
+            let (wx, wy) = h.rot(0, -1);
+            assert_eq!((dx.signum() as i32 * i32::from(dx.abs() > 0.5), dy.signum() as i32 * i32::from(dy.abs() > 0.5)), (wx, wy), "at rest N points where the map's north is (heading {k})");
             h = h.right();
         }
-        // negative control: a fixed compass would repeat one cell; the real one visits all four edges
-        tops.sort_unstable();
-        tops.dedup();
-        assert_eq!(tops.len(), 4);
+        // half a turn: N sits between where it was and where it goes (smooth, not a jump)
+        let (a, mid, b) = (n_at(&mut f, 0.0), n_at(&mut f, 0.5), n_at(&mut f, 1.0));
+        assert!(mid != a && mid != b && mid.0 > a.0 && mid.0 < b.0 + 0.5, "swings through: {a:?} {mid:?} {b:?}");
     }
 
     #[test]
@@ -2862,7 +2872,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x6213_3ca6_4382_6294;
+    const GOLDEN: u64 = 0xd666_8461_0dde_8533;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
