@@ -1053,6 +1053,7 @@ pub fn schema_doc() -> String {
     for b in Bark::ALL {
         s += &format!("- `{}`: when {}\n", b.id(), b.doc());
     }
+    s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
     s += "\n## shown fields of other records\n\n";
     for (file, field, doc, max, kind) in SHOWN_FIELDS {
         s += &format!("- {file} `{field}` (1..={max} {kind}): {doc}\n");
@@ -2085,9 +2086,21 @@ fn bars(r: &Rec) -> Result<Bars> {
 fn palette(r: &Rec) -> Result<Palette> {
     r.allow(&[
         "t", "bg", "fog", "floor", "player", "ring", "alarm", "text", "dim", "xp", "chest", "hud_bg", "kin", "therm", "emp", "code", "floor_glyphs",
-        "density_glyphs", "face_glyphs", "shadow_glyph", "body_glyph", "scheme",
+        "density_glyphs", "face_glyphs", "shadow_glyph", "body_glyph", "scheme", "base24",
     ])?;
+    if r.has("scheme") && r.has("base24") {
+        return Err(r.err("base24", "give a scheme name or an inline base24 palette, not both"));
+    }
     let scheme = r.has("scheme").then(|| SchemeId::parse(r, "scheme")).transpose()?;
+    // inline base24 (an adventure that makes its own colours): base00..base17 in order, the world scheme (dark)
+    let inline = match r.has("base24") {
+        true => {
+            let v = r.list("base24")?.iter().map(|v| v.as_str().and_then(hex_rgb)).collect::<Option<Vec<Rgb>>>();
+            let slots = v.and_then(|v| <[Rgb; 24]>::try_from(v).ok()).ok_or_else(|| r.err("base24", "need 24 \"#rrggbb\" colours, base00..base17 in order"))?;
+            Some(WorldScheme(Scheme { variant: Variant::Dark, slots }))
+        }
+        false => None,
+    };
     let d = glyphs(r, "density_glyphs")?;
     let [a, b, c] = d.as_slice() else { return Err(r.err("density_glyphs", "need 3 glyphs")) };
     let e = glyphs(r, "face_glyphs")?;
@@ -2114,7 +2127,7 @@ fn palette(r: &Rec) -> Result<Palette> {
     }));
     Ok(Palette {
         scheme,
-        roles,
+        roles: inline.as_ref().map_or(roles, |w| RoleTable::of(&w.0, w)),
         bg,
         fog,
         floor: rgb(r, "floor")?,
@@ -2636,6 +2649,27 @@ pub mod tests {
         let e = WorldScheme::new("schemes/gruvbox-light.yaml", scheme("gruvbox-light")).err().map(|e| e.to_string());
         assert_eq!(e, Some("schemes/gruvbox-light.yaml:0 .variant: the world scheme must be dark".into()));
         assert!(WorldScheme::new("d", scheme("dracula")).is_ok(), "control");
+    }
+
+    #[test]
+    fn palette_takes_a_scheme_name_or_an_inline_base24_never_both() {
+        let t = texts();
+        let dracula = scheme("dracula");
+        let inline = format!("\"base24\":[{}],", dracula.slots.iter().map(|c| format!("\"#{:02x}{:02x}{:02x}\"", c.0, c.1, c.2)).collect::<Vec<_>>().join(","));
+        let with = |extra: &str| {
+            let mut t = t.clone();
+            t[2] = t[2].replacen("\"t\":\"palette\",", &format!("\"t\":\"palette\",{extra}"), 1);
+            Content::parse(&t)
+        };
+        let base = Content::parse(&t).unwrap();
+        let own = with(&inline).unwrap();
+        assert_eq!(own.pal.role(Role::Bg), dracula.slots[Role::Bg.slot()], "inline base24 sets the roles");
+        assert_ne!(base.pal.role(Role::Bg), own.pal.role(Role::Bg), "control: the base roles differ");
+        let both = with(&format!("{inline}\"scheme\":\"dracula\",")).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(both.contains("not both"), "{both}");
+        let short = with("\"base24\":[\"#000000\"],").err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(short.contains("need 24"), "{short}");
+        assert!(schema_doc().contains("base24"), "documented for adventure authors");
     }
 
     #[test]
