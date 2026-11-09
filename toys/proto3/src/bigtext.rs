@@ -51,6 +51,14 @@ pub fn rows(text: &str) -> [String; 3] {
     out
 }
 
+/// Twice as big: every cell doubled across and every row doubled down (the uber boss's voice).
+pub fn double(rows: &[String]) -> Vec<String> {
+    rows.iter().flat_map(|r| {
+        let wide: String = r.chars().flat_map(|c| [c, c]).collect();
+        [wide.clone(), wide]
+    }).collect()
+}
+
 /// Width in cells of `text` in block letters.
 pub fn width(text: &str) -> usize {
     rows(text)[0].chars().count()

@@ -31,13 +31,27 @@ pub enum Event {
 }
 
 impl Event {
+    /// The one word the hero yells big over its head with the line.
+    fn shout(self) -> &'static str {
+        match self {
+            Event::LowHp => "HELP!",
+            Event::Hurt => "OW!",
+            Event::Reloading | Event::Passive | Event::NoTarget | Event::Empty => "HUH?",
+            Event::Level => "LEVEL UP!",
+            Event::Streak => "HA HA!",
+            Event::Special => "BOOM!",
+            Event::Frozen => "BRR!",
+            Event::Gold => "SHINY!",
+        }
+    }
+
     fn lines(self) -> &'static [&'static str] {
         match self {
-            Event::Level => &["I feel... SPICY.", "Patch notes: me, buffed.", "Level up! Mom would be proud.", "More power. Less sense."],
-            Event::Streak => &["Combo! Do I get a sticker?", "Bits everywhere. Not cleaning that.", "Ha! Next!", "Is that all you've got?"],
-            Event::Hurt => &["Ow. Rude.", "That's coming out of your pay!", "My good tunic!", "Hey! I was walking here!"],
-            Event::LowHp => &["Medic! ...anyone?", "I'm fine. Totally fine.", "Is that my blood? It is.", "Tell my cat I tried."],
-            Event::Gold => &["Shiny!", "Cha-ching.", "Retirement fund +1.", "Mine. All mine."],
+            Event::Level => &["I feel... SPICY.", "Patch notes: me, buffed.", "Level up! Mom would be proud.", "More power. Less sense.", "New level, same bad decisions.", "I can feel my build coming together!", "Ding! Somebody call the bard."],
+            Event::Streak => &["Combo! Do I get a sticker?", "Bits everywhere. Not cleaning that.", "Ha! Next!", "Is that all you have got?", "Five! Count them! Five!", "Someone call their manager.", "I am the horde now."],
+            Event::Hurt => &["Ow. Rude.", "That is coming out of your pay!", "My good tunic!", "Hey! I was walking here!", "That one I felt in my soul.", "Not the face!", "I bruise like a peach!"],
+            Event::LowHp => &["Medic! ...anyone?", "I am fine. Totally fine.", "Is that my blood? It is.", "Tell my cat I tried.", "I see a light. Is it loot?", "Running is a strategy, right?"],
+            Event::Gold => &["Shiny!", "Cha-ching.", "Retirement fund +1.", "Mine. All mine.", "Coin! My one true love.", "The merchant will hear about this."],
             Event::Special => &["Special delivery!", "Ka-BOOM.", "Say hello to my reload timer!", "Behold! ...ok, behold faster."],
             Event::Frozen => &["B-b-brr!", "Who left the door open?", "C-can't feel my t-toes."],
             Event::Reloading => &["Still reloading!", "Patience, I am not a vending machine.", "Give it a second!"],
@@ -167,6 +181,12 @@ impl Face {
         } else {
             Mood::Calm
         }
+    }
+
+    /// The shout (big word) and the bark (line) showing now, if any.
+    pub fn shout(&self, sim: &Sim) -> Option<(&'static str, &'static str)> {
+        let (e, _) = self.bark?;
+        self.bark(sim).map(|line| (e.shout(), line))
     }
 
     /// The bark showing now, if any.

@@ -124,7 +124,7 @@ pub struct Frame {
     level_flash: Option<(u64, u16)>,
     /// kill bursts (world x, y, sim tick of the death) and the boss ROAR (boss id, sim tick it appeared)
     pops: Vec<(i32, i32, u32)>,
-    roar: Option<(u32, u32)>,
+    roars: Vec<(u32, u32)>,
     /// Doom face memory (moods, barks) for the bottom bar
     face: Face,
     /// frame clock (ms) when the death show began; None while alive
@@ -214,7 +214,7 @@ impl Frame {
             sky_banner: None,
             links: Vec::new(),
             pops: Vec::with_capacity(POPS_MAX),
-            roar: None,
+            roars: Vec::new(),
         }
     }
 
@@ -230,7 +230,7 @@ impl Frame {
             _ => {
                 self.cam.reset();
                 self.pops.clear();
-                self.roar = None;
+                self.roars.clear();
                 self.prev.clear();
                 self.cur.clear();
                 self.cur_p = (sim.p.x, sim.p.y);
@@ -943,12 +943,6 @@ impl Frame {
         for (r, line) in face::rows(mood, Face::eyes(sim, toward)).iter().enumerate() {
             self.text(y0 + 1 + r as u16, fx, line, fg);
         }
-        if let Some(line) = self.face.bark(sim) {
-            let say = format!("\"{line}\"");
-            let w = say.chars().count() as u16;
-            let sx = (fx + FACE_W / 2).saturating_sub(w / 2);
-            self.text(y0.saturating_sub(1), sx, &say, pal.text);
-        }
     }
 
     /// Level-up: an XP-coloured ring bursts out of the hero and a taunt floats above them for LEVEL_FLASH_MS.
@@ -970,7 +964,8 @@ impl Frame {
             self.flash_cell(pcol + (r * 2.0 * a.cos()).round() as i32, mid + (r * a.sin()).round() as i32, star, pal.xp);
         }
         let line = level_line(level);
-        let top = prow - i32::from(sim.c.view.actor_rows[0]) - LEVEL_LINE_GAP;
+        // below the feet: the hero's own LEVEL UP! shout and bubble take the space above its head
+        let top = prow + LEVEL_LINE_GAP;
         let c0 = (pcol - line.chars().count() as i32 / 2).max(0);
         if top >= 0 {
             self.text(top as u16, c0 as u16, &line, pal.xp);
@@ -988,26 +983,6 @@ impl Frame {
             for (dc, ch) in frame.chars().enumerate() {
                 if ch != ' ' {
                     self.flash_cell(col + dc as i32 - 1, row - 1, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.xp);
-                }
-            }
-        }
-        let Some(b) = sim.boss_ix() else { return };
-        let id = sim.e.id[b];
-        if self.roar.is_none_or(|r| r.0 != id) {
-            self.roar = Some((id, now));
-        }
-        if !self.roar.is_some_and(|(_, at)| now.saturating_sub(at) < ROAR_TICKS) {
-            return;
-        }
-        let Some(def) = c.boss_of(sim.e.fam[b]) else { return };
-        let (col, row) = self.scr(self.pos[b].0, self.pos[b].1);
-        let shake = if now.is_multiple_of(2) { -1 } else { 1 };
-        let left = col - ROAR_W / 2 + shake;
-        let top = row - i32::from(def.h) - ROAR_GAP - ROAR_ROWS as i32;
-        for (r, line) in ROAR.iter().enumerate() {
-            for (k, ch) in line.chars().enumerate() {
-                if ch != ' ' {
-                    self.flash_cell(left + k as i32, top + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.alarm);
                 }
             }
         }
@@ -1053,6 +1028,90 @@ impl Frame {
             let fg = if w == Weather::BloodMoon { pal.alarm } else { pal.text };
             let col = self.cols.saturating_sub(PANEL_W + 6);
             self.text(1, col, "●", fg);
+        }
+    }
+
+    /// Champions and bosses roar when they first come into sight, sized by class. Drawn last, over the HUD.
+    fn roars_fx(&mut self, sim: &Sim) {
+        let (c, now) = (sim.c, sim.tick);
+        let pal = &c.pal;
+        // every champion and boss roars once, the first tick it is in sight; louder the stronger it is
+        let sight2 = i64::from(c.view.fog_end).pow(2);
+        for k in 0..sim.e.len() {
+            let loud = Roar::of(sim, k);
+            if loud.is_some() && dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y) <= sight2 && !self.roars.iter().any(|r| r.0 == sim.e.id[k]) {
+                self.roars.push((sim.e.id[k], now));
+            }
+        }
+        self.roars.retain(|&(id, at)| now.saturating_sub(at) < ROAR_TICKS && sim.e.id.contains(&id) || now.saturating_sub(at) < ROAR_FORGET);
+        for r in 0..self.roars.len() {
+            let (id, at) = self.roars[r];
+            if now.saturating_sub(at) >= ROAR_TICKS {
+                continue;
+            }
+            let Some(k) = sim.e.id.iter().position(|&x| x == id) else { continue };
+            let Some(loud) = Roar::of(sim, k) else { continue };
+            let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
+            let h = c.boss_of(sim.e.fam[k]).map_or(i32::from(c.view.actor_rows[0]), |d| i32::from(d.h));
+            let word = loud.words()[(id as usize).wrapping_mul(7) % loud.words().len()];
+            let lines: Vec<String> = match loud {
+                Roar::Uber => crate::bigtext::double(&ROAR.map(String::from)),
+                _ => crate::bigtext::rows(word).to_vec(),
+            };
+            let shake = if loud >= Roar::Mini { if now.is_multiple_of(2) { -1 } else { 1 } } else { 0 };
+            let w = lines[0].chars().count() as i32;
+            let (left, top) = (col - w / 2 + shake, row - h - ROAR_GAP - lines.len() as i32);
+            let fg = match loud {
+                Roar::Champion => pal.of(Hue::Therm),
+                Roar::Mini | Roar::Super | Roar::Uber => pal.alarm,
+            };
+            if loud >= Roar::Super {
+                self.plate(left - 1, top - 1, w + 2, lines.len() as i32 + 2, mix(fg, pal.hud_bg, 850));
+            }
+            for (r, line) in lines.iter().enumerate() {
+                for (i, ch) in line.chars().enumerate() {
+                    if ch != ' ' {
+                        self.flash_cell(left + i as i32, top + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+                    }
+                }
+            }
+            // the uber's taunt, under its ROAR
+            if loud == Roar::Uber {
+                let t = format!("\"{word}\"");
+                let tl = col - t.chars().count() as i32 / 2;
+                for (i, ch) in t.chars().enumerate() {
+                    self.flash_cell(tl + i as i32, top + lines.len() as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.text);
+                }
+            }
+        }
+    }
+
+    /// The hero talks big: the shout word in block letters over its head, the line in a rounded speech
+    /// bubble under it, pointing at the hero. Smaller than a boss roar, never shaking.
+    fn hero_shout(&mut self, sim: &Sim) {
+        let Some((word, line)) = self.face.shout(sim) else { return };
+        let pal = &sim.c.pal;
+        let (col, row) = self.scr(f64::from(self.cur_p.0), f64::from(self.cur_p.1));
+        let head = row - i32::from(sim.c.view.actor_rows[0]) - 1;
+        let big = crate::bigtext::rows(word);
+        let bw = big[0].chars().count() as i32;
+        // bubble: 3 rows just above the head, the big word above the bubble
+        let say = format!(" {line} ");
+        let sw = say.chars().count() as i32;
+        let (bl, bt) = (col - sw / 2 - 1, head - 3);
+        self.plate(bl, bt, sw + 2, 3, pal.hud_bg);
+        for (r, s) in [(bt, format!("╭{}╮", "─".repeat(sw as usize))), (bt + 1, format!("│{say}│")), (bt + 2, format!("╰{}╯", "─".repeat(sw as usize)))] {
+            for (i, ch) in s.chars().enumerate() {
+                self.flash_cell(bl + i as i32, r, Glyph::of(ch).unwrap_or(Glyph::SPACE), if r == bt + 1 && i > 0 && (i as i32) < sw + 1 { pal.text } else { pal.player });
+            }
+        }
+        self.flash_cell(col, bt + 2, Glyph::of('┬').unwrap_or(Glyph::SPACE), pal.player);
+        for (r, l) in big.iter().enumerate() {
+            for (i, ch) in l.chars().enumerate() {
+                if ch != ' ' {
+                    self.flash_cell(col - bw / 2 + i as i32, bt - 3 + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.player);
+                }
+            }
         }
     }
 
@@ -1376,6 +1435,8 @@ impl Frame {
             self.pointer(sim, x, y, c.pal.player);
         }
         // shouts last: nothing may cover them
+        self.roars_fx(sim);
+        self.hero_shout(sim);
         self.death_fx(sim, now_ms);
         self.sky_banner_fx(sim, now_ms);
     }
@@ -1947,12 +2008,46 @@ const POP_TICKS: u32 = 9;
 const POP_FRAMES: [&str; 3] = ["+*+", " * ", " . "];
 /// Most bursts alive at once: a wipe of the screen must not cost a frame.
 const POPS_MAX: usize = 64;
-/// Boss ROAR life in sim ticks (about 1.5 s), rows above the boss's head, and the sign itself.
+/// Roar life in sim ticks (about 1.5 s), gap above the head, the uber ROAR sign, and how long a roared id is
+/// remembered after it left (so it does not roar again when it steps back into sight).
 const ROAR_TICKS: u32 = 45;
+const ROAR_FORGET: u32 = 30 * 60 * 5;
 const ROAR_GAP: i32 = 1;
 const ROAR_ROWS: usize = 3;
-const ROAR_W: i32 = 15;
 const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█▀▄ █ █ █▀█ █▀▄", "▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"];
+
+/// How loud a foe roars when it first comes into sight: champions, then bosses by class. Order = loudness.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Roar {
+    Champion,
+    Mini,
+    Super,
+    Uber,
+}
+
+impl Roar {
+    fn of(sim: &Sim, k: usize) -> Option<Roar> {
+        match sim.e.tier[k] {
+            Tier::Champion => Some(Roar::Champion),
+            Tier::Boss => Some(match crate::sim::BossClass::of_kind(Tier::Boss, &sim.c.fam(sim.e.fam[k]).kind) {
+                Some(crate::sim::BossClass::Uber) => Roar::Uber,
+                Some(crate::sim::BossClass::Super) => Roar::Super,
+                _ => Roar::Mini,
+            }),
+            _ => None,
+        }
+    }
+
+    /// What it shouts (the uber's is the taunt under its ROAR).
+    fn words(self) -> &'static [&'static str] {
+        match self {
+            Roar::Champion => &["OI!", "MINE!", "BONK?", "FITE ME", "HEY YOU"],
+            Roar::Mini => &["GRR!", "SQUEAK!", "BEHOLD", "BOO!", "TINY BUT MAD"],
+            Roar::Super => &["KNEEL!", "FEAR ME", "OBEY!", "DOOM!", "BOW!"],
+            Roar::Uber => &["YOUR BUILD IS MID", "I EAT HEROES FOR BREAKFAST", "THIS IS MY DUNGEON", "RESPAWN TIMER: YES"],
+        }
+    }
+}
 
 /// Death: the banner (3 rows), its width, how long it shakes, the crowd hop period, cheers and taunts.
 const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
@@ -2229,7 +2324,11 @@ mod tests {
         assert_eq!(vanished(&prev, &cur).collect::<Vec<_>>(), vec![(10, 20), (50, 60)]);
         // negative control: nobody died when the id sets match
         assert_eq!(vanished(&cur, &cur).count(), 0);
-        assert!(ROAR.iter().all(|l| l.chars().count() as i32 == ROAR_W), "sign rows share one width");
+        assert!(ROAR.iter().all(|l| l.chars().count() == ROAR[0].chars().count()), "sign rows share one width");
+        // every roar word is drawable in block letters
+        for r in [Roar::Champion, Roar::Mini, Roar::Super, Roar::Uber] {
+            assert!(r.words().iter().flat_map(|w| w.chars()).all(|ch| ch == ' ' || ch.is_ascii_alphabetic() || "!?.:".contains(ch)), "{r:?}");
+        }
         assert!(ROAR.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()), "every sign glyph is in the font");
         assert!(POP_FRAMES.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()));
     }
@@ -2432,6 +2531,48 @@ mod tests {
         // negative controls: outside the circle stays fog
         assert!(!s.contains(&(14, 10)) && !s.contains(&(13, 13)));
         assert_eq!(s.len(), 29);
+    }
+
+    /// Some placement on the frame shows every non-space cell of `lines` (painted words leave gaps to the floor).
+    fn painted(f: &Frame, lines: &[String]) -> bool {
+        let (w, h) = (usize::from(f.cols), usize::from(f.rows));
+        let rows: Vec<Vec<char>> = lines.iter().map(|l| l.chars().collect()).collect();
+        let lw = rows.iter().map(Vec::len).max().unwrap_or(0);
+        (0..h.saturating_sub(rows.len())).any(|r0| (0..w.saturating_sub(lw)).any(|c0| rows.iter().enumerate().all(|(r, l)| l.iter().enumerate().all(|(k, &ch)| ch == ' ' || f.cells[(r0 + r) * w + c0 + k].ch.ch() == ch))))
+    }
+
+    #[test]
+    fn champions_and_bosses_roar_by_class_and_hero_shouts() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let roared = |fam: &str, tier: Tier| {
+            let mut sim = Sim::new(&c, 7, None);
+            sim.world.npcs.clear();
+            let f_id = c.fam_ids().find(|&f| c.fam(f).key == fam).unwrap();
+            sim.push_enemy(f_id, tier, (sim.p.x + 9_000, sim.p.y + 6_000), 1_000_000, (false, false));
+            let mut f = Frame::new(&c, 160, 50);
+            f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let loud = Roar::of(&sim, 0).unwrap();
+            let word = loud.words()[(sim.e.id[0] as usize).wrapping_mul(7) % loud.words().len()];
+
+            (loud, painted(&f, &crate::bigtext::rows(word)))
+        };
+        assert_eq!(roared("scrapper", Tier::Champion), (Roar::Champion, true));
+        assert_eq!(roared("kiosk", Tier::Boss), (Roar::Mini, true));
+        assert_eq!(roared("sweeper", Tier::Boss), (Roar::Super, true));
+        assert!(Roar::Champion < Roar::Mini && Roar::Super < Roar::Uber, "loudness order");
+        assert_eq!(crate::bigtext::double(&ROAR.map(String::from)).len(), 2 * ROAR.len(), "uber ROAR is double size");
+        // hero: gold makes it shout SHINY! big, with the line in a bubble
+        let mut sim = Sim::new(&c, 7, None);
+        sim.p.unhurt = 1000;
+        let mut f = Frame::new(&c, 120, 40);
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        sim.p.gold += 5;
+        sim.tick += 1;
+        f.compose(&sim, &View { ui: &ui, now_ms: 40, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let s = f.plain();
+
+        assert!(painted(&f, &crate::bigtext::rows("SHINY!")) && s.contains('╭') && s.contains('┬'), "big shout + bubble\n{s}");
     }
 
     #[test]
