@@ -2626,7 +2626,9 @@ mod tests {
         let n = usize::from(c.view.actor_rows[0]);
         let pi = (rc as usize - n) * 120 + cc as usize;
         assert_eq!(f.cells[pi].ch.ch(), '@');
-        assert!(f.cells[(40 - 2) * 120..].iter().all(|cell| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg));
+        // the strip is plain except the sponsor button (a link span)
+        let in_link = |i: usize| f.links.iter().any(|(lo, hi, _)| (*lo..*hi).contains(&i));
+        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg || in_link(i)));
     }
 
     fn headings() -> [Heading; 4] {
