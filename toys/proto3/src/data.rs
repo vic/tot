@@ -2825,15 +2825,15 @@ pub mod tests {
     fn every_installed_profile_loads_and_default_is_the_base_data() {
         let d = data_dir();
         let ps = profiles(&d).unwrap();
-        assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyber-sanitation", "dark-fantasy"]);
+        assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyberpunk", "hellish"]);
         let base = Content::load_profile(&d, None).unwrap();
-        let cyber = Content::load_profile(&d, Some("cyber-sanitation")).unwrap();
+        let cyber = Content::load_profile(&d, Some("cyberpunk")).unwrap();
         let names = |c: &Content| c.fams.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
-        assert_eq!(names(&cyber), names(&base), "cyber-sanitation = the base data");
-        let dark = Content::load_profile(&d, Some("dark-fantasy")).unwrap();
+        assert_eq!(names(&cyber), names(&base), "cyberpunk = the base data");
+        let dark = Content::load_profile(&d, Some("hellish")).unwrap();
         assert_ne!(names(&dark), names(&base));
         assert!(names(&dark).contains(&"BONE ABBOT".to_string()) && dark.mini.as_ref().map(MiniPlan::len) == Some(3) && dark.trees.len() == 6 && dark.items.len() == 14);
-        // dark-fantasy names its colour scheme: roles come from it, not from the legacy fields
+        // hellish names its colour scheme: roles come from it, not from the legacy fields
         assert_eq!(dark.pal.role(Role::Bg), scheme("lumina-oxblood-dark").slots[0]);
         assert_eq!(cyber.pal.role(Role::Bg), cyber.pal.bg);
         // options and bindings are never themed
@@ -2845,14 +2845,14 @@ pub mod tests {
         let d = data_dir();
         for bad in ["nope", "../data", "", "Dark-Fantasy"] {
             let e = Content::load_profile(&d, Some(bad)).err().map(|e| e.to_string()).unwrap_or_default();
-            assert!(e.contains(&format!("--profile '{bad}' is not installed; available: cyber-sanitation dark-fantasy")), "{e}");
+            assert!(e.contains(&format!("--profile '{bad}' is not installed; available: cyberpunk hellish")), "{e}");
         }
     }
 
     #[test]
     fn every_profile_tells_its_story_from_minute_one_without_overlap() {
         let d = data_dir();
-        for p in ["cyber-sanitation", "dark-fantasy"] {
+        for p in ["cyberpunk", "hellish"] {
             let c = Content::load_profile(&d, Some(p)).unwrap();
             let at: Vec<u32> = c.waves.iter().filter_map(|w| if let WaveEv::Narrate { at, .. } = w { Some(*at) } else { None }).collect();
             let minute = c.hz().ticks(60.0);
@@ -2864,10 +2864,10 @@ pub mod tests {
 
     #[test]
     fn profile_manifest_id_must_match_its_directory() {
-        let d = data_dir().join("profiles/dark-fantasy");
+        let d = data_dir().join("profiles/hellish");
         let e = manifest(&d, "other").err().map(|e| e.to_string());
         assert_eq!(e, Some("profile:2 .id: must equal the directory name 'other'".into()));
-        assert!(manifest(&d, "dark-fantasy").is_ok(), "control");
+        assert!(manifest(&d, "hellish").is_ok(), "control");
     }
 
     #[test]

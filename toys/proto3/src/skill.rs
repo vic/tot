@@ -70,7 +70,7 @@ mod tests {
         }
         assert!(s.contains("Answer ONLY with files") && s.contains("Keep sending updates") && s.contains("NEW adventure"));
         assert!(s.contains("pick_adventure") && s.contains("base24"), "the schema is in it");
-        assert!(s.contains("BONE ABBOT") && s.contains("SCRAPPER"), "each adventure with its own foes (dark-fantasy ships its own enemies)");
+        assert!(s.contains("BONE ABBOT") && s.contains("SCRAPPER"), "each adventure with its own foes (hellish ships its own enemies)");
         assert!(skill(Path::new("/nonexistent-tot-data")).is_err(), "control: no data, no skill");
     }
 }

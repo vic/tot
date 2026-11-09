@@ -3219,8 +3219,8 @@ mod tests {
         assert!(s.contains(base.texts.get(crate::text::t::PICK_ADVENTURE)) && advs.iter().all(|a| s.contains(&a.name) && s.contains(&a.blurb)));
         assert!(f.cells.iter().any(|cl| cl.bg == base.pal.role(Role::Select)), "the cursor's entry is lit");
         // step 2: the dark adventure, loaded: its classes, in its colours
-        let dark_ix = advs.iter().position(|a| a.id == "dark-fantasy").unwrap();
-        let dark = Content::load_profile(d, Some("dark-fantasy")).unwrap();
+        let dark_ix = advs.iter().position(|a| a.id == "hellish").unwrap();
+        let dark = Content::load_profile(d, Some("hellish")).unwrap();
         ui.start = crate::input::Start::Class { adv: dark_ix, sel: 0 };
         let mut f = Frame::new(&dark, 120, 40);
         f.start(&dark, &ui, &advs);
