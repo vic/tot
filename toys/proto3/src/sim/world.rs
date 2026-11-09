@@ -496,6 +496,24 @@ mod tests {
         assert!(s.p.hp > 1000, "rain heals");
     }
 
+    /// Under the full moon foes run faster than under a clear sky (same foe, same spot, one step).
+    #[test]
+    fn full_moon_frenzies_foes() {
+        let c = content();
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        let stride = |w: Weather| {
+            let mut s = Sim::new(&c, 7, None);
+            s.tick = tick_of(&s, w);
+            s.world.npcs.clear();
+            s.push_enemy(fam, crate::sim::Tier::Trash, (s.p.x + 8_000, s.p.y), 1_000_000, (false, false));
+            let x0 = s.e.x[0];
+            s.step(&crate::sim::Input::default());
+            (x0 - s.e.x[0]).abs()
+        };
+        let (clear, full) = (stride(Weather::Clear), stride(Weather::FullMoon));
+        assert!(clear > 0 && full * 1000 >= clear * 1200, "full moon {full} vs clear {clear}");
+    }
+
     #[test]
     fn neg_weather_never_kills_and_taken_is_the_real_loss() {
         let c = content();

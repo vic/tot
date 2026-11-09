@@ -9,13 +9,14 @@ use std::num::{NonZeroU16, NonZeroU32};
 mod npc;
 mod solid;
 mod step;
-mod weather;
+pub mod weather;
 mod world;
 pub use npc::Npc;
 #[cfg(test)]
 pub use npc::Placed;
 pub use world::hazard::TrapState;
 pub use world::shop::ItemId;
+pub use weather::Weather;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickChoice {

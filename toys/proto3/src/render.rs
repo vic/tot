@@ -6,7 +6,7 @@ use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
 use crate::iso::{Heading, Proj};
-use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, dist2};
+use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 use std::collections::HashSet;
 
 /// Map box (top-left of the play area): cols x rows of the map.
@@ -18,7 +18,7 @@ const MAP_K: i32 = 4;
 const PANEL_W: u16 = 36;
 const PANEL_H: u16 = PANEL_CAST_ROW + 1 + Cast::ALL.len() as u16;
 /// Stats panel: power rows shown, first row of the foe list, XP bar width.
-const PANEL_POWERS: usize = 5;
+const PANEL_POWERS: usize = 4;
 const MORALE_BAR_W: u16 = 10;
 const PANEL_FOES_ROW: u16 = 12;
 /// Hostile (family, tier) rows under FOES, then the CAST block (hero, allies, panicked, thieves).
@@ -129,6 +129,9 @@ pub struct Frame {
     face: Face,
     /// frame clock (ms) when the death show began; None while alive
     died_ms: Option<u64>,
+    /// weather last frame, and the change banner (weather, frame clock ms it turned)
+    sky: Option<Weather>,
+    sky_banner: Option<(Weather, u64)>,
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
@@ -201,6 +204,8 @@ impl Frame {
             level_flash: None,
             face: Face::default(),
             died_ms: None,
+            sky: None,
+            sky_banner: None,
             pops: Vec::with_capacity(POPS_MAX),
             roar: None,
         }
@@ -999,6 +1004,75 @@ impl Frame {
         }
     }
 
+    /// The sky over the play area: rain and acid streaks on open floor, a red (blood moon) or pale (full moon)
+    /// cast with the moon itself, and a big banner when the weather turns. Run before the HUD boxes.
+    fn sky_fx(&mut self, sim: &Sim, now_ms: u64) {
+        let pal = &sim.c.pal;
+        let w = sim.world.forecast(sim.tick).now;
+        if self.sky != Some(w) {
+            if self.sky.is_some() {
+                self.sky_banner = Some((w, now_ms));
+            }
+            self.sky = Some(w);
+        }
+        let (cols, rows) = (usize::from(self.cols), usize::from(self.play_rows()));
+        let (streak, cast) = match w {
+            Weather::Rain => (Some(('/', pal.of(Hue::Code))), None),
+            Weather::AcidRain => (Some(('/', pal.xp)), Some((pal.xp, SKY_ACID_CAST))),
+            Weather::BloodMoon => (None, Some((pal.alarm, SKY_BLOOD_CAST))),
+            Weather::FullMoon => (None, Some((pal.text, SKY_FULL_CAST))),
+            Weather::Clear => (None, None),
+        };
+        // streaks fall: the pattern shifts one row down every SKY_FALL_TICKS
+        let fall = sim.tick / SKY_FALL_TICKS;
+        for r in 0..rows {
+            for col in 0..cols {
+                let i = r * cols + col;
+                if let Some((tint, f)) = cast {
+                    self.cells[i].bg = mix(self.cells[i].bg, tint, f);
+                }
+                if let Some((ch, fg)) = streak
+                    && self.z[i] == Prio::Floor
+                    && hash((col as u64) << 32 ^ (r as u64).wrapping_sub(u64::from(fall)) ^ u64::from(fall).wrapping_add(col as u64) << 48).is_multiple_of(SKY_STREAK_1_IN)
+                {
+                    self.cells[i].ch = Glyph::of(ch).unwrap_or(Glyph::SPACE);
+                    self.cells[i].fg = fg;
+                }
+            }
+        }
+        if let Weather::BloodMoon | Weather::FullMoon = w {
+            let fg = if w == Weather::BloodMoon { pal.alarm } else { pal.text };
+            let col = self.cols.saturating_sub(PANEL_W + 6);
+            self.text(1, col, "●", fg);
+        }
+    }
+
+    /// The weather-change banner: big letters on a dark plate, drawn last so nothing covers it.
+    fn sky_banner_fx(&mut self, sim: &Sim, now_ms: u64) {
+        let pal = &sim.c.pal;
+        if let Some((bw, at)) = self.sky_banner {
+            if now_ms.saturating_sub(at) >= SKY_BANNER_MS {
+                self.sky_banner = None;
+                return;
+            }
+            let fg = match bw {
+                Weather::BloodMoon | Weather::AcidRain => pal.alarm,
+                Weather::Rain => pal.of(Hue::Code),
+                Weather::FullMoon | Weather::Clear => pal.text,
+            };
+            let text = format!("{}!", bw.name());
+            let left = (self.cols as usize / 2).saturating_sub(crate::bigtext::width(&text) / 2) as i32;
+            self.plate(left - 2, 1, crate::bigtext::width(&text) as i32 + 4, 5, mix(fg, pal.hud_bg, 850));
+            for (r, line) in crate::bigtext::rows(&text).iter().enumerate() {
+                for (k, ch) in line.chars().enumerate() {
+                    if ch != ' ' {
+                        self.flash_cell(left + k as i32, 2 + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+                    }
+                }
+            }
+        }
+    }
+
     /// Death is loud: a shaking YOU DIED banner, who did it, the killer crowned HERO-SLAYER, and every foe in
     /// sight cheering and hopping. Sim time is frozen at death, so this runs on the frame clock (`now_ms`).
     fn death_fx(&mut self, sim: &Sim, now_ms: u64) {
@@ -1056,14 +1130,7 @@ impl Frame {
         let plate = mix(pal.alarm, pal.hud_bg, 820);
         let (pw, ph) = (YOU_DIED_W + 16, YOU_DIED.len() as i32 + 5);
         let pl = i32::from(self.cols) / 2 - pw / 2;
-        for r in top - 1..top - 1 + ph {
-            for col in pl..pl + pw {
-                if col >= 0 && r >= 0 && col < i32::from(self.cols) && r < i32::from(self.play_rows()) {
-                    let i = r as usize * usize::from(self.cols) + col as usize;
-                    self.cells[i] = Cell { ch: Glyph::SPACE, fg: pal.text, bg: plate };
-                }
-            }
-        }
+        self.plate(pl, top - 1, pw, ph, plate);
         for (r, line) in YOU_DIED.iter().enumerate() {
             for (i, ch) in line.chars().enumerate() {
                 if ch != ' ' {
@@ -1078,6 +1145,16 @@ impl Frame {
             let col = i32::from(self.cols) / 2 - w / 2;
             for (i, ch) in line.chars().enumerate() {
                 self.flash_cell(col + i as i32, top + YOU_DIED.len() as i32 + 1 + dr as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+            }
+        }
+    }
+
+    /// Clear a w x h rectangle at (left, top) of the play area to blank cells on `bg` (clipped).
+    fn plate(&mut self, left: i32, top: i32, w: i32, h: i32, bg: Rgb) {
+        for r in top.max(0)..(top + h).min(i32::from(self.play_rows())) {
+            for col in left.max(0)..(left + w).min(i32::from(self.cols)) {
+                let i = r as usize * usize::from(self.cols) + col as usize;
+                self.cells[i] = Cell { ch: Glyph::SPACE, fg: bg, bg };
             }
         }
     }
@@ -1220,10 +1297,10 @@ impl Frame {
     }
 
     fn overlays(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
+        self.sky_fx(sim, now_ms);
         self.boss_bar(sim);
         self.popup(sim, ui, now_ms);
         self.menu(sim, ui);
-        self.death_fx(sim, now_ms);
         let c = sim.c;
         let unit = c.view.floor_cell.max(1) * MAP_K;
         let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
@@ -1249,6 +1326,9 @@ impl Frame {
         for &(_, x, y) in pals.iter().take(PAL_CALLS) {
             self.pointer(sim, x, y, c.pal.player);
         }
+        // shouts last: nothing may cover them
+        self.death_fx(sim, now_ms);
+        self.sky_banner_fx(sim, now_ms);
     }
 
     fn map(&mut self, sim: &Sim, heading: Heading, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
@@ -1358,6 +1438,19 @@ impl Frame {
         x = self.num(r, x, i64::from(sim.p.gold), pal.chest);
         x = self.text(r, x + 2, "PALS ", pal.text);
         self.num(r, x, i64::from(sim.world.pals), pal.player);
+        r += 1;
+        // sky: weather now, what comes next and when (a full or blood moon is the threat)
+        let fc = sim.world.forecast(sim.tick);
+        let sky_fg = |w: Weather| match w {
+            Weather::BloodMoon | Weather::AcidRain => pal.alarm,
+            Weather::Rain => pal.of(Hue::Code),
+            Weather::FullMoon | Weather::Clear => pal.text,
+        };
+        let mut x = self.text(r, x0 + 1, "SKY ", pal.text);
+        x = self.text(r, x, fc.now.name(), sky_fg(fc.now));
+        x = self.text(r, x + 1, ">", pal.dim);
+        x = self.text(r, x + 1, fc.next.name(), sky_fg(fc.next));
+        self.clock(r, x + 1, fc.ticks_to_next / c.hz().get(), pal.dim);
         r += 1;
         // powers: name in the power's type colour (same colour as the picker popup)
         self.text(r, x0 + 1, "POWERS", pal.dim);
@@ -1657,6 +1750,7 @@ impl Frame {
         self.seen.clear();
         self.face = Face::default();
         self.died_ms = None;
+        (self.sky, self.sky_banner) = (None, None);
     }
 }
 
@@ -1744,6 +1838,13 @@ const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█
 /// Death: the banner (3 rows), its width, how long it shakes, the crowd hop period, cheers and taunts.
 const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
 const YOU_DIED_W: i32 = 29;
+/// Sky: tint strength (permille) per weather, one streak cell in SKY_STREAK_1_IN, fall speed, banner life.
+const SKY_ACID_CAST: u32 = 90;
+const SKY_BLOOD_CAST: u32 = 160;
+const SKY_FULL_CAST: u32 = 70;
+const SKY_STREAK_1_IN: u64 = 45;
+const SKY_FALL_TICKS: u32 = 2;
+const SKY_BANNER_MS: u64 = 2500;
 const DIED_SHAKE_MS: u64 = 1200;
 const CHEER_HOP_MS: u64 = 250;
 const CHEERS: [&str; 6] = ["HA!", "GG", "WOO!", "EZ", "LOL", "YAY"];
@@ -2058,6 +2159,40 @@ mod tests {
     }
 
     #[test]
+    fn weather_shows_in_sky_panel_and_banner() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let tick_of = |s: &Sim, w: Weather| (0..20_000u32).map(|k| k * 30).find(|&t| s.world.forecast(t).now == w).expect("weather occurs");
+        let at = |f: &mut Frame, sim: &Sim, ms: u64| {
+            f.compose(sim, &View { ui: &ui, now_ms: ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        sim.tick = tick_of(&sim, Weather::Clear);
+        let clear = at(&mut f, &sim, 0);
+        let clear_bg: Vec<Rgb> = f.cells.iter().map(|c| c.bg).collect();
+        assert!(clear.contains("SKY CLEAR"), "panel names the sky");
+        sim.tick = tick_of(&sim, Weather::BloodMoon);
+        let blood = at(&mut f, &sim, 100);
+        assert!(blood.contains("SKY BLOOD MOON"), "{blood}");
+        let banner = |f: &Frame| {
+            let text = "BLOOD MOON!";
+            let left = 60 - crate::bigtext::width(text) / 2;
+            crate::bigtext::rows(text).iter().enumerate().all(|(r, line)| line.chars().enumerate().all(|(k, ch)| ch == ' ' || f.cells[(2 + r) * 120 + left + k].ch.ch() == ch))
+        };
+        assert!(banner(&f), "change banner\n{blood}");
+        let tinted = f.cells.iter().zip(&clear_bg).filter(|(a, b)| a.bg != **b).count();
+        assert!(tinted > 1000, "the blood moon casts red ({tinted} cells)");
+        // banner fades
+        let _ = at(&mut f, &sim, 100 + SKY_BANNER_MS);
+        assert!(!banner(&f), "banner fades");
+        sim.tick = tick_of(&sim, Weather::Rain);
+        let rain = at(&mut f, &sim, 10_000);
+        assert!(rain.matches('/').count() > clear.matches('/').count() + 20, "rain streaks");
+    }
+
+    #[test]
     fn death_is_loud_banner_killer_crowned_crowd_cheers() {
         use crate::sim::{Cause, Outcome};
         let c = Content::parse(&texts()).unwrap();
@@ -2153,8 +2288,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: foes drawn only within sight (fog end); chasers route round walls
-    const GOLDEN: u64 = 0x8ad2_4a0d_9dbb_d780;
+    // re-pinned 2026-11-08: sky (weather tint, streaks, moon, banner) and the SKY panel row (4 power rows)
+    const GOLDEN: u64 = 0x5997_9319_9d55_541b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -2412,6 +2547,8 @@ mod tests {
     fn walk(c: &Content, frames: u32, script: impl Fn(u32) -> Input, interp: bool) -> Vec<((f64, f64), usize)> {
         let mut sim = Sim::new(c, 7, None);
         pillars(&mut sim);
+        // clear sky: rain streaks animate on purpose (weather_shows_in_sky_panel_and_banner); these budgets are for a still scene
+        sim.tick = (0..20_000u32).map(|k| k * 30).find(|&t| sim.world.forecast(t).now == Weather::Clear).unwrap_or(0);
         let ui = Ui::new(true);
         let mut f = Frame::new(c, 120, 40);
         let mut out = Vec::new();

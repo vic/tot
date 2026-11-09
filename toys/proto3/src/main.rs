@@ -1,4 +1,5 @@
 //! proto2: ToT FP1 playable survivor-like (Netrunner) + headless bot harness. Spec: vic/design.md.
+mod bigtext;
 mod bot;
 mod cam;
 mod data;

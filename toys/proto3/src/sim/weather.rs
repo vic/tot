@@ -8,12 +8,14 @@ pub enum Weather {
     Clear,
     Rain,
     AcidRain,
+    /// foes frenzied: faster
+    FullMoon,
     BloodMoon,
 }
 
 /// Draw table in permille, in enum order; sums to 1000.
-const WEIGHTS: [(Weather, u64); 4] =
-    [(Weather::Clear, 500), (Weather::Rain, 250), (Weather::AcidRain, 150), (Weather::BloodMoon, 100)];
+const WEIGHTS: [(Weather, u64); 5] =
+    [(Weather::Clear, 450), (Weather::Rain, 250), (Weather::AcidRain, 150), (Weather::FullMoon, 80), (Weather::BloodMoon, 70)];
 /// A pillar within this many tiles shelters a point.
 const SHELTER_TILES: i32 = 2;
 /// Hero HP change per second in milli-HP when exposed.
@@ -88,6 +90,26 @@ impl Weather {
         match self {
             Weather::BloodMoon => Permille(1300),
             _ => Permille::ONE,
+        }
+    }
+
+    /// Foe walking speed: the full moon frenzies them, the blood moon a little.
+    pub fn foe_speed(self) -> Permille {
+        match self {
+            Weather::FullMoon => Permille(1250),
+            Weather::BloodMoon => Permille(1100),
+            _ => Permille::ONE,
+        }
+    }
+
+    /// Name for the stats pane and the change banner.
+    pub fn name(self) -> &'static str {
+        match self {
+            Weather::Clear => "CLEAR",
+            Weather::Rain => "RAIN",
+            Weather::AcidRain => "ACID RAIN",
+            Weather::FullMoon => "FULL MOON",
+            Weather::BloodMoon => "BLOOD MOON",
         }
     }
 }

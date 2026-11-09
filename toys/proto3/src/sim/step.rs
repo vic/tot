@@ -310,6 +310,7 @@ impl<'c> Sim<'c> {
             if Ability::Fast.owned_at(e.loot[i]) {
                 speed = speed * THIEF_FAST / 1000;
             }
+            speed = i64::from(self.world.forecast(self.tick).now.foe_speed().apply(speed as i32));
             speed = match e.status[i] {
                 Status::Frozen { .. } => 0,
                 Status::Raging { .. } => (speed * RAGE_SPEED / 1000).min(i64::from(c.player.speed) * RAGE_SPEED_CAP / 1000),
