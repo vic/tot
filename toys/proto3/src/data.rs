@@ -2,7 +2,7 @@
 //! `data/*.jsonl`; seconds and metres are converted once here to ticks and milli-metres.
 use crate::input::{Action, Key, Mode};
 use crate::json::{Rec, records};
-use crate::text::{self, ARTS, ArtId, Font, POOLS, Pool, Seg, TXTS, Txt};
+use crate::text::{self, ARTS, ArtId, Font, GLYPHS, GlyphId, POOLS, Pool, Seg, TXTS, Txt};
 use crate::{Error, Result};
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU8};
 use std::path::Path;
@@ -1069,6 +1069,10 @@ pub fn schema_doc() -> String {
     for b in Bark::ALL {
         s += &format!("- `{}`: when {}\n", b.id(), b.doc());
     }
+    s += "\n## texts.jsonl `glyph` records (each id required once; `glyph` = one width-1 cell glyph)\n\n";
+    for g in &GLYPHS {
+        s += &format!("- `{}`: {}\n", g.id, g.doc);
+    }
     s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
     s += &format!(
         "\n## trees.jsonl class art\n\nEach `class` record has `art`: the hero of that class drawn in the hero pane's gear tab, {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} cell glyphs (head on top, feet at the bottom); and `paint`: {HERO_ART_ROWS} rows of {HERO_ART_COLS} letters, one per art cell, naming what colours it: `a` armor, `r` ring, `j` jewel, `w` weapon, `c` charm (the worn item's rarity colour, dim when the slot is empty), `.` the body (text colour). Draw the gear where it is worn: armor on the torso, weapon in a hand, ring on a finger.\n"
@@ -1147,6 +1151,7 @@ pub struct Texts {
     txt: [Vec<Seg>; TXTS.len()],
     pool: [Vec<String>; POOLS.len()],
     art: [Vec<String>; ARTS.len()],
+    glyph: [Glyph; GLYPHS.len()],
     bark: [(String, Vec<String>); Bark::ALL.len()],
 }
 
@@ -1170,6 +1175,10 @@ impl Texts {
     #[cfg(test)]
     pub fn pool(&self, p: Pool) -> &[String] {
         &self.pool[p.0]
+    }
+    /// A sprite glyph.
+    pub fn glyph(&self, g: GlyphId) -> Glyph {
+        self.glyph[g.0]
     }
     pub fn art(&self, a: ArtId) -> &[String] {
         &self.art[a.0]
@@ -1202,6 +1211,7 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
     let mut txt: [Option<Vec<Seg>>; TXTS.len()] = std::array::from_fn(|_| None);
     let mut pool: [Option<Vec<String>>; POOLS.len()] = std::array::from_fn(|_| None);
     let mut art: [Option<Vec<String>>; ARTS.len()] = std::array::from_fn(|_| None);
+    let mut glyph: [Option<Glyph>; GLYPHS.len()] = [None; GLYPHS.len()];
     let mut bark: [Option<(String, Vec<String>)>; Bark::ALL.len()] = Default::default();
     // drawn in its font: the big font has fewer glyphs
     let drawn = |s: &str, f: Font| (1..=TEXT_MAX).contains(&s.chars().count()) && s.chars().all(|ch| match f {
@@ -1253,7 +1263,12 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
                 }
                 bark[b as usize].replace((shout.to_string(), lines)).is_some()
             }
-            _ => return Err(r.err("t", "need \"text\", \"pool\", \"art\" or \"bark\"")),
+            "glyph" => {
+                r.allow(&["t", "id", "glyph"])?;
+                let k = GLYPHS.iter().position(|g| g.id == id).ok_or_else(|| r.err("id", format!("no glyph '{id}'")))?;
+                glyph[k].replace(self::glyph(r, "glyph")?).is_some()
+            }
+            _ => return Err(r.err("t", "need \"text\", \"pool\", \"art\", \"glyph\" or \"bark\"")),
         };
         if slot {
             return Err(r.err("id", format!("duplicate '{id}'")));
@@ -1264,7 +1279,8 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
     let pool: [Result<Vec<String>>; POOLS.len()] = std::array::from_fn(|k| pool[k].take().ok_or_else(|| missing("pool", POOLS[k].id)));
     let art: [Result<Vec<String>>; ARTS.len()] = std::array::from_fn(|k| art[k].take().ok_or_else(|| missing("art", ARTS[k].id)));
     let bark = Bark::ALL.map(|b| bark[b as usize].take().ok_or_else(|| missing("bark", b.id())));
-    Ok(Texts { txt: all(txt)?, pool: all(pool)?, art: all(art)?, bark: all(bark)? })
+    let glyph: [Result<Glyph>; GLYPHS.len()] = std::array::from_fn(|k| glyph[k].ok_or_else(|| missing("glyph", GLYPHS[k].id)));
+    Ok(Texts { txt: all(txt)?, pool: all(pool)?, art: all(art)?, glyph: all(glyph)?, bark: all(bark)? })
 }
 
 /// Every slot or the first error.
@@ -2849,6 +2865,8 @@ pub mod tests {
         assert!(with(base.replace("slain by {killer}", "slain by {who}")).contains("unknown slot {who}"));
         assert!(with(drop("death_taunt")).contains("missing pool 'death_taunt'"));
         assert!(with(drop("face_pain")).contains("missing art 'face_pain'"));
+        assert!(with(drop("map_hero")).contains("missing glyph 'map_hero'"));
+        assert!(with(base.replace("\"id\":\"ore\",\"glyph\":\"▪\"", "\"id\":\"ore\",\"glyph\":\"▪▪\"")).contains("exactly one width-1 glyph"), "one glyph per sprite");
         assert!(with(base.replace("\" (> <) \"", "\" (><) \"")).contains("exactly 7"), "a face row of the wrong width");
         assert!(with(base.replace("\"+*+\",\" * \",\" . \"", "\"+*+\",\" * \"")).contains("3..=3 rows"), "a burst with a missing frame");
         assert!(with(base.replace("\"shout\":\"SHINY!\"", "\"shout\":\"$$$\"")).contains("block font"), "a shout the big font cannot draw");

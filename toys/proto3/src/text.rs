@@ -531,3 +531,100 @@ pub mod a {
     pub const CHEST: ArtId = ArtId::named("chest");
     pub const KILL_BURST: ArtId = ArtId::named("kill_burst");
 }
+
+/// One sprite glyph: a single width-1 cell glyph the world draws (`glyph` records).
+pub struct GlyphSpec {
+    pub id: &'static str,
+    pub doc: &'static str,
+}
+
+const fn gl(id: &'static str, doc: &'static str) -> GlyphSpec {
+    GlyphSpec { id, doc }
+}
+
+pub const GLYPHS: [GlyphSpec; 31] = [
+    gl("hero_head", "The hero's head in the arena (top of its body column), on the ring colour."),
+    gl("hero_armor", "The hero's torso when it wears armor, in the armor's rarity colour."),
+    gl("ore", "Ore lying on the floor (the blacksmith forges with it)."),
+    gl("food", "Food lying on the floor (fills the hunger bar)."),
+    gl("magnet", "The pickup that pulls every xp gem to the hero, glowing."),
+    gl("xp_gem", "An xp gem on the floor."),
+    gl("foe_shot", "A foe's projectile in flight, in its family colour."),
+    gl("gold_pile", "A pile of gold on the floor, glowing gold."),
+    gl("npc_pal", "A pal to rescue (arena and map)."),
+    gl("npc_merchant", "A merchant (arena and map)."),
+    gl("npc_blacksmith", "A blacksmith (arena and map)."),
+    gl("npc_witch", "A witch who sells potions (arena and map)."),
+    gl("npc_neutral", "A neutral bystander (arena and map)."),
+    gl("map_hero", "The hero on the map (top left box)."),
+    gl("map_chest", "A treasure on the map."),
+    gl("map_boss", "A boss (or where one will rise) on the map."),
+    gl("map_goblin", "A treasure goblin on the map."),
+    gl("map_rock", "Explored rock on the map."),
+    gl("map_floor", "Explored floor on the map."),
+    gl("rain", "A rain streak falling over the arena."),
+    gl("acid_rain", "An acid rain streak."),
+    gl("snow", "A snowflake drifting over the arena."),
+    gl("wind", "A gust streak blowing over the arena."),
+    gl("star", "A star: the middle of the map compass and the points of the level-up ring."),
+    gl("cheer_hop", "Death screen: the mark over each foe of the cheering crowd."),
+    gl("call_left", "A pal's call for help: the sound waves on its left side."),
+    gl("call_right", "A pal's call for help: the sound waves on its right side."),
+    gl("chest_tell", "Over a chest that is a trap (a mimic): the warning mark one row above it."),
+    gl("trap", "A floor trap, in its state colour."),
+    gl("blast", "A blast going off (traps, mines)."),
+    gl("goblin", "A treasure goblin running in the arena."),
+];
+
+/// A sprite glyph (see `GLYPHS`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GlyphId(pub(crate) usize);
+
+impl GlyphId {
+    pub const fn named(id: &str) -> GlyphId {
+        let mut i = 0;
+        while i < GLYPHS.len() {
+            if same(GLYPHS[i].id, id) {
+                return GlyphId(i);
+            }
+            i += 1;
+        }
+        panic!("glyph id not in the table")
+    }
+}
+
+/// Named sprite glyph handles.
+pub mod g {
+    use super::GlyphId;
+    pub const HERO_HEAD: GlyphId = GlyphId::named("hero_head");
+    pub const HERO_ARMOR: GlyphId = GlyphId::named("hero_armor");
+    pub const ORE: GlyphId = GlyphId::named("ore");
+    pub const FOOD: GlyphId = GlyphId::named("food");
+    pub const MAGNET: GlyphId = GlyphId::named("magnet");
+    pub const XP_GEM: GlyphId = GlyphId::named("xp_gem");
+    pub const FOE_SHOT: GlyphId = GlyphId::named("foe_shot");
+    pub const GOLD_PILE: GlyphId = GlyphId::named("gold_pile");
+    pub const NPC_PAL: GlyphId = GlyphId::named("npc_pal");
+    pub const NPC_MERCHANT: GlyphId = GlyphId::named("npc_merchant");
+    pub const NPC_BLACKSMITH: GlyphId = GlyphId::named("npc_blacksmith");
+    pub const NPC_WITCH: GlyphId = GlyphId::named("npc_witch");
+    pub const NPC_NEUTRAL: GlyphId = GlyphId::named("npc_neutral");
+    pub const MAP_HERO: GlyphId = GlyphId::named("map_hero");
+    pub const MAP_CHEST: GlyphId = GlyphId::named("map_chest");
+    pub const MAP_BOSS: GlyphId = GlyphId::named("map_boss");
+    pub const MAP_GOBLIN: GlyphId = GlyphId::named("map_goblin");
+    pub const MAP_ROCK: GlyphId = GlyphId::named("map_rock");
+    pub const MAP_FLOOR: GlyphId = GlyphId::named("map_floor");
+    pub const RAIN: GlyphId = GlyphId::named("rain");
+    pub const ACID_RAIN: GlyphId = GlyphId::named("acid_rain");
+    pub const SNOW: GlyphId = GlyphId::named("snow");
+    pub const WIND: GlyphId = GlyphId::named("wind");
+    pub const STAR: GlyphId = GlyphId::named("star");
+    pub const CHEER_HOP: GlyphId = GlyphId::named("cheer_hop");
+    pub const CALL_LEFT: GlyphId = GlyphId::named("call_left");
+    pub const CALL_RIGHT: GlyphId = GlyphId::named("call_right");
+    pub const CHEST_TELL: GlyphId = GlyphId::named("chest_tell");
+    pub const TRAP: GlyphId = GlyphId::named("trap");
+    pub const BLAST: GlyphId = GlyphId::named("blast");
+    pub const GOBLIN: GlyphId = GlyphId::named("goblin");
+}

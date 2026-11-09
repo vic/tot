@@ -204,3 +204,34 @@
 {"t":"art","id":"roar_sign","rows":["█▀▄ ▄▀▄ ▄▀▄ █▀▄","█▀▄ █ █ █▀█ █▀▄","▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"]}
 {"t":"art","id":"chest","rows":["▛▀▜","▙▄▟"]}
 {"t":"art","id":"kill_burst","rows":["+*+"," * "," . "]}
+{"t":"glyph","id":"hero_head","glyph":"@"}
+{"t":"glyph","id":"hero_armor","glyph":"█"}
+{"t":"glyph","id":"ore","glyph":"▪"}
+{"t":"glyph","id":"food","glyph":"%"}
+{"t":"glyph","id":"magnet","glyph":"U"}
+{"t":"glyph","id":"xp_gem","glyph":"◇"}
+{"t":"glyph","id":"foe_shot","glyph":"o"}
+{"t":"glyph","id":"gold_pile","glyph":"$"}
+{"t":"glyph","id":"npc_pal","glyph":"p"}
+{"t":"glyph","id":"npc_merchant","glyph":"m"}
+{"t":"glyph","id":"npc_blacksmith","glyph":"b"}
+{"t":"glyph","id":"npc_witch","glyph":"w"}
+{"t":"glyph","id":"npc_neutral","glyph":"n"}
+{"t":"glyph","id":"map_hero","glyph":"@"}
+{"t":"glyph","id":"map_chest","glyph":"■"}
+{"t":"glyph","id":"map_boss","glyph":"B"}
+{"t":"glyph","id":"map_goblin","glyph":"g"}
+{"t":"glyph","id":"map_rock","glyph":"█"}
+{"t":"glyph","id":"map_floor","glyph":"░"}
+{"t":"glyph","id":"rain","glyph":"/"}
+{"t":"glyph","id":"acid_rain","glyph":"/"}
+{"t":"glyph","id":"snow","glyph":"*"}
+{"t":"glyph","id":"wind","glyph":"~"}
+{"t":"glyph","id":"star","glyph":"✦"}
+{"t":"glyph","id":"cheer_hop","glyph":"^"}
+{"t":"glyph","id":"call_left","glyph":"("}
+{"t":"glyph","id":"call_right","glyph":")"}
+{"t":"glyph","id":"chest_tell","glyph":"!"}
+{"t":"glyph","id":"trap","glyph":"^"}
+{"t":"glyph","id":"blast","glyph":"*"}
+{"t":"glyph","id":"goblin","glyph":"g"}

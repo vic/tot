@@ -9,7 +9,7 @@ use crate::iso::{Heading, Proj};
 use crate::sim::{Ability, BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 #[cfg(test)]
 use crate::sim::ItemId;
-use crate::text::{a, t};
+use crate::text::{a, g, t};
 use std::collections::HashSet;
 
 mod heropane;
@@ -431,20 +431,20 @@ impl Frame {
             if let crate::sim::Drop::Ore = sim.drops.kind[k]
                 && let Some(i) = self.cell_of(x, y)
             {
-                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: Glyph::of('▪').unwrap_or(Glyph::SPACE), fg: pal.text, bg: None });
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: sim.c.texts.glyph(g::ORE), fg: pal.text, bg: None });
                 continue;
             }
             if let crate::sim::Drop::Food = sim.drops.kind[k]
                 && let Some(i) = self.cell_of(x, y)
             {
-                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: Glyph::of('%').unwrap_or(Glyph::SPACE), fg: pal.role(Role::Heal), bg: None });
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: sim.c.texts.glyph(g::FOOD), fg: pal.role(Role::Heal), bg: None });
                 continue;
             }
             if let crate::sim::Drop::Magnet = sim.drops.kind[k]
                 && let Some(i) = self.cell_of(x, y)
             {
                 let glow = if (sim.tick / LOOT_PULSE).is_multiple_of(2) { mix(pal.xp, pal.bg, 400) } else { mix(pal.xp, pal.bg, 700) };
-                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: Glyph::of('U').unwrap_or(Glyph::SPACE), fg: pal.xp, bg: Some(glow) });
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: sim.c.texts.glyph(g::MAGNET), fg: pal.xp, bg: Some(glow) });
                 continue;
             }
             if let crate::sim::Drop::Item(id) = sim.drops.kind[k] {
@@ -452,7 +452,7 @@ impl Frame {
                 continue;
             }
             if let Some(i) = self.cell_of(x, y) {
-                let ch = Glyph::of('◇').unwrap_or(Glyph::SPACE);
+                let ch = sim.c.texts.glyph(g::XP_GEM);
                 self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch, fg: pal.xp, bg: None });
             }
         }
@@ -468,7 +468,7 @@ impl Frame {
         for k in 0..sim.shots.x.len() {
             let (x, y) = (f64::from(sim.shots.x[k]), f64::from(sim.shots.y[k]));
             if let Some(i) = self.cell_of(x, y) {
-                self.put(i, Prio::IncomingHit, self.vd(x, y), Ink { ch: Glyph::of('o').unwrap_or(Glyph::SPACE), fg: pal.of(c.fam(sim.shots.fam[k]).hue), bg: None });
+                self.put(i, Prio::IncomingHit, self.vd(x, y), Ink { ch: sim.c.texts.glyph(g::FOE_SHOT), fg: pal.of(c.fam(sim.shots.fam[k]).hue), bg: None });
             }
         }
         // 7. player + crowd ring
@@ -488,11 +488,11 @@ impl Frame {
         }
         let pfg = if sim.p.iframes > 0 { pal.xp } else { pal.player };
         // cutaway (blocks) keeps every block face out of the player's stack, so the player is never hidden
-        let head = Ink { ch: Glyph::of('@').unwrap_or(Glyph::SPACE), fg: pfg, bg: Some(pal.ring) };
+        let head = Ink { ch: c.texts.glyph(g::HERO_HEAD), fg: pfg, bg: Some(pal.ring) };
         let worn = |s: Slot| sim.gear.worn(s).and_then(|id| c.items.get(usize::from(id.0))).map(|it| (it.glyph, pal.role(it.rarity.role())));
         // worn armour plates the torso in its rarity colour
         let body = match worn(Slot::Armor) {
-            Some((_, fg)) => Ink { ch: Glyph::of('█').unwrap_or(pal.body), fg, bg: None },
+            Some((_, fg)) => Ink { ch: c.texts.glyph(g::HERO_ARMOR), fg, bg: None },
             None => Ink { ch: pal.body, fg: pfg, bg: None },
         };
         let shadow = Ink { ch: pal.shadow, fg: pal.dim, bg: None };
@@ -1046,7 +1046,7 @@ impl Frame {
         }
         let pal = &sim.c.pal;
         let r = ring_radius(t);
-        let star = Glyph::of('✦').unwrap_or(Glyph::SPACE);
+        let star = sim.c.texts.glyph(g::STAR);
         let n = LEVEL_RING_POINTS;
         let mid = prow - i32::from(sim.c.view.actor_rows[0]) / 2;
         // bright colours chase round the ring, each star on a glow of its own colour, so it cannot be missed (tot-f6r)
@@ -1104,11 +1104,11 @@ impl Frame {
         // streak glyph, colour and drift (cols, rows per step; snow drifts every third step), and the cast over all
         let (wx, wy) = sim.world.wind(sim.tick, sim.c.hz().get());
         let (streak, cast) = match w {
-            Weather::Rain => (Some(('/', pal.of(Hue::Code), (0, 1))), None),
-            Weather::AcidRain => (Some(('/', pal.xp, (0, 1))), Some((pal.xp, SKY_ACID_CAST))),
-            Weather::Snow => (Some(('*', pal.text, (0, 1))), Some((pal.text, SKY_SNOW_CAST))),
+            Weather::Rain => (Some((sim.c.texts.glyph(g::RAIN), pal.of(Hue::Code), (0, 1))), None),
+            Weather::AcidRain => (Some((sim.c.texts.glyph(g::ACID_RAIN), pal.xp, (0, 1))), Some((pal.xp, SKY_ACID_CAST))),
+            Weather::Snow => (Some((sim.c.texts.glyph(g::SNOW), pal.text, (0, 1))), Some((pal.text, SKY_SNOW_CAST))),
             Weather::Heat => (None, Some((pal.of(Hue::Therm), SKY_HEAT_CAST))),
-            Weather::Wind => (Some(('~', pal.dim, (wx.signum(), wy.signum()))), None),
+            Weather::Wind => (Some((sim.c.texts.glyph(g::WIND), pal.dim, (wx.signum(), wy.signum()))), None),
             Weather::BloodMoon => (None, Some((pal.alarm, SKY_BLOOD_CAST))),
             Weather::FullMoon => (None, Some((pal.text, SKY_FULL_CAST))),
             Weather::Clear => (None, None),
@@ -1129,7 +1129,7 @@ impl Frame {
                     && self.z[i] == Prio::Floor
                     && hash(((col as i64 - step * i64::from(dc)) as u64) << 32 ^ (r as i64 - step * i64::from(dr)) as u64).is_multiple_of(SKY_STREAK_1_IN)
                 {
-                    self.cells[i].ch = Glyph::of(ch).unwrap_or(Glyph::SPACE);
+                    self.cells[i].ch = ch;
                     self.cells[i].fg = fg;
                 }
             }
@@ -1217,8 +1217,8 @@ impl Frame {
                 }
             }
             for k in 1..=wave {
-                self.flash_cell(col - 1 - k, row - 1, Glyph::of('(').unwrap_or(Glyph::SPACE), pal.player);
-                self.flash_cell(col + 1 + k, row - 1, Glyph::of(')').unwrap_or(Glyph::SPACE), pal.player);
+                self.flash_cell(col - 1 - k, row - 1, sim.c.texts.glyph(g::CALL_LEFT), pal.player);
+                self.flash_cell(col + 1 + k, row - 1, sim.c.texts.glyph(g::CALL_RIGHT), pal.player);
             }
         }
     }
@@ -1312,7 +1312,7 @@ impl Frame {
             let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
             let id = u64::from(sim.e.id[k]);
             let hop = (now_ms / CHEER_HOP_MS + id).is_multiple_of(2);
-            self.flash_cell(col, row - 1 - i32::from(hop), Glyph::of('^').unwrap_or(Glyph::SPACE), pal.alarm);
+            self.flash_cell(col, row - 1 - i32::from(hop), sim.c.texts.glyph(g::CHEER_HOP), pal.alarm);
             if id.is_multiple_of(3) && hop {
                 let word = sim.c.texts.pick(t::CHEERS, (id / 3) as usize);
                 for (i, ch) in word.chars().enumerate() {
@@ -1467,22 +1467,22 @@ impl Frame {
     fn world_layer(&mut self, sim: &Sim) {
         let pal = &sim.c.pal;
         let w = &sim.world;
-        let at = |f: &mut Self, x: i32, y: i32, p: Prio, ch: char, fg: Rgb| {
+        let at = |f: &mut Self, x: i32, y: i32, p: Prio, ch: Glyph, fg: Rgb| {
             let (x, y) = (f64::from(x), f64::from(y));
             if let Some(i) = f.cell_of(x, y) {
-                f.put(i, p, f.vd(x, y), Ink { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: None });
+                f.put(i, p, f.vd(x, y), Ink { ch, fg, bg: None });
             }
         };
         for g in &w.gold_piles {
             // gold is golden and glows (the chest pulse)
             if let Some(i) = self.cell_of(f64::from(g.x), f64::from(g.y)) {
-                self.put(i, Prio::Pickup, self.vd(f64::from(g.x), f64::from(g.y)), Ink { ch: Glyph::of('$').unwrap_or(Glyph::SPACE), fg: pal.chest, bg: Some(chest_glow(pal, sim.tick)) });
+                self.put(i, Prio::Pickup, self.vd(f64::from(g.x), f64::from(g.y)), Ink { ch: sim.c.texts.glyph(g::GOLD_PILE), fg: pal.chest, bg: Some(chest_glow(pal, sim.tick)) });
             }
         }
         for c in &w.chests {
             self.chest(sim, f64::from(c.x), f64::from(c.y));
             if c.tell {
-                at(self, c.x, c.y - sim.c.view.floor_cell, Prio::IncomingHit, '!', pal.alarm);
+                at(self, c.x, c.y - sim.c.view.floor_cell, Prio::IncomingHit, sim.c.texts.glyph(g::CHEST_TELL), pal.alarm);
             }
         }
         for t in &w.traps {
@@ -1490,16 +1490,16 @@ impl Frame {
                 crate::sim::TrapState::Arming => pal.dim,
                 crate::sim::TrapState::Armed | crate::sim::TrapState::Expired => pal.alarm,
             };
-            at(self, t.x, t.y, Prio::IncomingHit, '^', fg);
+            at(self, t.x, t.y, Prio::IncomingHit, sim.c.texts.glyph(g::TRAP), fg);
         }
         for b in &w.blasts {
-            at(self, b.x, b.y, Prio::IncomingHit, '*', pal.alarm);
+            at(self, b.x, b.y, Prio::IncomingHit, sim.c.texts.glyph(g::BLAST), pal.alarm);
         }
         for g in &w.goblins {
-            at(self, g.x, g.y, Prio::EliteBoss, 'g', pal.chest);
+            at(self, g.x, g.y, Prio::EliteBoss, sim.c.texts.glyph(g::GOBLIN), pal.chest);
         }
         for p in &w.npcs {
-            let (ch, fg) = npc_ink(p.npc, pal);
+            let (ch, fg) = npc_ink(sim.c, p.npc);
             at(self, p.x, p.y, Prio::EliteBoss, ch, fg);
         }
     }
@@ -1586,7 +1586,7 @@ impl Frame {
         // the nearest few pals, keepers and goblins in earshot get an arrow in their own colour; every one on the
         // floor would bury the screen edge in arrows
         let goblins = sim.world.goblins.iter().map(|g| (g.x, g.y, c.pal.chest));
-        let npcs = sim.world.npcs.iter().filter(|p| p.npc != crate::sim::Npc::Neutral).map(|p| (p.x, p.y, npc_ink(p.npc, &c.pal).1));
+        let npcs = sim.world.npcs.iter().filter(|p| p.npc != crate::sim::Npc::Neutral).map(|p| (p.x, p.y, npc_ink(c, p.npc).1));
         let mut calls: Vec<(i64, i32, i32, Rgb)> = npcs.chain(goblins).map(|(x, y, fg)| (dist2(x - sim.p.x, y - sim.p.y), x, y, fg)).filter(|&(d2, ..)| d2 <= PAL_CALL_MM.pow(2)).collect();
         calls.sort_unstable_by_key(|&(d2, x, y, _)| (d2, x, y));
         for &(_, x, y, fg) in calls.iter().take(PAL_CALLS) {
@@ -1616,25 +1616,26 @@ impl Frame {
                 let (ox, oy) = heading.unrot(i32::from(dc) - i32::from(MAP_W / 2), i32::from(dr) - i32::from(MAP_H / 2));
                 let (cx, cy) = (px + ox, py + oy);
                 let known = self.seen.contains(&(cx, cy));
+                let treasure = treasures.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy));
                 let (ch, fg) = if (cx, cy) == (px, py) {
-                    ('@', pal.player)
-                } else if treasures.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
-                    ('■', pal.chest)
+                    (c.texts.glyph(g::MAP_HERO), pal.player)
+                } else if treasure {
+                    (c.texts.glyph(g::MAP_CHEST), pal.chest)
                 } else if t.iter().any(|&(x, y, _)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
-                    ('B', pal.alarm)
-                } else if sim.world.goblins.iter().any(|g| (g.x.div_euclid(unit), g.y.div_euclid(unit)) == (cx, cy)) {
-                    ('g', pal.chest)
+                    (c.texts.glyph(g::MAP_BOSS), pal.alarm)
+                } else if sim.world.goblins.iter().any(|gb| (gb.x.div_euclid(unit), gb.y.div_euclid(unit)) == (cx, cy)) {
+                    (c.texts.glyph(g::MAP_GOBLIN), pal.chest)
                 } else if let Some(p) = sim.world.npcs.iter().find(|p| p.npc != crate::sim::Npc::Neutral && (p.x.div_euclid(unit), p.y.div_euclid(unit)) == (cx, cy)) {
-                    npc_ink(p.npc, pal)
+                    npc_ink(c, p.npc)
                 } else if known && rock(sim.arena(), cx, cy) {
-                    ('█', pal.text)
+                    (c.texts.glyph(g::MAP_ROCK), pal.text)
                 } else if known {
-                    ('░', pal.floor)
+                    (c.texts.glyph(g::MAP_FLOOR), pal.floor)
                 } else {
-                    (' ', pal.fog)
+                    (Glyph::SPACE, pal.fog)
                 };
                 let i = usize::from(y0 + dr) * cols + usize::from(x0 + dc);
-                self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: if ch == '■' { chest_glow(pal, sim.tick) } else if known { pal.hud_bg } else { pal.fog } };
+                self.cells[i] = Cell { ch, fg, bg: if treasure && (cx, cy) != (px, py) { chest_glow(pal, sim.tick) } else if known { pal.hud_bg } else { pal.fog } };
             }
         }
         self.rose(sim.c);
@@ -1679,7 +1680,7 @@ impl Frame {
         let (p, pal) = (self.eye.p, &c.pal);
         self.plate(0, 0, 3, 3, pal.hud_bg);
         let at = |(x, y): (f64, f64)| ((ROSE_C + x).round() as i32, (ROSE_C + y).round() as i32);
-        self.flash_cell(ROSE_C as i32, ROSE_C as i32, Glyph::of('✦').unwrap_or(Glyph::SPACE), pal.dim);
+        self.flash_cell(ROSE_C as i32, ROSE_C as i32, c.texts.glyph(g::STAR), pal.dim);
         // each letter takes one cell: the first glyph of the adventure's compass word
         for (k, (wx, wy)) in COMPASS.into_iter().enumerate() {
             let (col, row) = at(p.rot(f64::from(wx), f64::from(wy)));
@@ -2207,14 +2208,15 @@ fn kind_icon(k: crate::data::SkillKind) -> &'static str {
 }
 
 /// Letter and colour of an NPC, on the arena and on the map: pals in the hero colour, keepers in gold.
-fn npc_ink(npc: crate::sim::Npc, pal: &crate::data::Palette) -> (char, Rgb) {
+fn npc_ink(c: &Content, npc: crate::sim::Npc) -> (Glyph, Rgb) {
     use crate::sim::Npc;
+    let (pal, gl) = (&c.pal, |k| c.texts.glyph(k));
     match npc {
-        Npc::Pal { .. } => ('p', pal.player),
-        Npc::Merchant { .. } => ('m', pal.chest),
-        Npc::Blacksmith { .. } => ('b', pal.chest),
-        Npc::Witch { .. } => ('w', pal.chest),
-        Npc::Neutral => ('n', pal.dim),
+        Npc::Pal { .. } => (gl(g::NPC_PAL), pal.player),
+        Npc::Merchant { .. } => (gl(g::NPC_MERCHANT), pal.chest),
+        Npc::Blacksmith { .. } => (gl(g::NPC_BLACKSMITH), pal.chest),
+        Npc::Witch { .. } => (gl(g::NPC_WITCH), pal.chest),
+        Npc::Neutral => (gl(g::NPC_NEUTRAL), pal.dim),
     }
 }
 
@@ -3232,7 +3234,7 @@ mod tests {
     fn shown_words_come_from_the_adventure_texts() {
         let at = texts().iter().position(|t| t.contains("\"pick_adventure\"")).unwrap();
         let mut ts = texts();
-        ts[at] = ts[at].replace("\"text\":\"FLUX \"", "\"text\":\"MANA \"").replace("\"text\":\"-- PLAY --\"", "\"text\":\"~ ROAM ~\"");
+        ts[at] = ts[at].replace("\"text\":\"FLUX \"", "\"text\":\"MANA \"").replace("\"text\":\"-- PLAY --\"", "\"text\":\"~ ROAM ~\"").replace("\"id\":\"map_hero\",\"glyph\":\"@\"", "\"id\":\"map_hero\",\"glyph\":\"Y\"");
         let (base, mine) = (Content::parse(&texts()).unwrap(), Content::parse(&ts).unwrap());
         let ui = Ui::new(true);
         let shot = |c: &Content| {
@@ -3244,6 +3246,8 @@ mod tests {
         let (a, b) = (shot(&base), shot(&mine));
         assert!(a.contains("FLUX ") && a.contains("-- PLAY --") && !a.contains("MANA"), "control: the base words");
         assert!(b.contains("MANA ") && b.contains("~ ROAM ~") && !b.contains("FLUX ") && !b.contains("-- PLAY --"), "the adventure's words\n{b}");
+        let map = |s: &str| s.lines().take(usize::from(MAP_H)).map(|l| l.chars().take(usize::from(MAP_W)).collect::<String>()).collect::<String>();
+        assert!(map(&a).contains('@') && !map(&a).contains('Y') && map(&b).contains('Y'), "the adventure's map hero glyph");
     }
 
     #[test]
