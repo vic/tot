@@ -129,6 +129,7 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
             ui = ui.fresh();
             pilot = Autopilot::new(seed, auto_mv, auto_pk);
             ended = false;
+            frame.reset_run();
             frame.invalidate();
             tty.send(b"\x1b[2J")?;
         }
@@ -147,7 +148,10 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
                 tty.send(b"\x1b[2J")?;
             }
         }
+        // shortcut: points = levels gained, owned nodes live in Ui until the sim holds them
+        ui.tree_earned = sim.p.level.saturating_sub(1);
         ui.sync(sim.offer.is_some(), now_ms());
+        ui.sync_shop(sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map(Vec::len));
         if Instant::now() >= next {
             next += tick;
             if Instant::now() > next + tick * 4 {

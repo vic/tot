@@ -1,8 +1,29 @@
 //! Kitty keyboard events + modal UI (design sec 6): PLAY, PICK, LOOK, CMD; which-key on prefixes.
 //! Held directions come only from press/release (no autorepeat path, design sec 6.1).
-use crate::data::Content;
+use crate::data::{Content, Owned, Tree};
 use crate::iso::{Heading, screen_dir};
 use crate::sim::{Cmd, Input, PickChoice};
+
+/// Class the hero plays (class picking is a later screen).
+const HERO_CLASS: usize = 0;
+
+/// The tree the TREE screen shows: the hero class's first tree.
+/// shortcut: one tree per class on screen, a tree switcher comes with class choice.
+pub fn hero_tree(c: &Content) -> Option<&Tree> {
+    c.trees.iter().find(|t| t.class.ix() == HERO_CLASS)
+}
+
+/// Cursor step on the node grid: sideways along the row, up/down to the nearest column of the next row.
+fn tree_step(t: &Tree, from: usize, dc: i8, dr: i8) -> usize {
+    let Some(n) = t.nodes.get(from) else { return from };
+    let at = |c: i16, r: i16| Some((u8::try_from(c).ok()?, u8::try_from(r).ok()?)).and_then(|(c, r)| t.at(c, r));
+    let (col, row) = (i16::from(n.col), i16::from(n.row));
+    if dr == 0 {
+        return (1..=i16::from(u8::MAX)).find_map(|k| at(col + i16::from(dc) * k, row)).unwrap_or(from);
+    }
+    let r = row + i16::from(dr);
+    t.nodes.iter().enumerate().filter(|(_, m)| i16::from(m.row) == r).min_by_key(|(_, m)| (i16::from(m.col) - col).abs()).map_or(from, |(i, _)| i)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Key {
@@ -82,17 +103,21 @@ pub enum Mode {
     Tree,
     /// worn items popup
     Gear,
+    /// merchant / blacksmith / witch offers
+    Shop,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
+    ShopPrev,
+    ShopNext,
+    ShopBuy,
     OpenGear,
     GearPrev,
     GearNext,
     GearDrop,
     OpenTree,
-    TreePrev,
-    TreeNext,
+    TreeMove(i8, i8),
     TreeSpend,
     Up,
     Down,
@@ -133,13 +158,18 @@ impl Action {
             "rot_left" => RotLeft,
             "rot_right" => RotRight,
             "autofire" => Autofire,
+            "shop_prev" => ShopPrev,
+            "shop_next" => ShopNext,
+            "shop_buy" => ShopBuy,
             "gear" => OpenGear,
             "gear_prev" => GearPrev,
             "gear_next" => GearNext,
             "gear_drop" => GearDrop,
             "tree" => OpenTree,
-            "tree_prev" => TreePrev,
-            "tree_next" => TreeNext,
+            "tree_left" => TreeMove(-1, 0),
+            "tree_right" => TreeMove(1, 0),
+            "tree_up" => TreeMove(0, -1),
+            "tree_down" => TreeMove(0, 1),
             "tree_spend" => TreeSpend,
             "autowalk" => Autowalk,
             "fire" => Fire,
@@ -289,15 +319,21 @@ pub struct Ui {
     pub autowalk: bool,
     /// attack key held (manual fire while autofire is off)
     pub fire: bool,
-    /// skill tree cursor (node index) and node count; play.rs sets `tree_len` from the tree data
+    /// skill tree cursor (node index in the hero tree), nodes owned, points earned by levels / spent
     pub tree_sel: usize,
-    pub tree_len: usize,
-    /// one-shot: node the human asked to spend a point on (taken by play.rs)
-    pub tree_spend: Option<usize>,
-    /// worn-items cursor and slot count (play.rs sets `gear_len`); `gear_drop` is the one-shot drop request
+    pub tree_owned: Owned,
+    pub tree_earned: u16,
+    pub tree_spent: u16,
+    /// worn-items cursor and slot count (set on opening); `gear_drop` is the one-shot drop request
     pub gear_sel: usize,
     pub gear_len: usize,
     pub gear_drop: Option<usize>,
+    /// shop cursor and offer count (set by `sync_shop`); `shop_buy` is the one-shot buy request
+    pub shop_sel: usize,
+    pub shop_len: usize,
+    pub shop_buy: Option<usize>,
+    /// player left the shop with esc and still stands at the service: do not reopen
+    shop_left: bool,
     pub cmdline: String,
     pub msg: String,
     pub quit: bool,
@@ -324,11 +360,16 @@ impl Ui {
             autowalk: false,
             fire: false,
             tree_sel: 0,
-            tree_len: 0,
-            tree_spend: None,
+            tree_owned: Owned::default(),
+            tree_earned: 0,
+            tree_spent: 0,
             gear_sel: 0,
             gear_len: 0,
             gear_drop: None,
+            shop_sel: 0,
+            shop_len: 0,
+            shop_buy: None,
+            shop_left: false,
             cmdline: String::new(),
             msg: String::new(),
             quit: false,
@@ -357,6 +398,26 @@ impl Ui {
             self.pick_open_ms = now_ms;
         } else if !offer_open && self.mode == Mode::Pick {
             self.mode = Mode::Play;
+        }
+    }
+
+    /// Enter / leave SHOP: `Some(offers)` while the hero stands at a service, `None` away from it.
+    pub fn sync_shop(&mut self, at_service: Option<usize>) {
+        match at_service {
+            None => {
+                self.shop_left = false;
+                if self.mode == Mode::Shop {
+                    self.mode = Mode::Play;
+                }
+            }
+            Some(n) => {
+                self.shop_len = n;
+                if self.mode == Mode::Play && !self.shop_left {
+                    self.mode = Mode::Shop;
+                    self.shop_sel = 0;
+                    self.seq.clear();
+                }
+            }
         }
     }
 
@@ -469,6 +530,23 @@ impl Ui {
         format!("autofire {}", if on { "on" } else { "off (aim = facing, x = hack)" })
     }
 
+    /// Points still to spend (one per level after the first).
+    pub fn tree_points(&self) -> u16 {
+        self.tree_earned.saturating_sub(self.tree_spent)
+    }
+
+    fn spend(&mut self, c: &Content) -> String {
+        let Some(t) = hero_tree(c) else { return "no skill tree".into() };
+        match t.spend(self.tree_owned, self.tree_points(), self.tree_sel) {
+            Ok((owned, left)) => {
+                self.tree_spent = self.tree_earned.saturating_sub(left);
+                self.tree_owned = owned;
+                format!("learned {}", t.nodes[self.tree_sel].name)
+            }
+            Err(e) => format!("cannot spend: {e:?}"),
+        }
+    }
+
     fn set_autowalk(&mut self, on: bool) -> String {
         self.autowalk = on;
         format!("autowalk {}", if on { "on" } else { "off" })
@@ -486,14 +564,23 @@ impl Ui {
             Action::RotLeft => self.heading = self.heading.left(),
             Action::RotRight => self.heading = self.heading.right(),
             Action::Autofire => self.msg = self.set_autofire(!self.autofire),
-            Action::OpenGear => self.mode = Mode::Gear,
+            Action::OpenGear => {
+                self.mode = Mode::Gear;
+                self.gear_len = c.items.len();
+            }
+            Action::ShopPrev => self.shop_sel = self.shop_sel.saturating_sub(1),
+            Action::ShopNext => self.shop_sel = (self.shop_sel + 1).min(self.shop_len.saturating_sub(1)),
+            Action::ShopBuy => self.shop_buy = (self.shop_sel < self.shop_len).then_some(self.shop_sel),
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
             Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(self.gear_len.saturating_sub(1)),
             Action::GearDrop => self.gear_drop = (self.gear_sel < self.gear_len).then_some(self.gear_sel),
             Action::OpenTree => self.mode = Mode::Tree,
-            Action::TreePrev => self.tree_sel = self.tree_sel.saturating_sub(1),
-            Action::TreeNext => self.tree_sel = (self.tree_sel + 1).min(self.tree_len.saturating_sub(1)),
-            Action::TreeSpend => self.tree_spend = (self.tree_sel < self.tree_len).then_some(self.tree_sel),
+            Action::TreeMove(dc, dr) => {
+                if let Some(t) = hero_tree(c) {
+                    self.tree_sel = tree_step(t, self.tree_sel, dc, dr);
+                }
+            }
+            Action::TreeSpend => self.msg = self.spend(c),
             Action::Autowalk => self.msg = self.set_autowalk(!self.autowalk),
             Action::Fire => self.fire = true,
             Action::Look => {
@@ -515,6 +602,7 @@ impl Ui {
             Action::CurLeft => self.cursor.0 -= 1,
             Action::CurRight => self.cursor.0 += 1,
             Action::Back => {
+                self.shop_left |= self.mode == Mode::Shop;
                 self.mode = Mode::Play;
                 self.cmdline.clear();
             }
@@ -565,7 +653,9 @@ impl Ui {
             dodge: std::mem::take(&mut self.dodge),
             hack: std::mem::take(&mut self.hack),
             autofire: self.autofire,
+            fire: self.fire,
             pick: self.pick.take(),
+            buy: self.shop_buy.take(),
         }
     }
 }
@@ -644,21 +734,57 @@ mod tests {
         assert!(!ui.fire);
     }
 
+
     #[test]
-    fn tree_mode_navigates_clamped_spends_and_esc_returns() {
+    fn shop_opens_at_service_buys_and_esc_does_not_reopen_until_away() {
         let c = content();
         let mut ui = Ui::new(true);
-        ui.tree_len = 3;
+        ui.sync_shop(None);
+        assert_eq!(ui.mode, Mode::Play);
+        ui.sync_shop(Some(3));
+        assert_eq!(ui.mode, Mode::Shop);
+        ui.key(press('j'), &c, 0);
+        ui.key(press('j'), &c, 0);
+        ui.key(press('j'), &c, 0);
+        assert_eq!(ui.shop_sel, 2, "clamped to offers");
+        ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
+        assert_eq!(ui.shop_buy, Some(2));
+        assert_eq!(ui.input(true).mv, (0, 0));
+        ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
+        ui.sync_shop(Some(3));
+        assert_eq!(ui.mode, Mode::Play, "esc leaves while standing there");
+        ui.sync_shop(None);
+        ui.sync_shop(Some(3));
+        assert_eq!(ui.mode, Mode::Shop, "walking away and back reopens");
+        ui.sync_shop(None);
+        assert_eq!(ui.mode, Mode::Play, "walked away");
+    }
+
+    #[test]
+    fn tree_mode_moves_on_the_grid_and_spends_by_requirements_and_points() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        let enter = KeyEv { key: Key::Enter, kind: Kind::Press, text: None };
         ui.key(press('t'), &c, 0);
         assert_eq!(ui.mode, Mode::Tree);
-        for _ in 0..5 {
-            ui.key(press('l'), &c, 0);
-        }
-        assert_eq!(ui.tree_sel, 2);
+        let t = hero_tree(&c).unwrap();
+        let node = |i: usize| (t.nodes[i].col, t.nodes[i].row);
+        assert_eq!(node(ui.tree_sel), (1, 0), "starts on the root");
+        ui.key(press('h'), &c, 0);
+        assert_eq!(node(ui.tree_sel), (1, 0), "nothing left of the root: stays");
+        ui.key(press('j'), &c, 0);
+        assert_eq!(node(ui.tree_sel).1, 1, "down to the next row");
+        // NEG: no points yet
+        ui.key(enter, &c, 0);
+        assert!(ui.msg.contains("NeedPoints") || ui.msg.contains("Locked"), "{}", ui.msg);
+        assert!(!ui.tree_owned.has(ui.tree_sel));
+        ui.tree_earned = 1;
+        ui.key(enter, &c, 0);
+        assert!(ui.msg.contains("Locked"), "NEG: requirement unmet: {}", ui.msg);
+        assert_eq!(ui.tree_points(), 1, "a refused spend keeps the point");
         ui.key(press('k'), &c, 0);
-        ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
-        assert_eq!(ui.tree_spend, Some(1));
-        assert_eq!(ui.input(true).mv, (0, 0));
+        ui.key(enter, &c, 0);
+        assert!(ui.tree_owned.has(ui.tree_sel) && ui.tree_points() == 0, "{}", ui.msg);
         ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
         assert_eq!(ui.mode, Mode::Play);
     }
@@ -669,6 +795,8 @@ mod tests {
         let mut ui = Ui::new(true);
         ui.key(press('i'), &c, 0);
         assert_eq!(ui.mode, Mode::Gear);
+        assert_eq!(ui.gear_len, c.items.len(), "opening lists the item catalog");
+        ui.gear_len = 0;
         ui.key(press('x'), &c, 0);
         assert_eq!(ui.gear_drop, None, "empty gear: nothing to drop");
         ui.gear_len = 2;
@@ -680,6 +808,7 @@ mod tests {
         assert_eq!(ui.mode, Mode::Play);
     }
 
+    #[test]
     fn whichkey_waits_then_lists_group_and_never_fires_early() {
         let c = content();
         let mut ui = Ui::new(true);

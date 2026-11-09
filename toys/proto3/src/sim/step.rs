@@ -21,6 +21,12 @@ impl<'c> Sim<'c> {
         if let (Some(ch), Some(_)) = (inp.pick, self.offer) {
             self.choose(ch);
         }
+        // shortcut: the bought item is not worn yet (no gear in the sim); wire into gear with the sim gear state
+        if let (Some(o), Some(n)) = (inp.buy, self.world.open_shop)
+            && let Ok((_, left)) = self.world.buy(n, o, self.p.gold)
+        {
+            self.p.gold = left;
+        }
         if self.offer.is_some() && self.c.opt.pick_pauses {
             return;
         }
@@ -28,6 +34,7 @@ impl<'c> Sim<'c> {
         self.player_step(inp);
         self.p.unhurt = self.p.unhurt.saturating_add(1);
         self.morale_step();
+        self.world_step();
         self.grid.build(self.p.x, self.p.y, &self.e.x, &self.e.y, &self.e.rad);
         self.lists();
         self.enemies_move();
@@ -39,6 +46,7 @@ impl<'c> Sim<'c> {
         self.tele_step();
         self.contacts();
         self.hijack_step();
+        self.status_step();
         self.sweep();
         self.drops_step();
         self.levels();
@@ -110,7 +118,9 @@ impl<'c> Sim<'c> {
         let d = i64::from(sp.dmg0) * i64::from(sp.dmg_mult[self.sec_ix()]) / 1000 * i64::from(self.c.fam(self.e.fam[i]).dmg) / 1000;
         // thieves that ate loot hit harder: +10% per loot point, at most x3
         let fed = (1000 + LOOT_DMG_PER * i64::from(self.e.loot[i])).min(LOOT_DMG_CAP);
-        (d * i64::from(tier) / 1000 * fed / 1000) as i32
+        let rage = if matches!(self.e.status[i], Status::Raging { .. }) { RAGE_DMG } else { 1000 };
+        let d = d * rage / 1000;
+        self.world.foe_dmg(self.tick).apply((d * i64::from(tier) / 1000 * fed / 1000) as i32)
     }
 
     /// Analytic single-target build DPS, HP/s (the D of rho = H/D, design sec 11.4).
@@ -142,9 +152,11 @@ impl<'c> Sim<'c> {
         if (mx, my) != (0, 0) {
             self.p.face = (mx, my);
         }
-        let step = if mx != 0 && my != 0 { scale(pd.speed, 707) } else { pd.speed };
-        self.p.x += mx * step;
-        self.p.y += my * step;
+        let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(pd.speed, i64::from(HERO_FROZEN_SPEED)) } else { pd.speed };
+        let step = if mx != 0 && my != 0 { scale(walk, 707) } else { walk };
+        let (ax, ay) = solid::slide(&self.arena, self.p.x, self.p.y, pd.radius, mx * step, my * step);
+        self.p.x += ax;
+        self.p.y += ay;
         if inp.dodge && self.p.dodge_cd == 0 {
             self.p.dash_left = pd.dash_ticks;
             self.p.dash_dir = self.p.face;
@@ -154,8 +166,9 @@ impl<'c> Sim<'c> {
         if self.p.dash_left > 0 {
             self.p.dash_left -= 1;
             let (dx, dy) = toward(self.p.dash_dir.0, self.p.dash_dir.1, pd.dash);
-            self.p.x += dx;
-            self.p.y += dy;
+            let (ax, ay) = solid::slide(&self.arena, self.p.x, self.p.y, pd.radius, dx, dy);
+            self.p.x += ax;
+            self.p.y += ay;
         }
         self.p.iframes = self.p.iframes.saturating_sub(1);
         self.p.dodge_cd = self.p.dodge_cd.saturating_sub(1);
@@ -165,7 +178,7 @@ impl<'c> Sim<'c> {
         self.p.flux = (self.p.flux + pd.flux_regen).min(pd.flux);
     }
 
-    fn hurt_player(&mut self, d: i32, cause: Cause, foreseen: bool) {
+    pub(super) fn hurt_player(&mut self, d: i32, cause: Cause, foreseen: bool) {
         if self.p.iframes > 0 || d <= 0 {
             return;
         }
@@ -221,8 +234,10 @@ impl<'c> Sim<'c> {
             }
             // LOD: off-screen hostiles re-aim every LOD_EVERY ticks (staggered by id), else coast
             if dp2 > sep_r2 && e.side[i] == Side::Hostile && e.tier[i] != Tier::Boss && !(self.tick + e.id[i]).is_multiple_of(LOD_EVERY) {
-                e.nx.push(x + e.vx[i]);
-                e.ny.push(y + e.vy[i]);
+                // one query, no sliding, and none at all deep inside a tile: an off-screen coaster just stops at a wall
+                let (sx, sy) = if interior(x, y, e.rad[i] + e.vx[i].abs().max(e.vy[i].abs())) || !solid::blocked(&self.arena, x + e.vx[i], y + e.vy[i], e.rad[i]) { (e.vx[i], e.vy[i]) } else { (0, 0) };
+                e.nx.push(x + sx);
+                e.ny.push(y + sy);
                 continue;
             }
             let (mut tx, mut ty, mut td2) = (px, py, dp2);
@@ -235,6 +250,10 @@ impl<'c> Sim<'c> {
                     if d2 * 1_000_000 < td2 * weight * weight {
                         (tx, ty, td2) = (e.x[j], e.y[j], d2);
                     }
+                }
+                if dp2 <= sep_r2 && (tx, ty) == (px, py) && !e.panic[i] && e.tier[i] != Tier::Boss && matches!(&fam.kind, FamKind::Mob(Mob { role: MobRole::Melee, .. })) {
+                    let ((ax, ay), go) = tactic_aim(Tactic::of(e.id[i]), e.id[i], self.tick, (x, y), (px, py), self.p.face);
+                    (tx, ty, td2, chase) = (ax, ay, dist2(ax - x, ay - y), go);
                 }
                 if let FamKind::Mob(Mob { role: MobRole::Ranged { range, .. }, .. }) = &fam.kind {
                     chase = td2 > i64::from(*range).pow(2) * 3 / 4;
@@ -281,18 +300,26 @@ impl<'c> Sim<'c> {
             }
             let cap = if e.tier[i] == Tier::Boss { 300 } else { 500 };
             speed = speed * (1000 - (i64::from(e.glitch[i]) * 30).min(cap)) / 1000;
-            let (mut sx, mut sy) = if chase && td2 > i64::from(fam.radius).pow(2) { toward(tx - x, ty - y, speed as i32) } else { (0, 0) };
+            if Ability::Fast.owned_at(e.loot[i]) {
+                speed = speed * THIEF_FAST / 1000;
+            }
+            speed = match e.status[i] {
+                Status::Frozen { .. } => 0,
+                Status::Raging { .. } => (speed * RAGE_SPEED / 1000).min(i64::from(c.player.speed) * RAGE_SPEED_CAP / 1000),
+                _ => speed,
+            };
+            let (mut sx, mut sy) = if chase && td2 > i64::from(e.rad[i]).pow(2) { toward(tx - x, ty - y, speed as i32) } else { (0, 0) };
             (e.vx[i], e.vy[i]) = (sx, sy);
             // LOD: off-screen crowds skip separation (probe: separation = 70% of move at 20k)
             if e.tier[i] != Tier::Boss && dp2 <= sep_r2 {
                 let g = &self.grid;
-                for range in g.ranges(x, y, fam.radius + MOB_R_MAX) {
+                for range in g.ranges(x, y, e.rad[i] + MOB_R_MAX) {
                     for k in range {
                         let j = g.items[k] as usize;
                         if j == i || Some(j) == boss {
                             continue;
                         }
-                        let rr = fam.radius + g.gr[k];
+                        let rr = e.rad[i] + g.gr[k];
                         let (dx, dy) = (x - g.gx[k], y - g.gy[k]);
                         let d2 = dist2(dx, dy);
                         let rr2 = i64::from(rr).pow(2);
@@ -309,7 +336,7 @@ impl<'c> Sim<'c> {
                     }
                 }
                 if let Some(b) = boss {
-                    let rr = fam.radius + c.fam(e.fam[b]).radius;
+                    let rr = e.rad[i] + e.rad[b];
                     let (dx, dy) = (x - e.x[b], y - e.y[b]);
                     let d = dist(dx, dy);
                     if d < rr {
@@ -319,6 +346,7 @@ impl<'c> Sim<'c> {
                     }
                 }
             }
+            let (sx, sy) = if interior(x, y, e.rad[i] + sx.abs().max(sy.abs())) { (sx, sy) } else { solid::slide(&self.arena, x, y, e.rad[i], sx, sy) };
             e.nx.push(x + sx);
             e.ny.push(y + sy);
         }
@@ -381,7 +409,7 @@ impl<'c> Sim<'c> {
     }
 
     /// Damage a hostile; returns HP removed. `src` None = hijacked army.
-    fn hurt(&mut self, i: usize, dmg: i32, hue: Hue, src: Option<SkillId>) -> i32 {
+    pub(super) fn hurt(&mut self, i: usize, dmg: i32, hue: Hue, src: Option<SkillId>) -> i32 {
         if self.e.side[i] != Side::Hostile || self.e.hp[i] <= 0 || dmg <= 0 {
             return 0;
         }
@@ -395,6 +423,7 @@ impl<'c> Sim<'c> {
         let crits = cc / 1000 + u32::from(self.rng_combat.chance(cc % 1000));
         let d = i64::from(dmg) * (1000 + i64::from(crits) * i64::from(self.c.player.crit_bonus)) / 1000 * (1000 - res) / 1000;
         let actual = d.min(i64::from(self.e.hp[i])).max(0);
+        let hz = self.c.hz().get();
         self.e.hp[i] -= d.min(i64::from(i32::MAX)) as i32;
         match src {
             Some(s) => {
@@ -402,6 +431,11 @@ impl<'c> Sim<'c> {
                 self.stats.output[s.ix()] += d;
             }
             None => self.stats.dealt_hijack += actual,
+        }
+        if self.e.tier[i] != Tier::Boss && self.e.hp[i] > 0 {
+            let st = self.e.status[i].inflict(hue, hz);
+            let low = self.e.hp[i] < scale(self.e.max[i], i64::from(RAGE_BELOW));
+            self.e.status[i] = if low { st.enrage(hz) } else { st };
         }
         actual as i32
     }
@@ -470,7 +504,7 @@ impl<'c> Sim<'c> {
                 continue;
             }
             let fired = match s.kind {
-                SkillKind::Bolt => self.fire_bolts(&o, &f, inp.autofire),
+                SkillKind::Bolt => self.fire_bolts(&o, &f, inp.autofire || inp.fire),
                 SkillKind::Hack => self.hack(&o, &f, inp),
                 SkillKind::Pulse => self.pulse(&o, &f),
                 SkillKind::Chain => self.chain(&o, &f),
@@ -560,13 +594,13 @@ impl<'c> Sim<'c> {
         self.grid.query(x, y, r + MOB_R_MAX, &mut near);
         for &j in &near {
             let j = j as usize;
-            if dist2(self.e.x[j] - x, self.e.y[j] - y) <= i64::from(r + self.c.fam(self.e.fam[j]).radius).pow(2) {
+            if dist2(self.e.x[j] - x, self.e.y[j] - y) <= i64::from(r + self.e.rad[j]).pow(2) {
                 self.hurt(j, dmg, hue, src);
             }
         }
         self.near = near;
         if let Some(b) = self.boss_ix()
-            && dist(self.e.x[b] - x, self.e.y[b] - y) <= r + self.c.fam(self.e.fam[b]).radius
+            && dist(self.e.x[b] - x, self.e.y[b] - y) <= r + self.e.rad[b]
         {
             self.hurt(b, dmg, hue, src);
         }
@@ -617,7 +651,7 @@ impl<'c> Sim<'c> {
             self.grid.query(bx, by, 500 + MOB_R_MAX, &mut near);
             for &j in &near {
                 let j = j as usize;
-                if self.e.orb_cd[j] == 0 && dist2(self.e.x[j] - bx, self.e.y[j] - by) <= i64::from(500 + self.c.fam(self.e.fam[j]).radius).pow(2) && self.hurt(j, f.dmg, s.hue, Some(o.id)) > 0 {
+                if self.e.orb_cd[j] == 0 && dist2(self.e.x[j] - bx, self.e.y[j] - by) <= i64::from(500 + self.e.rad[j]).pow(2) && self.hurt(j, f.dmg, s.hue, Some(o.id)) > 0 {
                     self.e.orb_cd[j] = f.cd.min(255) as u8;
                 }
             }
@@ -680,7 +714,7 @@ impl<'c> Sim<'c> {
                 if dead || self.e.side[j] != Side::Hostile || self.e.hp[j] <= 0 || self.e.id[j] == self.bolts.last[i] {
                     continue;
                 }
-                let r = BOLT_R + self.c.fam(self.e.fam[j]).radius;
+                let r = BOLT_R + self.e.rad[j];
                 if dist2(self.e.x[j] - bx, self.e.y[j] - by) <= i64::from(r).pow(2) {
                     let s = self.bolts.skill[i];
                     self.hurt(j, self.bolts.dmg[i], self.c.skill(s).hue, Some(s));
@@ -710,6 +744,15 @@ impl<'c> Sim<'c> {
         self.near = near;
     }
 
+    /// Shot parameters of foe i: its Ranged role, or a thief's learned Shot.
+    fn shooter(&self, i: usize) -> Option<(i32, i32, u16, u32)> {
+        match self.c.fam(self.e.fam[i]).kind {
+            FamKind::Mob(Mob { role: MobRole::Ranged { range, shot_v, every, dmg }, .. }) => Some((range, shot_v, every, dmg)),
+            _ if Ability::Shot.owned_at(self.e.loot[i]) => Some(THIEF_SHOT),
+            _ => None,
+        }
+    }
+
     fn shots_step(&mut self) {
         // fire
         let lead_min = self.c.hz().ticks(0.4) as i32;
@@ -717,7 +760,7 @@ impl<'c> Sim<'c> {
             if self.e.side[i] != Side::Hostile {
                 continue;
             }
-            let FamKind::Mob(Mob { role: MobRole::Ranged { range, shot_v, every, dmg }, .. }) = self.c.fam(self.e.fam[i]).kind else { continue };
+            let Some((range, shot_v, every, dmg)) = self.shooter(i) else { continue };
             self.e.timer[i] = self.e.timer[i].saturating_sub(1);
             let (dx, dy) = (self.p.x - self.e.x[i], self.p.y - self.e.y[i]);
             let d = dist(dx, dy);
@@ -909,12 +952,16 @@ impl<'c> Sim<'c> {
         }
         for &j in &near {
             let j = j as usize;
-            let r = pr + self.c.fam(self.e.fam[j]).radius;
+            let r = pr + self.e.rad[j];
             if self.e.side[j] == Side::Hostile && self.e.hit_cd[j] == 0 && dist2(self.e.x[j] - px, self.e.y[j] - py) <= i64::from(r).pow(2) {
                 self.e.hit_cd[j] = cd;
                 let foreseen = self.e.seen[j] != u32::MAX && self.tick.saturating_sub(self.e.seen[j]) >= self.c.hz().get() / 2;
                 let cause = Cause::Contact { fam: self.e.fam[j], tier: self.e.tier[j] };
+                let hp0 = self.p.hp;
                 self.hurt_player(self.contact_dmg(j), cause, foreseen);
+                if self.p.hp < hp0 {
+                    self.p.status = self.p.status.inflict(self.c.fam(self.e.fam[j]).hue, self.c.hz().get());
+                }
             }
         }
         // hijacked army vs hostiles, both ways
@@ -922,14 +969,14 @@ impl<'c> Sim<'c> {
         let code = Hue::Code;
         for h in 0..self.hij.len() {
             let i = self.hij[h] as usize;
-            let ri = self.c.fam(self.e.fam[i]).radius;
+            let ri = self.e.rad[i];
             self.grid.query(self.e.x[i], self.e.y[i], ri + MOB_R_MAX, &mut near);
             for &j in &near {
                 let j = j as usize;
                 if self.e.side[j] != Side::Hostile {
                     continue;
                 }
-                let r = ri + self.c.fam(self.e.fam[j]).radius;
+                let r = ri + self.e.rad[j];
                 if dist2(self.e.x[j] - self.e.x[i], self.e.y[j] - self.e.y[i]) > i64::from(r).pow(2) {
                     continue;
                 }
@@ -987,7 +1034,31 @@ impl<'c> Sim<'c> {
         self.drops.pulled.push(false);
     }
 
-    fn sweep(&mut self) {
+    /// Timers run down; burning bites once a second. Burn damage is not credited to a skill, and the
+    /// hero's burn alone never kills (hp floors at 1, like weather).
+    fn status_step(&mut self) {
+        let hz = self.c.hz().get();
+        let bite = self.tick.is_multiple_of(hz);
+        for i in 0..self.e.len() {
+            let st = self.e.status[i];
+            if st == Status::None {
+                continue;
+            }
+            if bite && matches!(st, Status::Burning { .. }) {
+                self.e.hp[i] -= scale(self.e.max[i], i64::from(BURN_PERMILLE)).max(1);
+            }
+            self.e.status[i] = st.tick(hz);
+        }
+        if bite && matches!(self.p.status, Status::Burning { .. }) {
+            let d = scale(self.p.max_hp, i64::from(BURN_PERMILLE)).max(1).min(self.p.hp - 1).max(0);
+            self.p.hp -= d;
+            self.stats.taken += i64::from(d);
+        }
+        self.p.status = self.p.status.tick(hz);
+    }
+
+
+    pub(super) fn sweep(&mut self) {
         let sp = &self.c.spawn;
         let mut i = 0;
         while i < self.e.len() {
@@ -1046,7 +1117,8 @@ impl<'c> Sim<'c> {
                 Drop::Xp(_) => LOOT_XP,
                 Drop::Chest => LOOT_CHEST,
             };
-            self.e.loot[j] = self.e.loot[j].saturating_add(bite);
+            let before = self.e.loot[j];
+            self.e.loot[j] = before.saturating_add(bite);
             let grow = self.e.max[j] / 10 * i32::from(bite);
             self.e.max[j] = self.e.max[j].saturating_add(grow);
             self.e.hp[j] = (self.e.hp[j].saturating_add(grow)).min(self.e.max[j]);
@@ -1054,6 +1126,17 @@ impl<'c> Sim<'c> {
                 self.barks.remove(0);
             }
             self.barks.push(Bark { tick: self.tick, x: self.e.x[j], y: self.e.y[j], id: self.e.id[j], kind: BarkKind::Stole { power: self.e.loot[j] } });
+            for a in Ability::ALL {
+                if !a.owned_at(before) && a.owned_at(self.e.loot[j]) {
+                    if a == Ability::Rage {
+                        self.e.status[j] = Status::None.enrage(self.c.hz().get());
+                    }
+                    if self.barks.len() >= self.barks.capacity() {
+                        self.barks.remove(0);
+                    }
+                    self.barks.push(Bark { tick: self.tick, x: self.e.x[j], y: self.e.y[j], id: self.e.id[j], kind: BarkKind::Learned { ability: a } });
+                }
+            }
             let d = &mut self.drops;
             d.x.swap_remove(k);
             d.y.swap_remove(k);
@@ -1093,7 +1176,7 @@ impl<'c> Sim<'c> {
         self.pending_chest += (before - self.treasures.len()) as u16;
     }
 
-    fn drops_step(&mut self) {
+    pub(super) fn drops_step(&mut self) {
         self.thieves_steal();
         self.treasure_step();
         let r = scale(self.c.player.pickup, 1000 + self.trait_val(SkillKind::Magnet));
@@ -1289,4 +1372,11 @@ fn weighted(rng: &mut Xo, w: &mut [u32]) -> Option<usize> {
         r -= x;
     }
     None
+}
+
+/// Circle of radius `r` at (x, y) lies wholly inside one tile (so, if it stood on floor, still does).
+fn interior(x: i32, y: i32, r: i32) -> bool {
+    let t = crate::floorgen::TILE_MM;
+    let (lx, ly) = (x.rem_euclid(t), y.rem_euclid(t));
+    lx >= r && lx + r < t && ly >= r && ly + r < t
 }

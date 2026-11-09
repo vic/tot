@@ -54,18 +54,6 @@
 {"t":"bind","mode":"tree","keys":["esc"],"action":"back","label":"back"}
 {"t":"bind","mode":"tree","keys":["t"],"action":"back","label":"back"}
 {"t":"bind","mode":"tree","keys":["enter"],"action":"tree_spend","label":"spend point"}
-{"t":"bind","mode":"tree","keys":["h"],"action":"tree_prev","label":"prev node"}
-{"t":"bind","mode":"tree","keys":["k"],"action":"tree_prev","label":"prev node"}
-{"t":"bind","mode":"tree","keys":["up"],"action":"tree_prev","label":"prev node"}
-{"t":"bind","mode":"tree","keys":["a"],"action":"tree_prev","label":"prev node"}
-{"t":"bind","mode":"tree","keys":["w"],"action":"tree_prev","label":"prev node"}
-{"t":"bind","mode":"tree","keys":["l"],"action":"tree_next","label":"next node"}
-{"t":"bind","mode":"tree","keys":["j"],"action":"tree_next","label":"next node"}
-{"t":"bind","mode":"tree","keys":["down"],"action":"tree_next","label":"next node"}
-{"t":"bind","mode":"tree","keys":["d"],"action":"tree_next","label":"next node"}
-{"t":"bind","mode":"tree","keys":["s"],"action":"tree_next","label":"next node"}
-{"t":"bind","mode":"tree","keys":["right"],"action":"tree_next","label":"next node"}
-{"t":"bind","mode":"tree","keys":["left"],"action":"tree_prev","label":"prev node"}
 {"t":"bind","mode":"play","keys":["i"],"action":"gear","label":"worn items"}
 {"t":"bind","mode":"play","keys":["space","i"],"action":"gear","label":"worn items"}
 {"t":"bind","mode":"gear","keys":["esc"],"action":"back","label":"back"}
@@ -81,3 +69,27 @@
 {"t":"bind","mode":"gear","keys":["s"],"action":"gear_next","label":"next"}
 {"t":"bind","mode":"gear","keys":["l"],"action":"gear_next","label":"next"}
 {"t":"bind","mode":"gear","keys":["right"],"action":"gear_next","label":"next"}
+{"t":"bind","mode":"tree","keys":["h"],"action":"tree_left","label":"left"}
+{"t":"bind","mode":"tree","keys":["left"],"action":"tree_left","label":"left"}
+{"t":"bind","mode":"tree","keys":["a"],"action":"tree_left","label":"left"}
+{"t":"bind","mode":"tree","keys":["l"],"action":"tree_right","label":"right"}
+{"t":"bind","mode":"tree","keys":["right"],"action":"tree_right","label":"right"}
+{"t":"bind","mode":"tree","keys":["d"],"action":"tree_right","label":"right"}
+{"t":"bind","mode":"tree","keys":["k"],"action":"tree_up","label":"up"}
+{"t":"bind","mode":"tree","keys":["up"],"action":"tree_up","label":"up"}
+{"t":"bind","mode":"tree","keys":["w"],"action":"tree_up","label":"up"}
+{"t":"bind","mode":"tree","keys":["j"],"action":"tree_down","label":"down"}
+{"t":"bind","mode":"tree","keys":["down"],"action":"tree_down","label":"down"}
+{"t":"bind","mode":"tree","keys":["s"],"action":"tree_down","label":"down"}
+{"t":"bind","mode":"shop","keys":["esc"],"action":"back","label":"leave"}
+{"t":"bind","mode":"shop","keys":["enter"],"action":"shop_buy","label":"buy"}
+{"t":"bind","mode":"shop","keys":["k"],"action":"shop_prev","label":"prev"}
+{"t":"bind","mode":"shop","keys":["up"],"action":"shop_prev","label":"prev"}
+{"t":"bind","mode":"shop","keys":["w"],"action":"shop_prev","label":"prev"}
+{"t":"bind","mode":"shop","keys":["h"],"action":"shop_prev","label":"prev"}
+{"t":"bind","mode":"shop","keys":["left"],"action":"shop_prev","label":"prev"}
+{"t":"bind","mode":"shop","keys":["j"],"action":"shop_next","label":"next"}
+{"t":"bind","mode":"shop","keys":["down"],"action":"shop_next","label":"next"}
+{"t":"bind","mode":"shop","keys":["s"],"action":"shop_next","label":"next"}
+{"t":"bind","mode":"shop","keys":["l"],"action":"shop_next","label":"next"}
+{"t":"bind","mode":"shop","keys":["right"],"action":"shop_next","label":"next"}

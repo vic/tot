@@ -16,20 +16,28 @@ pub struct Director {
     final_boss: bool,
     last: Option<u32>,
     fam_mult: Vec<u32>,
+    /// pacing-clock remainder (permille of a tick)
+    clock_acc: u32,
+    /// miniboss spawned so far, and the tick the next is due (None = the cadence start)
+    mini_n: u32,
+    next_mini: Option<u32>,
 }
 
 impl Director {
     pub fn new(seed: u64) -> Director {
-        Director { rng: Xo::stream(seed, Stream::Director), wallet: 0, phase: 0, phase_t: 0, wave_i: 0, thin: 1000, final_boss: false, last: None, fam_mult: Vec::new() }
+        Director { rng: Xo::stream(seed, Stream::Director), wallet: 0, phase: 0, phase_t: 0, wave_i: 0, thin: 1000, final_boss: false, last: None, fam_mult: Vec::new(), clock_acc: 0, mini_n: 0, next_mini: None }
     }
 
     pub fn phase_name(&self) -> &'static str {
         ["BUILD", "PEAK", "FADE", "RELAX"][self.phase]
     }
 
-    fn pace(&mut self, c: &Content) -> u32 {
+    /// Advance the pacing cycle one tick; a hero ahead of par runs the clock faster (shorter waves).
+    fn pace(&mut self, c: &Content, t: u32, level: u16) -> u32 {
         let p = c.pace[self.phase];
-        self.phase_t += 1;
+        self.clock_acc += c.scale.phase_rate(c.hz(), t, level) - 1000;
+        self.phase_t += 1 + self.clock_acc / 1000;
+        self.clock_acc %= 1000;
         if self.phase_t >= p.len {
             self.phase = (self.phase + 1) % 4;
             self.phase_t = 0;
@@ -72,9 +80,10 @@ impl Director {
             self.fam_mult.clone_from(&sim.arena.fam_mult);
         }
         let one = NonZeroU16::MIN;
+        let level = sim.p.level;
         while let Some(ev) = c.waves.get(self.wave_i).filter(|e| e.at() <= t) {
             let cmd = match *ev {
-                WaveEv::Horde { pattern, n, fam, .. } => Some(Cmd::Spawn { fam, n, tier: Tier::Trash, form: pattern }),
+                WaveEv::Horde { pattern, n, fam, .. } => Some(Cmd::Spawn { fam, n: c.scale.horde_n(n, level, c.spawn.live_cap), tier: Tier::Trash, form: pattern }),
                 WaveEv::Boss { fam, last, .. } => {
                     self.final_boss |= last;
                     if last {
@@ -103,7 +112,21 @@ impl Director {
                 let _ = sim.command(Src::Builtin, Cmd::Spawn { fam, n: one, tier, form: Formation::Scatter });
             }
         }
-        let mult = self.pace(c);
+        // named miniboss on its own cadence: spawned as a champion, pre-paid from the trash wallet
+        // (cost per attack kind: a wider attack mix is more threat)
+        // the gap to the next one shrinks as the hero levels (ScaleDef::mini_every)
+        if let Some(plan) = c.mini.as_ref()
+            && t >= self.next_mini.unwrap_or(plan.cadence.from)
+            && !near_boss(t)
+            && let mini = plan.nth(self.mini_n)
+            && let FamKind::Mob(m) = &c.fam(mini.fam).kind
+            && sim.command(Src::Builtin, Cmd::Spawn { fam: mini.fam, n: one, tier: Tier::Champion, form: Formation::Scatter }).is_ok()
+        {
+            self.wallet -= i64::from(m.cost) * mini.attacks.len() as i64;
+            self.mini_n += 1;
+            self.next_mini = Some(t + c.scale.mini_every(plan.cadence.every, level).get());
+        }
+        let mult = self.pace(c, t, level);
         if self.final_boss {
             return; // trash fled; the boss is the content
         }
@@ -218,6 +241,32 @@ mod tests {
         assert!(sim.log.iter().filter(|r| r.ok.is_ok()).count() > 10);
         assert!(sim.log.iter().all(|r| r.src == Src::Builtin));
         assert!(sim.live() > 0);
+    }
+
+    #[test]
+    fn director_spawns_each_miniboss_on_the_cadence() {
+        // short cadence so an idle hero lives through 3 slots
+        let mut t = crate::data::tests::texts();
+        t[6] = t[6].replacen("\"tier\":\"miniboss\",\"from_s\":120,\"every_s\":75", "\"tier\":\"miniboss\",\"from_s\":5,\"every_s\":5", 1);
+        let c = Content::parse(&t).unwrap();
+        let plan = c.mini.as_ref().unwrap();
+        let (from, every) = (plan.cadence.from, plan.cadence.every.get());
+        let mut sim = Sim::new(&c, 1, None);
+        let mut d = Director::new(1);
+        for _ in 0..from + every * 2 + 1 {
+            d.tick(&mut sim);
+            sim.step(&Input { autofire: true, ..Input::default() });
+            if sim.offer.is_some() {
+                sim.step(&Input { pick: Some(crate::sim::PickChoice::Skip), ..Input::default() });
+            }
+        }
+        let minis: Vec<_> = sim.log.iter().filter_map(|r| match r.cmd {
+            Cmd::Spawn { fam, tier: Tier::Champion, .. } if plan.iter().any(|m| m.fam == fam) && r.ok.is_ok() => Some((r.tick, fam)),
+            _ => None,
+        }).collect();
+        assert_eq!(minis.iter().map(|m| m.1).collect::<Vec<_>>(), (0..3).map(|k| plan.nth(k).fam).collect::<Vec<_>>(), "round robin, one per cadence slot");
+        assert_eq!(minis[0].0, from, "first on the cadence start");
+        assert!(minis.windows(2).all(|w| w[1].0 - w[0].0 <= every && w[1].0 > w[0].0), "gaps never exceed the base cadence");
     }
 
     #[test]

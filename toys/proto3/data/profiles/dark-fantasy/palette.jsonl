@@ -1,0 +1,2 @@
+{"t":"head","schema_version":1,"file":"palette"}
+{"t":"palette","scheme":"lumina-oxblood-dark","bg":"#0a0807","fog":"#1c1410","floor":"#3a2e24","player":"#f2e6c8","ring":"#6a3a1e","alarm":"#d2342a","text":"#e0d4bc","dim":"#8a7a62","xp":"#c9a227","chest":"#f2c14e","hud_bg":"#140e0a","kin":"#8aa83a","therm":"#e8742a","emp":"#4aa0c8","code":"#a06ad0","floor_glyphs":".,':;·`","density_glyphs":"▪▓█","face_glyphs":"▓█▒","shadow_glyph":"▁","body_glyph":"┃"}

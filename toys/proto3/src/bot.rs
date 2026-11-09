@@ -299,6 +299,7 @@ pub fn cause_name(c: &Content, o: &Outcome) -> String {
                 Cause::Contact { fam, tier } => format!("{} {:?}{f}", c.fam(*fam).name, tier),
                 Cause::Shot { fam } => format!("{} shot{f}", c.fam(*fam).name),
                 Cause::BossAttack { fam } => format!("{} attack{f}", c.fam(*fam).name),
+                Cause::Blast => format!("blast{f}"),
             }
         }
     }

@@ -1,0 +1,39 @@
+{"t":"head","schema_version":1,"file":"trees"}
+{"t":"class","id":"scripter","name":"SCRIPTER"}
+{"t":"class","id":"janitor","name":"JANITOR"}
+{"t":"tree","id":"packet","name":"PACKET ARTS","class":"scripter","tag":"magic"}
+{"t":"node","tree":"packet","id":"packet0","name":"SYN FLOOD","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"packet","id":"packet1","name":"BURST","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}
+{"t":"node","tree":"packet","id":"packet2","name":"ARC LINK","effect":"chain","cost":1,"tag":"thunder","requires":["packet0"],"col":2,"row":1}
+{"t":"node","tree":"packet","id":"packet3","name":"SHOCK NET","effect":"pulse","cost":2,"tag":"thunder","requires":["packet1","packet2"],"col":1,"row":2}
+{"t":"node","tree":"packet","id":"packet4","name":"ROOT SHELL","effect":"bolt","cost":3,"requires":["packet3"],"col":1,"row":3}
+{"t":"tree","id":"daemon","name":"DAEMONS","class":"scripter","tag":"necro"}
+{"t":"node","tree":"daemon","id":"daemon0","name":"SPAWN DAEMON","effect":"orbit","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"daemon","id":"daemon1","name":"ZOMBIE PROC","effect":"hack","cost":1,"requires":["daemon0"],"col":0,"row":1}
+{"t":"node","tree":"daemon","id":"daemon2","name":"LOGIC TRAP","effect":"mine","cost":1,"requires":["daemon0"],"col":2,"row":1}
+{"t":"node","tree":"daemon","id":"daemon3","name":"HIVE LINK","effect":"hack","cost":2,"requires":["daemon1","daemon2"],"col":1,"row":2}
+{"t":"node","tree":"daemon","id":"daemon4","name":"LICH CORE","effect":"orbit","cost":3,"requires":["daemon3"],"col":1,"row":3}
+{"t":"tree","id":"clock","name":"OVERCLOCK","class":"scripter","tag":"speed"}
+{"t":"node","tree":"clock","id":"clock0","name":"SPIN UP","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"clock","id":"clock1","name":"FAST BUS","effect":"haste","cost":1,"requires":["clock0"],"col":0,"row":1}
+{"t":"node","tree":"clock","id":"clock2","name":"MAGNET RAIL","effect":"magnet","cost":1,"tag":"dex","requires":["clock0"],"col":2,"row":1}
+{"t":"node","tree":"clock","id":"clock3","name":"HOT SWAP","effect":"regen","cost":2,"requires":["clock1","clock2"],"col":1,"row":2}
+{"t":"node","tree":"clock","id":"clock4","name":"TURBO","effect":"haste","cost":3,"requires":["clock3"],"col":1,"row":3}
+{"t":"tree","id":"mop","name":"MOP FORM","class":"janitor","tag":"melee"}
+{"t":"node","tree":"mop","id":"mop0","name":"FIRM GRIP","effect":"might","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"mop","id":"mop1","name":"HARD SHELL","effect":"plating","cost":1,"requires":["mop0"],"col":0,"row":1}
+{"t":"node","tree":"mop","id":"mop2","name":"WIDE SWEEP","effect":"orbit","cost":1,"requires":["mop0"],"col":2,"row":1}
+{"t":"node","tree":"mop","id":"mop3","name":"SCRUB DOWN","effect":"might","cost":2,"requires":["mop1","mop2"],"col":1,"row":2}
+{"t":"node","tree":"mop","id":"mop4","name":"DEEP CLEAN","effect":"plating","cost":3,"requires":["mop3"],"col":1,"row":3}
+{"t":"tree","id":"arc","name":"ARC WORK","class":"janitor","tag":"thunder"}
+{"t":"node","tree":"arc","id":"arc0","name":"LIVE WIRE","effect":"chain","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"arc","id":"arc1","name":"SURGE","effect":"pulse","cost":1,"requires":["arc0"],"col":0,"row":1}
+{"t":"node","tree":"arc","id":"arc2","name":"STATIC","effect":"bolt","cost":1,"requires":["arc0"],"col":2,"row":1}
+{"t":"node","tree":"arc","id":"arc3","name":"STORM FRONT","effect":"chain","cost":2,"requires":["arc1","arc2"],"col":1,"row":2}
+{"t":"node","tree":"arc","id":"arc4","name":"CAPACITOR","effect":"pulse","cost":3,"requires":["arc3"],"col":1,"row":3}
+{"t":"tree","id":"slip","name":"SLIP STEP","class":"janitor","tag":"dex"}
+{"t":"node","tree":"slip","id":"slip0","name":"LIGHT FOOT","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"slip","id":"slip1","name":"VACUUM","effect":"magnet","cost":1,"requires":["slip0"],"col":0,"row":1}
+{"t":"node","tree":"slip","id":"slip2","name":"TRIP WIRE","effect":"mine","cost":1,"requires":["slip0"],"col":2,"row":1}
+{"t":"node","tree":"slip","id":"slip3","name":"PATCH UP","effect":"regen","cost":2,"requires":["slip1","slip2"],"col":1,"row":2}
+{"t":"node","tree":"slip","id":"slip4","name":"GHOST MOP","effect":"haste","cost":3,"requires":["slip3"],"col":1,"row":3}

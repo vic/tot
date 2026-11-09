@@ -1,0 +1,39 @@
+{"t":"head","schema_version":1,"file":"trees"}
+{"t":"class","id":"gravekeeper","name":"GRAVE-KEEPER"}
+{"t":"class","id":"witchhunter","name":"WITCH HUNTER"}
+{"t":"tree","id":"packet","name":"ARCANE ARTS","class":"gravekeeper","tag":"magic"}
+{"t":"node","tree":"packet","id":"packet0","name":"FIRST SPARK","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"packet","id":"packet1","name":"BLAST","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}
+{"t":"node","tree":"packet","id":"packet2","name":"FORKED BOLT","effect":"chain","cost":1,"tag":"thunder","requires":["packet0"],"col":2,"row":1}
+{"t":"node","tree":"packet","id":"packet3","name":"THUNDER WEB","effect":"pulse","cost":2,"tag":"thunder","requires":["packet1","packet2"],"col":1,"row":2}
+{"t":"node","tree":"packet","id":"packet4","name":"ARCHMAGE","effect":"bolt","cost":3,"requires":["packet3"],"col":1,"row":3}
+{"t":"tree","id":"daemon","name":"THE DEAD","class":"gravekeeper","tag":"necro"}
+{"t":"node","tree":"daemon","id":"daemon0","name":"RAISE SPIRIT","effect":"orbit","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"daemon","id":"daemon1","name":"RISEN THRALL","effect":"hack","cost":1,"requires":["daemon0"],"col":0,"row":1}
+{"t":"node","tree":"daemon","id":"daemon2","name":"GRAVE TRAP","effect":"mine","cost":1,"requires":["daemon0"],"col":2,"row":1}
+{"t":"node","tree":"daemon","id":"daemon3","name":"BONE CHOIR","effect":"hack","cost":2,"requires":["daemon1","daemon2"],"col":1,"row":2}
+{"t":"node","tree":"daemon","id":"daemon4","name":"PHYLACTERY","effect":"orbit","cost":3,"requires":["daemon3"],"col":1,"row":3}
+{"t":"tree","id":"clock","name":"QUICKENING","class":"gravekeeper","tag":"speed"}
+{"t":"node","tree":"clock","id":"clock0","name":"SECOND WIND","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"clock","id":"clock1","name":"FLEET FOOT","effect":"haste","cost":1,"requires":["clock0"],"col":0,"row":1}
+{"t":"node","tree":"clock","id":"clock2","name":"GRAVE PULL","effect":"magnet","cost":1,"tag":"dex","requires":["clock0"],"col":2,"row":1}
+{"t":"node","tree":"clock","id":"clock3","name":"BLOOD RITE","effect":"regen","cost":2,"requires":["clock1","clock2"],"col":1,"row":2}
+{"t":"node","tree":"clock","id":"clock4","name":"DEATH SPRINT","effect":"haste","cost":3,"requires":["clock3"],"col":1,"row":3}
+{"t":"tree","id":"mop","name":"BLADE FORM","class":"witchhunter","tag":"melee"}
+{"t":"node","tree":"mop","id":"mop0","name":"IRON GRIP","effect":"might","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"mop","id":"mop1","name":"PLATE WARD","effect":"plating","cost":1,"requires":["mop0"],"col":0,"row":1}
+{"t":"node","tree":"mop","id":"mop2","name":"WHIRLING CUT","effect":"orbit","cost":1,"requires":["mop0"],"col":2,"row":1}
+{"t":"node","tree":"mop","id":"mop3","name":"CLEAVE","effect":"might","cost":2,"requires":["mop1","mop2"],"col":1,"row":2}
+{"t":"node","tree":"mop","id":"mop4","name":"PURGE BY FIRE","effect":"plating","cost":3,"requires":["mop3"],"col":1,"row":3}
+{"t":"tree","id":"arc","name":"STORM CALLING","class":"witchhunter","tag":"thunder"}
+{"t":"node","tree":"arc","id":"arc0","name":"STORM TOUCH","effect":"chain","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"arc","id":"arc1","name":"TEMPEST","effect":"pulse","cost":1,"requires":["arc0"],"col":0,"row":1}
+{"t":"node","tree":"arc","id":"arc2","name":"SPARK","effect":"bolt","cost":1,"requires":["arc0"],"col":2,"row":1}
+{"t":"node","tree":"arc","id":"arc3","name":"STORM FRONT","effect":"chain","cost":2,"requires":["arc1","arc2"],"col":1,"row":2}
+{"t":"node","tree":"arc","id":"arc4","name":"LEYLINE","effect":"pulse","cost":3,"requires":["arc3"],"col":1,"row":3}
+{"t":"tree","id":"slip","name":"SHADOW STEP","class":"witchhunter","tag":"dex"}
+{"t":"node","tree":"slip","id":"slip0","name":"LIGHT STEP","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"slip","id":"slip1","name":"SCAVENGE","effect":"magnet","cost":1,"requires":["slip0"],"col":0,"row":1}
+{"t":"node","tree":"slip","id":"slip2","name":"SNARE","effect":"mine","cost":1,"requires":["slip0"],"col":2,"row":1}
+{"t":"node","tree":"slip","id":"slip3","name":"BANDAGE","effect":"regen","cost":2,"requires":["slip1","slip2"],"col":1,"row":2}
+{"t":"node","tree":"slip","id":"slip4","name":"GHOST BLADE","effect":"haste","cost":3,"requires":["slip3"],"col":1,"row":3}

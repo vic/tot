@@ -1,0 +1,15 @@
+{"t":"head","schema_version":1,"file":"items"}
+{"t":"item","id":"mesh_vest","name":"PADDED GAMBESON","slot":"armor","rarity":"common","glyph":"[","mods":[{"stat":"armour","value":3}],"desc":"Quilted wool under a leather jerkin. Blunts glancing blows."}
+{"t":"item","id":"hazmat_plate","name":"RIVETED CUIRASS","slot":"armor","rarity":"rare","glyph":"[","mods":[{"stat":"armour","value":6},{"stat":"max_hp","value":40}],"desc":"Riveted steel plate that has seen three sieges."}
+{"t":"item","id":"firewall_coat","name":"WARDED MAIL","slot":"armor","rarity":"epic","glyph":"[","mods":[{"stat":"armour","value":9},{"stat":"max_hp","value":80},{"stat":"regen","value":1.0}],"desc":"Rings of silver wire turn the dead hand aside."}
+{"t":"item","id":"loop_band","name":"TIN BAND","slot":"ring","rarity":"common","glyph":"o","mods":[{"stat":"haste","value":0.05}],"desc":"A dull band. It quickens the pulse."}
+{"t":"item","id":"signal_ring","name":"SIGNET OF EMBERS","slot":"ring","rarity":"rare","glyph":"o","mods":[{"stat":"crit","value":0.05},{"stat":"damage","value":0.08}],"desc":"Embers dance in the stone. Every blow bites harder."}
+{"t":"item","id":"overflow_loop","name":"OUROBOROS","slot":"ring","rarity":"legendary","glyph":"o","mods":[{"stat":"haste","value":0.15},{"stat":"damage","value":0.15},{"stat":"crit","value":0.08}],"desc":"The serpent eats its tail and never tires."}
+{"t":"item","id":"lint_chip","name":"GRAVE DUST SHARD","slot":"jewel","rarity":"common","glyph":"*","mods":[{"stat":"pickup","value":1.0}],"desc":"Pulls loose coin and bone to your hand."}
+{"t":"item","id":"prism_core","name":"PRISM OF DUSK","slot":"jewel","rarity":"rare","glyph":"*","mods":[{"stat":"area","value":0.12},{"stat":"pickup","value":1.5}],"desc":"Splits a spell into a wider fan."}
+{"t":"item","id":"kernel_gem","name":"HEART OF THE KING","slot":"jewel","rarity":"unique","glyph":"*","mods":[{"stat":"damage","value":0.25},{"stat":"speed","value":0.05}],"desc":"Only one king ever wore it."}
+{"t":"item","id":"push_broom","name":"RUSTED SWORD","slot":"weapon","rarity":"common","glyph":"/","mods":[{"stat":"damage","value":0.06}],"desc":"Standard issue. Pitted but sharp."}
+{"t":"item","id":"arc_wand","name":"STORMCALLER","slot":"weapon","rarity":"epic","glyph":"/","mods":[{"stat":"damage","value":0.2},{"stat":"area","value":0.1},{"stat":"haste","value":0.08}],"desc":"An oak branch that remembers lightning."}
+{"t":"item","id":"lucky_fuse","name":"RABBIT FOOT","slot":"charm","rarity":"common","glyph":"+","mods":[{"stat":"speed","value":0.03}],"desc":"Kept for luck. It has not run out yet."}
+{"t":"item","id":"ghost_tag","name":"WIDOWS CHARM","slot":"charm","rarity":"rare","glyph":"+","mods":[{"stat":"speed","value":0.06},{"stat":"regen","value":0.5}],"desc":"A mourners keepsake. Quiets the footfall."}
+{"t":"item","id":"null_idol","name":"HOLLOW IDOL","slot":"charm","rarity":"unique","glyph":"+","mods":[{"stat":"max_hp","value":120},{"stat":"armour","value":4},{"stat":"regen","value":2.0},{"stat":"speed","value":0.04}],"desc":"Absorbs the void. Hums when the dead are near."}

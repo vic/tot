@@ -13,6 +13,11 @@ impl SplitMix64 {
     }
 }
 
+/// Stateless splitmix finalizer: one well-mixed word per input (hash keys, per-cell draws).
+pub fn mix(a: u64) -> u64 {
+    SplitMix64(a).next()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Xo([u64; 4]);
 
@@ -27,6 +32,8 @@ pub enum Stream {
     Gen = 5,
     /// boss home positions (map pointers)
     Map = 6,
+    /// weather schedule key
+    Weather = 7,
 }
 
 impl Xo {

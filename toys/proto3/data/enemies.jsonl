@@ -8,3 +8,11 @@
 {"t":"family","id":"kiosk","name":"KIOSK HIVEMIND","glyph":"K","hue":"code","role":"boss","hp_abs":4000,"speed_mps":1.5,"dmg":3.0,"radius_m":1.6}
 {"t":"family","id":"sweeper","name":"SWEEPER-9","glyph":"S","hue":"kin","role":"boss","hp_abs":40000,"speed_mps":2.0,"dmg":4.0,"radius_m":2.0}
 {"t":"family","id":"thief","name":"THIEF","glyph":"&","hue":"code","role":{"thief":{"flee_m":6}},"hp":0.7,"speed_mps":3.6,"dmg":0.5,"cost":2,"ice":3,"hijack_s":10,"radius_m":0.3,"unlock_s":60,"weight":3}
+{"t":"family","id":"popper","name":"POPPER","glyph":"o","hue":"therm","role":{"exploder":{"radius_m":2.5,"dmg":0.15}},"hp":0.5,"speed_mps":3.0,"dmg":0.4,"cost":2.5,"ice":2,"hijack_s":10,"radius_m":0.35,"unlock_s":90,"weight":3}
+{"t":"family","id":"rager","name":"RAGER","glyph":"R","hue":"kin","role":{"berserker":{"below":0.4,"mult":1.5}},"hp":2.0,"speed_mps":2.6,"dmg":1.2,"cost":3,"ice":4,"hijack_s":9,"radius_m":0.45,"unlock_s":150,"weight":3}
+{"t":"family","id":"chiller","name":"CHILLER","glyph":"f","hue":"emp","role":{"frost_caster":{"range_m":8,"shot_mps":5,"every_s":3.5,"dmg":0.4,"freeze_s":1.2}},"hp":0.9,"speed_mps":2.4,"dmg":0.5,"cost":3,"ice":3,"hijack_s":10,"radius_m":0.35,"unlock_s":210,"weight":2}
+{"t":"family","id":"bulwark","name":"BULWARK","glyph":"#","hue":"code","role":{"shield":{"reduce":0.5}},"hp":6.0,"speed_mps":1.8,"dmg":1.4,"cost":5,"ice":8,"hijack_s":8,"radius_m":0.55,"unlock_s":240,"weight":2}
+{"t":"family","id":"mite","name":"MITE","glyph":".","hue":"kin","role":{"swarm":{"pack":6}},"hp":0.15,"speed_mps":4.0,"dmg":0.25,"cost":0.8,"ice":1,"hijack_s":6,"radius_m":0.2,"unlock_s":100,"weight":4}
+{"t":"family","id":"chute_warden","name":"CHUTE WARDEN","glyph":"W","hue":"kin","role":"melee","hp":14.0,"speed_mps":2.2,"dmg":2.0,"cost":10,"ice":14,"hijack_s":6,"radius_m":0.8,"unlock_s":0,"weight":0}
+{"t":"family","id":"crumb_mother","name":"CRUMB MOTHER","glyph":"M","hue":"code","role":{"aura":{"radius_m":5,"ice":6}},"hp":10.0,"speed_mps":1.9,"dmg":1.2,"cost":10,"ice":12,"hijack_s":6,"radius_m":0.7,"unlock_s":0,"weight":0}
+{"t":"family","id":"arc_janitor","name":"ARC JANITOR","glyph":"J","hue":"emp","role":{"ranged":{"range_m":10,"shot_mps":6,"every_s":2.0,"dmg":2.0}},"hp":12.0,"speed_mps":2.4,"dmg":1.5,"cost":10,"ice":12,"hijack_s":6,"radius_m":0.65,"unlock_s":0,"weight":0}

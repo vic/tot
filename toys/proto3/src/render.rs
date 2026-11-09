@@ -1,10 +1,10 @@
 //! Pure render: sim state -> cell grid -> diff bytes (design sec 5). One buffer per frame, diff
 //! against the front buffer, hand decimal writer (no core::fmt in the frame path, PF sec 1c).
-use crate::data::{Content, Glyph, Hue, Rgb};
+use crate::data::{Content, Glyph, Hue, Rgb, Role};
 use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
-use crate::iso::Proj;
+use crate::iso::{Heading, Proj};
 use crate::sim::{BARK_TICKS, BarkKind, CONF_PANIC, FxShape, Shape, Side, Sim, TeleKind, Tier, dist2};
 use std::collections::HashSet;
 
@@ -15,11 +15,16 @@ const MAP_H: u16 = 11;
 const MAP_K: i32 = 4;
 /// Stats panel (bottom-right of the play area).
 const PANEL_W: u16 = 36;
-const PANEL_H: u16 = 18;
+const PANEL_H: u16 = PANEL_CAST_ROW + 1 + Cast::ALL.len() as u16;
 /// Stats panel: power rows shown, first row of the foe list, XP bar width.
 const PANEL_POWERS: usize = 5;
 const MORALE_BAR_W: u16 = 10;
 const PANEL_FOES_ROW: u16 = 12;
+/// Hostile (family, tier) rows under FOES, then the CAST block (hero, allies, panicked, thieves).
+const PANEL_FOE_ROWS: u16 = 5;
+const PANEL_CAST_ROW: u16 = PANEL_FOES_ROW + 1 + PANEL_FOE_ROWS;
+/// Width of the share bar on each foe / cast row.
+const MINI_BAR_W: u16 = 6;
 const XP_BAR_W: u16 = 18;
 /// Chest sprite (3x2, centred on the chest cell) and its glow pulse period (ticks).
 const CHEST: [&str; 2] = ["▛▀▜", "▙▄▟"];
@@ -114,6 +119,12 @@ pub struct Frame {
     seen: HashSet<(i32, i32)>,
     /// wall ms (View::now_ms) when the current sim tick was first drawn
     tick_ms: u64,
+    /// hero level last frame, and the running level-up flash (wall ms it began, level reached)
+    level: Option<u16>,
+    level_flash: Option<(u64, u16)>,
+    /// kill bursts (world x, y, sim tick of the death) and the boss ROAR (boss id, sim tick it appeared)
+    pops: Vec<(i32, i32, u32)>,
+    roar: Option<(u32, u32)>,
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
@@ -182,6 +193,10 @@ impl Frame {
             pos: Vec::new(),
             seen: HashSet::new(),
             tick_ms: 0,
+            level: None,
+            level_flash: None,
+            pops: Vec::with_capacity(POPS_MAX),
+            roar: None,
         }
     }
 
@@ -196,6 +211,8 @@ impl Frame {
             }
             _ => {
                 self.cam.reset();
+                self.pops.clear();
+                self.roar = None;
                 self.prev.clear();
                 self.cur.clear();
                 self.cur_p = (sim.p.x, sim.p.y);
@@ -207,6 +224,10 @@ impl Frame {
         self.cur.extend((0..sim.e.len()).map(|k| (sim.e.id[k], sim.e.x[k], sim.e.y[k])));
         self.cur.sort_unstable();
         self.cur_p = (sim.p.x, sim.p.y);
+        let now = sim.tick;
+        self.pops.retain(|p| now.saturating_sub(p.2) < POP_TICKS);
+        let room = POPS_MAX.saturating_sub(self.pops.len());
+        self.pops.extend(vanished(&self.prev, &self.cur).take(room).map(|(x, y)| (x, y, now)));
         if self.prev.is_empty() {
             self.prev.clone_from(&self.cur);
         }
@@ -363,6 +384,7 @@ impl Frame {
         }
         self.enemies(sim);
         self.fed(sim);
+        self.sound_fx(sim);
         // 6. enemy shots (no id: drawn at the current tick)
         for k in 0..sim.shots.x.len() {
             let (x, y) = (f64::from(sim.shots.x[k]), f64::from(sim.shots.y[k]));
@@ -391,6 +413,11 @@ impl Frame {
         let body = Ink { ch: pal.body, fg: pfg, bg: None };
         let shadow = Ink { ch: pal.shadow, fg: pal.dim, bg: None };
         self.stand(pi, i32::MAX, c.view.actor_rows[0], Prio::PlayerCore, [head, body, shadow]);
+        if self.level.is_some_and(|l| sim.p.level > l) {
+            self.level_flash = Some((v.now_ms, sim.p.level));
+        }
+        self.level = Some(sim.p.level);
+        self.level_fx(sim, v.now_ms, (pcol, prow));
         if ui.mode == Mode::Look {
             let (cc, rc) = self.centre();
             let (x, y) = (cc + ui.cursor.0, rc + ui.cursor.1);
@@ -699,7 +726,8 @@ impl Frame {
     }
 
     fn bar(&mut self, row: u16, col: u16, val: i64, max: i64, w: u16, fg: Rgb) -> u16 {
-        let fill = (val.max(0) * i64::from(w) / max.max(1)) as u16;
+        // round up: any nonzero value shows at least one cell, so a minority is never an empty bar
+        let fill = ((val.max(0) * i64::from(w) + max.max(1) - 1) / max.max(1)).min(i64::from(w)) as u16;
         let mut x = col;
         for k in 0..w {
             x = self.text(row, x, if k < fill { "█" } else { "░" }, if k < fill { fg } else { self.cells[0].fg });
@@ -713,27 +741,7 @@ impl Frame {
         let (Mode::Pick, Some(offer)) = (ui.mode, sim.offer) else { return };
         let c = sim.c;
         let pal = &c.pal;
-        let w = POPUP_W.min(self.cols.saturating_sub(4));
-        let h = POPUP_H;
-        if self.play_rows() < h {
-            return;
-        }
-        let (x0, y0) = ((self.cols - w) / 2, (self.play_rows() - h) / 2);
-        let cols = usize::from(self.cols);
-        for r in 0..h {
-            for col in 0..w {
-                let i = usize::from(y0 + r) * cols + usize::from(x0 + col);
-                self.cells[i] = Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.hud_bg };
-            }
-        }
-        let edge = |f: &mut Self, row: u16, ch: char, fg: Rgb| {
-            for col in 0..w {
-                let i = usize::from(row) * cols + usize::from(x0 + col);
-                f.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: pal.hud_bg };
-            }
-        };
-        edge(self, y0, '─', pal.of(Hue::Kin));
-        edge(self, y0 + h - 1, '─', pal.of(Hue::Kin));
+        let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
         let limit = sim.pick_timeout_ms();
         let left_ms = limit.saturating_sub(now_ms.saturating_sub(ui.pick_open_ms));
         let x = self.text(y0 + 1, x0 + 2, "UPGRADE  choose before ", pal.alarm);
@@ -769,6 +777,63 @@ impl Frame {
         for k in 0..bar_w {
             let ch = if k < fill { '█' } else { '░' };
             self.text(y0 + h - 2, x0 + 2 + k, &ch.to_string(), if k < fill { pal.alarm } else { pal.dim });
+        }
+    }
+
+    /// Centred popup box, cleared, with top and bottom edges: (x0, y0, w, h). None if the screen is too small.
+    fn popup_box(&mut self, pal: &crate::data::Palette) -> Option<(u16, u16, u16, u16)> {
+        let (w, h) = (POPUP_W.min(self.cols.saturating_sub(4)), POPUP_H);
+        if self.play_rows() < h {
+            return None;
+        }
+        let (x0, y0) = ((self.cols - w) / 2, (self.play_rows() - h) / 2);
+        let cols = usize::from(self.cols);
+        for r in 0..h {
+            let edge = r == 0 || r == h - 1;
+            let cell = if edge { Cell { ch: Glyph::of('─').unwrap_or(Glyph::SPACE), fg: pal.of(Hue::Kin), bg: pal.hud_bg } } else { Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.hud_bg } };
+            let i = usize::from(y0 + r) * cols + usize::from(x0);
+            self.cells[i..i + usize::from(w)].fill(cell);
+        }
+        Some((x0, y0, w, h))
+    }
+
+    /// Skill tree, gear and shop: plain-text lists in the popup box, cursor row marked with `>`.
+    fn menu(&mut self, sim: &Sim, ui: &Ui) {
+        let c = sim.c;
+        let pal = &c.pal;
+        // (title, rows of (text, colour)), cursor
+        let (title, rows, sel): (String, Vec<(String, Rgb)>, usize) = match ui.mode {
+            Mode::Tree => {
+                let Some(t) = crate::input::hero_tree(c) else { return };
+                let class = c.classes.get(t.class.ix()).map_or("", |k| k.name.as_str());
+                let title = format!("{} ({class}, {:?})  points {}  learned {}", t.name, t.tag, ui.tree_points(), ui.tree_owned.count());
+                let rows = t.nodes.iter().enumerate().map(|(i, n)| {
+                    let mark = if ui.tree_owned.has(i) { "*" } else { " " };
+                    (format!("{mark} {}  {:?}  cost {}  grants {}", n.name, n.tag, n.cost, c.skill(n.effect).name), if ui.tree_owned.has(i) { pal.xp } else { pal.text })
+                });
+                (title, rows.collect(), ui.tree_sel)
+            }
+            Mode::Gear => {
+                let rows = c.items.iter().map(|it| (format!("{} {}  {:?}  {}", it.glyph.ch(), it.name, it.slot, it.desc), pal.role(it.rarity.role())));
+                ("GEAR".into(), rows.collect(), ui.gear_sel)
+            }
+            Mode::Shop => {
+                let deals = sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map_or(&[][..], Vec::as_slice);
+                let rows = deals.iter().filter_map(|d| c.items.get(usize::from(d.item.0)).map(|it| (format!("{} {}  {} gold", it.glyph.ch(), it.name, d.price), pal.role(it.rarity.role()))));
+                (format!("SHOP  gold {}", sim.p.gold), rows.collect(), ui.shop_sel)
+            }
+            Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd => return,
+        };
+        let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
+        self.text(y0 + 1, x0 + 2, &title, pal.alarm);
+        let fit = usize::from(w) - 4;
+        // scroll so the cursor row stays inside the box
+        let shown = usize::from(h) - 4;
+        let first = sel.saturating_sub(shown - 1);
+        for (k, (s, fg)) in rows.iter().enumerate().skip(first).take(shown) {
+            let row = y0 + 3 + (k - first) as u16;
+            let line: String = format!("{}{s}", if k == sel { "> " } else { "  " }).chars().take(fit).collect();
+            self.text(row, x0 + 2, &line, *fg);
         }
     }
 
@@ -843,6 +908,76 @@ impl Frame {
         }
     }
 
+    /// Level-up: an XP-coloured ring bursts out of the hero and a taunt floats above them for LEVEL_FLASH_MS.
+    fn level_fx(&mut self, sim: &Sim, now_ms: u64, (pcol, prow): (i32, i32)) {
+        let Some((start, level)) = self.level_flash else { return };
+        let t = now_ms.saturating_sub(start);
+        if t >= LEVEL_FLASH_MS {
+            self.level_flash = None;
+            return;
+        }
+        let pal = &sim.c.pal;
+        let r = ring_radius(t);
+        let star = Glyph::of('*').unwrap_or(Glyph::SPACE);
+        let n = LEVEL_RING_POINTS;
+        let mid = prow - i32::from(sim.c.view.actor_rows[0]) / 2;
+        for k in 0..n {
+            let a = f64::from(k) * std::f64::consts::TAU / f64::from(n);
+            // terminal cells are 2:1, so the horizontal reach is doubled to look round
+            self.flash_cell(pcol + (r * 2.0 * a.cos()).round() as i32, mid + (r * a.sin()).round() as i32, star, pal.xp);
+        }
+        let line = level_line(level);
+        let top = prow - i32::from(sim.c.view.actor_rows[0]) - LEVEL_LINE_GAP;
+        let c0 = (pcol - line.chars().count() as i32 / 2).max(0);
+        if top >= 0 {
+            self.text(top as u16, c0 as u16, &line, pal.xp);
+        }
+    }
+
+    /// Sound as sight: a burst where a foe vanished, and a shaking ROAR over a boss that just appeared.
+    fn sound_fx(&mut self, sim: &Sim) {
+        let (c, now) = (sim.c, sim.tick);
+        let pal = &c.pal;
+        for k in 0..self.pops.len() {
+            let (x, y, at) = self.pops[k];
+            let (col, row) = self.scr(f64::from(x), f64::from(y));
+            let frame = POP_FRAMES[((now.saturating_sub(at)) * POP_FRAMES.len() as u32 / POP_TICKS).min(POP_FRAMES.len() as u32 - 1) as usize];
+            for (dc, ch) in frame.chars().enumerate() {
+                if ch != ' ' {
+                    self.flash_cell(col + dc as i32 - 1, row - 1, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.xp);
+                }
+            }
+        }
+        let Some(b) = sim.boss_ix() else { return };
+        let id = sim.e.id[b];
+        if self.roar.is_none_or(|r| r.0 != id) {
+            self.roar = Some((id, now));
+        }
+        if !self.roar.is_some_and(|(_, at)| now.saturating_sub(at) < ROAR_TICKS) {
+            return;
+        }
+        let Some(def) = c.boss_of(sim.e.fam[b]) else { return };
+        let (col, row) = self.scr(self.pos[b].0, self.pos[b].1);
+        let shake = if now.is_multiple_of(2) { -1 } else { 1 };
+        let left = col - ROAR_W / 2 + shake;
+        let top = row - i32::from(def.h) - ROAR_GAP - ROAR_ROWS as i32;
+        for (r, line) in ROAR.iter().enumerate() {
+            for (k, ch) in line.chars().enumerate() {
+                if ch != ' ' {
+                    self.flash_cell(left + k as i32, top + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), pal.alarm);
+                }
+            }
+        }
+    }
+
+    fn flash_cell(&mut self, col: i32, row: i32, ch: Glyph, fg: Rgb) {
+        if col >= 0 && row >= 0 && col < i32::from(self.cols) && row < i32::from(self.play_rows()) {
+            let i = row as usize * usize::from(self.cols) + col as usize;
+            self.cells[i].ch = ch;
+            self.cells[i].fg = fg;
+        }
+    }
+
     /// Fed thieves glow gold (stronger the more loot they ate); recent bites float a line above them.
     fn fed(&mut self, sim: &Sim) {
         let pal = &sim.c.pal;
@@ -866,9 +1001,10 @@ impl Frame {
             if sim.tick.saturating_sub(b.tick) >= BARK_TICKS || self.cell_of(f64::from(b.x), f64::from(b.y)).is_none() {
                 continue;
             }
-            let BarkKind::Stole { power } = b.kind;
-            let line = STOLE_LINES[b.id as usize % STOLE_LINES.len()];
-            let text = format!("{line} +{power}");
+            let text = match b.kind {
+                BarkKind::Stole { power } => format!("{} +{power}", STOLE_LINES[b.id as usize % STOLE_LINES.len()]),
+                BarkKind::Learned { ability } => format!("learned {ability:?}!"),
+            };
             let (col, row) = self.scr(f64::from(b.x), f64::from(b.y));
             // rise one row per third of the lifetime, like a speech bubble floating off
             let up = 2 + (sim.tick - b.tick) * 3 / BARK_TICKS;
@@ -889,8 +1025,7 @@ impl Frame {
         }
         let (col, row) = self.scr(x, y);
         let d = self.vd(x, y);
-        let pulse = if (sim.tick / CHEST_PULSE).is_multiple_of(2) { 550 } else { 750 };
-        let glow = mix(pal.chest, pal.bg, pulse);
+        let glow = chest_glow(pal, sim.tick);
         for (dr, line) in CHEST.iter().enumerate() {
             for (dc, ch) in line.chars().enumerate() {
                 let (c2, r2) = (col + dc as i32 - 1, row + dr as i32 - 1);
@@ -922,16 +1057,18 @@ impl Frame {
     fn overlays(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
         self.boss_bar(sim);
         self.popup(sim, ui, now_ms);
+        self.menu(sim, ui);
         let c = sim.c;
         let unit = c.view.floor_cell.max(1) * MAP_K;
         let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
-        self.seen.insert((px, py));
+        // view_m can be smaller than one map cell (unit); still reveal the hero's neighbours
+        explore(&mut self.seen, (px, py), (c.view.view_r / unit).max(1));
         // targets: scheduled bosses not yet spawned (home), and the live boss
         let mut t: Vec<(i32, i32, usize)> = sim.boss_home.iter().filter(|h| !h.spawned).map(|h| (h.x, h.y, h.fam.ix())).collect();
         if let Some(b) = sim.boss_ix() {
             t.push((sim.e.x[b], sim.e.y[b], sim.e.fam[b].ix()));
         }
-        self.map(sim, unit, (px, py), &t, &sim.treasures);
+        self.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures);
         self.panel(sim);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
@@ -942,7 +1079,7 @@ impl Frame {
         }
     }
 
-    fn map(&mut self, sim: &Sim, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
+    fn map(&mut self, sim: &Sim, heading: Heading, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
         let c = sim.c;
         let pal = &c.pal;
         let cols = usize::from(self.cols);
@@ -952,21 +1089,29 @@ impl Frame {
         }
         for dr in 0..MAP_H {
             for dc in 0..MAP_W {
-                let (cx, cy) = (px + i32::from(dc) - i32::from(MAP_W / 2), py + i32::from(dr) - i32::from(MAP_H / 2));
+                let (ox, oy) = heading.unrot(i32::from(dc) - i32::from(MAP_W / 2), i32::from(dr) - i32::from(MAP_H / 2));
+                let (cx, cy) = (px + ox, py + oy);
+                let known = self.seen.contains(&(cx, cy));
                 let (ch, fg) = if (cx, cy) == (px, py) {
                     ('@', pal.player)
                 } else if treasures.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
                     ('■', pal.chest)
                 } else if t.iter().any(|&(x, y, _)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
                     ('B', pal.alarm)
-                } else if self.seen.contains(&(cx, cy)) {
-                    ('·', pal.dim)
+                } else if known {
+                    ('░', pal.floor)
                 } else {
-                    (' ', pal.dim)
+                    (' ', pal.fog)
                 };
                 let i = usize::from(y0 + dr) * cols + usize::from(x0 + dc);
-                self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: pal.hud_bg };
+                self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: if ch == '■' { chest_glow(pal, sim.tick) } else if known { pal.hud_bg } else { pal.fog } };
             }
+        }
+        // compass on the border: each letter sits on the edge its world direction points to now
+        for (letter, wx, wy) in COMPASS {
+            let (col, row) = compass_cell(heading, wx, wy);
+            let i = usize::from(row) * cols + usize::from(col);
+            self.cells[i] = Cell { ch: Glyph::of(letter).unwrap_or(Glyph::SPACE), fg: if letter == 'N' { pal.alarm } else { pal.text }, bg: pal.hud_bg };
         }
     }
 
@@ -1057,12 +1202,13 @@ impl Frame {
         }
         let mut top: Vec<(u32, usize)> = cnt.iter().enumerate().filter(|&(_, &n)| n > 0).map(|(i, &n)| (n, i)).collect();
         top.sort_by(|a, b| b.cmp(a));
-        for (row, &(n, i)) in top.iter().take(PANEL_H.saturating_sub(PANEL_FOES_ROW + 1).into()).enumerate() {
+        for (row, &(n, i)) in top.iter().take(PANEL_FOE_ROWS.into()).enumerate() {
             let (f, t) = (&c.fams[i / tiers.len()], tiers[i % tiers.len()]);
             let fg = pal.of(f.hue);
             let rr = r + 1 + row as u16;
             let mut x = self.text(rr, x0 + 2, &f.glyph.ch().to_string(), fg);
             x = self.num(rr, x + 1, i64::from(n), pal.text);
+            x = self.bar(rr, x + 1, i64::from(n), hostile.max(1) as i64, MINI_BAR_W, fg);
             x = self.text(rr, x + 1, &f.name, fg);
             let (tag, tc) = match t {
                 Tier::Trash => ("", pal.dim),
@@ -1071,6 +1217,32 @@ impl Frame {
                 Tier::Boss => (" BOSS", pal.alarm),
             };
             self.text(rr, x, tag, tc);
+        }
+        // cast: hero, hijacked allies, panicked foes, fed thieves; glyph drawn as on the map screen
+        r = y0 + PANEL_CAST_ROW;
+        self.text(r, x0 + 1, "CAST", pal.dim);
+        let tally = cast_tally(sim);
+        for (row, kind) in Cast::ALL.into_iter().enumerate() {
+            let (n, rep) = tally[kind as usize];
+            let rr = r + 1 + row as u16;
+            let fam = rep.map(|k| c.fam(sim.e.fam[k]));
+            let (hue, glyph) = fam.map_or((pal.dim, '·'), |f| (pal.of(f.hue), f.glyph.ch()));
+            let (fg, bg, glyph) = match kind {
+                Cast::Hero => (pal.player, pal.hud_bg, '@'),
+                Cast::Ally => (pal.bg, hue, glyph),
+                Cast::Panic => (hue, mix(pal.bg, pal.of(Hue::Emp), FEAR_TINT), glyph),
+                Cast::Thief => (hue, mix(pal.bg, pal.chest, FED_GLOW_MAX), glyph),
+            };
+            let mut x = self.text(rr, x0 + 2, &glyph.to_string(), fg);
+            self.cells[usize::from(rr) * usize::from(self.cols) + usize::from(x0) + 2].bg = bg;
+            x = self.num(rr, x + 1, i64::from(n), pal.text);
+            let (val, max) = match kind {
+                Cast::Hero => (i64::from(sim.p.hp), i64::from(sim.p.max_hp)),
+                Cast::Ally => (i64::from(n), sim.e.len() as i64),
+                Cast::Panic | Cast::Thief => (i64::from(n), hostile.max(1) as i64),
+            };
+            x = self.bar(rr, x + 1, val, max, MINI_BAR_W, if n == 0 { pal.dim } else if kind == Cast::Hero { pal.player } else { hue });
+            self.text(rr, x + 1, kind.label(), pal.dim);
         }
     }
 
@@ -1169,25 +1341,29 @@ impl Frame {
                 self.text(rb, 1, text, pal.of(Hue::Therm));
             }
         }
-        // row C: mode line
-        let mode = match ui.mode {
-            Mode::Play => "-- PLAY --",
-            Mode::Pick => "-- PICK --",
-            Mode::Look => "-- LOOK --",
-            Mode::Cmd => ":",
-            Mode::Tree => "-- TREE --",
-            Mode::Gear => "-- GEAR --",
+        // row C: coloured vim-mode tag, then the keys that work right now
+        let ended = sim.outcome.is_some();
+        let (tag, ink) = mode_tag(ui.mode, ended);
+        let tag_fg = match ink {
+            ModeInk::Player => pal.player,
+            ModeInk::Alarm => pal.alarm,
+            ModeInk::Xp => pal.xp,
+            ModeInk::Code => pal.of(Hue::Code),
+            ModeInk::Dim => pal.dim,
+            ModeInk::Role(r) => pal.role(r),
         };
-        let mut x = self.text(rcm, 1, mode, pal.player);
+        let mut x = self.text(rcm, 1, tag, tag_fg);
         match ui.mode {
             Mode::Cmd => {
+                x = self.text(rcm, x + 1, ":", pal.player);
                 x = self.text(rcm, x, &ui.cmdline, pal.player);
-                self.text(rcm, x, "_", pal.alarm);
+                x = self.text(rcm, x, "_", pal.alarm);
+                self.text(rcm, x + 2, keyhints(ui.mode, ended), pal.dim);
             }
             Mode::Pick => {
                 let desc = sim.offer.and_then(|o| o.cards.get(usize::from(ui.sel)).copied().flatten()).map(|cd| c.skill(cd.skill).desc.as_str()).unwrap_or("");
-                x = self.text(rcm, x + 2, "h/l select  enter take  1-3  s skip | ", pal.dim);
-                self.text(rcm, x, desc, pal.text);
+                x = self.text(rcm, x + 2, keyhints(ui.mode, ended), pal.dim);
+                self.text(rcm, x + 2, desc, pal.text);
             }
             _ => {
                 x = self.text(rcm, x + 2, "AUTO ", pal.dim);
@@ -1195,10 +1371,14 @@ impl Frame {
                 x = self.text(rcm, x + 2, "CAM ", pal.dim);
                 x = self.text(rcm, x, ui.heading.name(), pal.text);
                 x = self.text(rcm, x + 2, v.phase, pal.dim);
-                x = self.text(rcm, x + 2, "wasd/hjkl move  shift dodge  x hack  q/e rotate  spc menu  : cmd", pal.dim);
                 x = self.text(rcm, x + 2, &ui.msg, pal.of(Hue::Kin));
                 x = self.text(rcm, x + 2, "B ", pal.dim);
-                self.num(rcm, x, (v.last_bytes / 1024) as i64, pal.dim);
+                x = self.num(rcm, x, (v.last_bytes / 1024) as i64, pal.dim);
+                // hints go last and only when they fit whole: a clipped hint is worse than none
+                let hint = keyhints(ui.mode, ended);
+                if usize::from(x) + 2 + hint.chars().count() <= usize::from(self.cols) {
+                    self.text(rcm, x + 2, hint, pal.dim);
+                }
             }
         }
     }
@@ -1292,16 +1472,15 @@ impl Frame {
     pub fn invalidate(&mut self) {
         self.front.fill(None);
     }
+
+    /// New run: forget the explored map (the arena is a new one).
+    pub fn reset_run(&mut self) {
+        self.seen.clear();
+    }
 }
 
-/// Floor cell is solid: its centre lies in a decor disc (one disc per decor super-cell, floorgen.rs).
-/// Render only: the sim has no solids, actors walk through blocks.
 fn solid(ar: &Arena, fc: i32, fx: i32, fy: i32) -> bool {
-    let (ax, ay, dc) = (fx * fc + fc / 2, fy * fc + fc / 2, ar.decor_cell);
-    let (sx, sy) = (ax.div_euclid(dc), ay.div_euclid(dc));
-    let hd = hash(ar.salt.rotate_left(17) ^ ((sx as u64) << 32) ^ (sy as u32 as u64));
-    let (cx, cy) = (sx * dc + ((hd >> 10) % dc as u64) as i32, sy * dc + ((hd >> 30) % dc as u64) as i32);
-    (hd % 1000) < u64::from(ar.decor_chance) && dist2(ax - cx, ay - cy) <= i64::from(ar.decor_r).pow(2)
+    ar.tile_mm(fx * fc + fc / 2, fy * fc + fc / 2).solid()
 }
 
 fn dec(out: &mut Vec<u8>, v: u64) {
@@ -1338,18 +1517,365 @@ fn sgr(out: &mut Vec<u8>, head: &[u8], c: Rgb, bg: Option<Rgb>) {
     }
     out.push(b'm');
 }
+/// Mark every map cell within `r` cells (round) of `at` as explored: what the hero could see, not just where they stood.
+/// shortcut: no line of sight, walls do not stop the reveal; upgrade with a ray march over `Arena::tile_mm` once walls matter here.
+/// Mark every map cell within `r` cells (round) of `at` as explored: what the hero could see, not just where they stood.
+fn explore(seen: &mut HashSet<(i32, i32)>, (px, py): (i32, i32), r: i32) {
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if dx * dx + dy * dy <= r * r {
+                seen.insert((px + dx, py + dy));
+            }
+        }
+    }
+}
+
+/// Level-up flash length (wall ms): long enough to read the line, short enough not to hide the fight.
+const LEVEL_FLASH_MS: u64 = 1000;
+/// Points on the level-up ring; enough that it reads as a circle at radius 5.
+const LEVEL_RING_POINTS: u32 = 24;
+/// Ring radius in rows at the start and end of the flash.
+const RING_R0: f64 = 1.0;
+const RING_R1: f64 = 5.0;
+/// Rows between the hero's head and the level-up line.
+const LEVEL_LINE_GAP: i32 = 2;
+/// Taunts after a level up; picked by level so the same level always says the same thing.
+const LEVEL_LINES: [&str; 4] = ["they should run.", "bring more.", "still not dead.", "you call that a swarm?"];
+
+/// Kill burst life in sim ticks, split evenly over POP_FRAMES (a few frames at 30 Hz).
+const POP_TICKS: u32 = 9;
+const POP_FRAMES: [&str; 3] = ["+*+", " * ", " . "];
+/// Most bursts alive at once: a wipe of the screen must not cost a frame.
+const POPS_MAX: usize = 64;
+/// Boss ROAR life in sim ticks (about 1.5 s), rows above the boss's head, and the sign itself.
+const ROAR_TICKS: u32 = 45;
+const ROAR_GAP: i32 = 1;
+const ROAR_ROWS: usize = 3;
+const ROAR_W: i32 = 15;
+const ROAR: [&str; ROAR_ROWS] = ["█▀▄ ▄▀▄ ▄▀▄ █▀▄", "█▀▄ █ █ █▀█ █▀▄", "▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"];
+
+/// Positions of ids in `prev` that are gone from `cur` (both sorted by id): the foes that died this tick.
+fn vanished<'a>(prev: &'a [(u32, i32, i32)], cur: &'a [(u32, i32, i32)]) -> impl Iterator<Item = (i32, i32)> + 'a {
+    prev.iter().filter(|p| cur.binary_search_by_key(&p.0, |q| q.0).is_err()).map(|p| (p.1, p.2))
+}
+
+fn ring_radius(t_ms: u64) -> f64 {
+    RING_R0 + (RING_R1 - RING_R0) * (t_ms.min(LEVEL_FLASH_MS) as f64) / LEVEL_FLASH_MS as f64
+}
+
+fn level_line(level: u16) -> String {
+    format!("LEVEL {level}. {}", LEVEL_LINES[usize::from(level) % LEVEL_LINES.len()])
+}
+
+/// Gold glow behind a chest, pulsing every CHEST_PULSE ticks; screen sprite and map marker share it.
+fn chest_glow(pal: &crate::data::Palette, tick: u32) -> Rgb {
+    mix(pal.chest, pal.bg, if (tick / CHEST_PULSE).is_multiple_of(2) { 550 } else { 750 })
+}
+
+/// Compass letters with their world direction (y grows south).
+const COMPASS: [(char, i32, i32); 4] = [('N', 0, -1), ('E', 1, 0), ('S', 0, 1), ('W', -1, 0)];
+
+/// Map cell (col, row) on the border where a world direction points under heading `h`.
+fn compass_cell(h: Heading, wx: i32, wy: i32) -> (u16, u16) {
+    let (vx, vy) = h.rot(wx, wy);
+    let edge = |d: i32, n: u16| match d {
+        -1 => 0,
+        1 => n - 1,
+        _ => n / 2,
+    };
+    (edge(vx, MAP_W), edge(vy, MAP_H))
+}
+
+/// Character kinds besides hostile foes that the stats pane counts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cast {
+    Hero,
+    Ally,
+    Panic,
+    Thief,
+}
+
+impl Cast {
+    const ALL: [Cast; 4] = [Cast::Hero, Cast::Ally, Cast::Panic, Cast::Thief];
+
+    fn label(self) -> &'static str {
+        match self {
+            Cast::Hero => "HERO hp",
+            Cast::Ally => "HIJACKED allies",
+            Cast::Panic => "PANICKED foes",
+            Cast::Thief => "FED thieves",
+        }
+    }
+}
+
+/// Per kind (indexed by `Cast as usize`): how many live, and one example entity to borrow its glyph and hue from.
+fn cast_tally(sim: &Sim) -> [(u32, Option<usize>); 4] {
+    let mut t = [(0, None); 4];
+    t[Cast::Hero as usize] = (1, None);
+    for k in 0..sim.e.len() {
+        let kind = match (sim.e.side[k], sim.e.panic[k], sim.e.loot[k] > 0) {
+            (Side::Hijacked, _, _) => Cast::Ally,
+            (_, _, true) => Cast::Thief,
+            (_, true, _) => Cast::Panic,
+            _ => continue,
+        };
+        let slot = &mut t[kind as usize];
+        slot.0 += 1;
+        slot.1.get_or_insert(k);
+    }
+    t
+}
+
+/// Which palette colour paints a mode tag; one colour per mode so the tag is learnt at a glance.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ModeInk {
+    Player,
+    Alarm,
+    Xp,
+    Code,
+    Dim,
+    /// palette role colour (new modes read the shared roles, tot-z6a.1)
+    Role(Role),
+}
+
+/// Vim-style mode tag for the status line. A finished run shows END whatever the mode was.
+fn mode_tag(mode: Mode, ended: bool) -> (&'static str, ModeInk) {
+    match (ended, mode) {
+        (true, _) => ("-- END --", ModeInk::Dim),
+        (_, Mode::Play) => ("-- PLAY --", ModeInk::Player),
+        (_, Mode::Pick) => ("-- PICK --", ModeInk::Alarm),
+        (_, Mode::Look) => ("-- LOOK --", ModeInk::Xp),
+        (_, Mode::Cmd) => ("-- CMD --", ModeInk::Code),
+        (_, Mode::Tree) => ("-- TREE --", ModeInk::Role(Role::Magic)),
+        (_, Mode::Gear) => ("-- GEAR --", ModeInk::Role(Role::Rare)),
+        (_, Mode::Shop) => ("-- SHOP --", ModeInk::Role(Role::Legendary)),
+    }
+}
+
+/// Keys that do something right now, for the status line.
+fn keyhints(mode: Mode, ended: bool) -> &'static str {
+    match (ended, mode) {
+        (true, _) => "r new run  q quit",
+        (_, Mode::Play) => "wasd/hjkl move  shift dodge  x hack  q/e rotate  spc menu  : cmd",
+        (_, Mode::Pick) => "h/l select  enter take  1-3  bksp skip |",
+        (_, Mode::Look) => "h j k l cursor  esc back",
+        (_, Mode::Cmd) => "enter run  esc back",
+        (_, Mode::Tree) => "h/l j/k move  enter spend  esc back",
+        (_, Mode::Gear) => "j/k select  x drop  esc back",
+        (_, Mode::Shop) => "j/k select  enter buy  esc leave",
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn map_turns_with_heading_and_shows_explored_vs_fog() {
+        let c = Content::parse(&texts()).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let unit = c.view.floor_cell.max(1) * MAP_K;
+        let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
+        // a treasure 2 map cells east of the hero, in world axes
+        let chest = [((px + 2) * unit + unit / 2, py * unit + unit / 2)];
+        let at = |f: &Frame, (dc, dr): (i32, i32)| f.cells[(MAP_H as i32 / 2 + dr) as usize * 120 + (MAP_W as i32 / 2 + dc) as usize];
+        let mut north = Frame::new(&c, 120, 40);
+        north.map(&sim, Heading::default(), unit, (px, py), &[], &chest);
+        for h in [Heading::default().right(), Heading::default().right().right()] {
+            let mut f = Frame::new(&c, 120, 40);
+            f.map(&sim, h, unit, (px, py), &[], &chest);
+            let want = h.rot(2, 0);
+            assert_eq!(at(&f, want).ch.ch(), '■', "chest lands at the turned offset {want:?} for {h:?}");
+            assert_ne!(at(&north, want).ch.ch(), '■', "control: heading N puts it elsewhere");
+        }
+        // explored vs fog: radius 1 around the hero
+        let mut f = Frame::new(&c, 120, 40);
+        explore(&mut f.seen, (px, py), 1);
+        f.map(&sim, Heading::default(), unit, (px, py), &[], &[]);
+        let (known, unknown) = (at(&f, (1, 0)), at(&f, (3, 0)));
+        assert_eq!((known.ch.ch(), known.bg), ('░', c.pal.hud_bg));
+        assert_eq!((unknown.ch.ch(), unknown.bg), (' ', c.pal.fog));
+    }
+
+    #[test]
+    fn bar_rounds_up_so_a_minority_is_visible() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut f = Frame::new(&c, 120, 40);
+        let filled = |f: &mut Frame, val, max| {
+            f.bar(0, 0, val, max, 6, c.pal.text);
+            (0..6).filter(|&x| f.cells[x].ch.ch() == '█').count()
+        };
+        assert_eq!(filled(&mut f, 4, 27), 1, "4 of 27 shows one cell");
+        assert_eq!(filled(&mut f, 27, 27), 6);
+        // negative control: zero stays empty
+        assert_eq!(filled(&mut f, 0, 27), 0);
+    }
+
+    #[test]
+    fn map_compass_follows_heading_and_matches_camera_turns() {
+        let mut h = Heading::default();
+        assert_eq!(compass_cell(h, 0, -1), (MAP_W / 2, 0), "N on top at heading N");
+        let mut tops = Vec::new();
+        for _ in 0..4 {
+            // same convention as iso::screen_dir: view +x is world screen_dir(1,1)
+            assert_eq!(h.unrot(1, 0), crate::iso::screen_dir(h, 1, 1));
+            assert_eq!(h.unrot(0, 1), crate::iso::screen_dir(h, -1, 1), "view +y axis");
+            let (n, e) = (compass_cell(h, 0, -1), compass_cell(h, 1, 0));
+            assert_ne!(n, e, "N and E never share a cell");
+            tops.push(n);
+            h = h.right();
+        }
+        // negative control: a fixed compass would repeat one cell; the real one visits all four edges
+        tops.sort_unstable();
+        tops.dedup();
+        assert_eq!(tops.len(), 4);
+    }
+
+    #[test]
+    fn cast_tally_counts_each_kind_once_and_panel_fits_its_rows() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut d = Director::new(7);
+        for _ in 0..300 {
+            d.tick(&mut sim);
+            sim.step(&Input { autofire: true, ..Input::default() });
+        }
+        assert!(sim.e.len() >= 4, "need foes");
+        // negative control: a plain crowd counts only the hero
+        for k in 0..sim.e.len() {
+            sim.e.side[k] = Side::Hostile;
+            sim.e.panic[k] = false;
+            sim.e.loot[k] = 0;
+        }
+        let t = cast_tally(&sim);
+        assert_eq!(t.map(|x| x.0), [1, 0, 0, 0]);
+        sim.e.side[0] = Side::Hijacked;
+        sim.e.panic[1] = true;
+        sim.e.loot[2] = 3;
+        sim.e.panic[2] = true; // fed AND panicked: counted once, as a thief
+        let t = cast_tally(&sim);
+        assert_eq!(t.map(|x| x.0), [1, 1, 1, 1]);
+        assert_eq!(t[Cast::Ally as usize].1, Some(0));
+        assert_eq!(t[Cast::Panic as usize].1, Some(1));
+        assert!(PANEL_H > PANEL_CAST_ROW + Cast::ALL.len() as u16);
+    }
+
+    #[test]
+    fn kills_burst_and_roar_sign_is_well_formed() {
+        let prev = [(1, 10, 20), (2, 30, 40), (5, 50, 60)];
+        let cur = [(2, 31, 41), (6, 0, 0)];
+        assert_eq!(vanished(&prev, &cur).collect::<Vec<_>>(), vec![(10, 20), (50, 60)]);
+        // negative control: nobody died when the id sets match
+        assert_eq!(vanished(&cur, &cur).count(), 0);
+        assert!(ROAR.iter().all(|l| l.chars().count() as i32 == ROAR_W), "sign rows share one width");
+        assert!(ROAR.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()), "every sign glyph is in the font");
+        assert!(POP_FRAMES.iter().flat_map(|l| l.chars()).all(|ch| ch == ' ' || Glyph::of(ch).is_some()));
+    }
+
+    #[test]
+    fn a_kill_between_ticks_draws_a_burst_that_fades() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut d = Director::new(7);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let view = |now_ms| View { ui: &ui, now_ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        for _ in 0..400 {
+            d.tick(&mut sim);
+            sim.step(&Input { autofire: true, ..Input::default() });
+            f.compose(&sim, &view(0));
+        }
+        // fabricate a death: the frame saw an id last tick that the sim no longer has
+        f.cur.push((u32::MAX, sim.p.x, sim.p.y));
+        f.cur.sort_unstable();
+        sim.step(&Input::default());
+        f.compose(&sim, &view(0));
+        let at = (sim.p.x, sim.p.y);
+        let mine = |f: &Frame| f.pops.iter().filter(|p| (p.0, p.1) == at).count();
+        assert_eq!(mine(&f), 1, "the vanished id leaves one burst where it stood");
+        for _ in 0..POP_TICKS + 1 {
+            sim.step(&Input::default());
+            f.compose(&sim, &view(0));
+        }
+        assert_eq!(mine(&f), 0, "burst ages out");
+    }
+
+    #[test]
+    fn level_up_flash_shows_ring_and_line_for_one_second_only() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let view = |now_ms| View { ui: &ui, now_ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let text = |f: &Frame| f.cells.iter().map(|c| c.ch.ch()).collect::<String>();
+        let xp = c.pal.xp;
+        f.compose(&sim, &view(0));
+        assert!(!text(&f).contains("LEVEL"), "no flash before a level up");
+        sim.p.level += 1;
+        f.compose(&sim, &view(100));
+        let t = text(&f);
+        assert!(t.contains(&level_line(sim.p.level)), "line shown on level up");
+        assert!(f.cells.iter().filter(|c| c.ch.ch() == '*' && c.fg == xp).count() >= 8, "ring drawn");
+        f.compose(&sim, &view(100 + LEVEL_FLASH_MS + 1));
+        assert!(!text(&f).contains("LEVEL"), "flash ends");
+        // negative control: same level, no new flash
+        f.compose(&sim, &view(5000));
+        assert!(!text(&f).contains("LEVEL"));
+        assert!(ring_radius(LEVEL_FLASH_MS) > ring_radius(0));
+    }
+
+    #[test]
+    fn chest_glow_pulses_and_is_gold_tinted() {
+        let c = Content::parse(&texts()).unwrap();
+        let (a, b) = (chest_glow(&c.pal, 0), chest_glow(&c.pal, CHEST_PULSE));
+        assert_ne!(a, b, "glow must pulse");
+        assert_eq!(a, chest_glow(&c.pal, 2 * CHEST_PULSE), "period is two phases");
+        // negative control: the glow is the chest colour lifted off the bg, not the bg itself
+        assert_ne!(a, c.pal.bg);
+    }
+
+    #[test]
+    fn reset_run_forgets_explored_cells() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut f = Frame::new(&c, 120, 40);
+        explore(&mut f.seen, (0, 0), 3);
+        assert!(!f.seen.is_empty());
+        f.reset_run();
+        assert!(f.seen.is_empty());
+    }
+
+    #[test]
+    fn explore_marks_view_radius_not_just_the_standing_cell() {
+        let mut s = HashSet::new();
+        explore(&mut s, (10, 10), 3);
+        assert!(s.contains(&(10, 10)) && s.contains(&(13, 10)) && s.contains(&(10, 7)));
+        // negative controls: outside the circle stays fog
+        assert!(!s.contains(&(14, 10)) && !s.contains(&(13, 13)));
+        assert_eq!(s.len(), 29);
+    }
+
+    #[test]
+    fn status_line_tags_and_keys_follow_mode_and_end() {
+        for (m, tag) in [(Mode::Play, "PLAY"), (Mode::Pick, "PICK"), (Mode::Look, "LOOK"), (Mode::Cmd, "CMD")] {
+            assert!(mode_tag(m, false).0.contains(tag));
+            assert!(!keyhints(m, false).is_empty());
+        }
+        assert!(mode_tag(Mode::Play, true).0.contains("END") && keyhints(Mode::Play, true).contains("new run"));
+        // negative control: a live run must not advertise the restart key
+        assert!(!keyhints(Mode::Play, false).contains("new run"));
+        let inks = [Mode::Play, Mode::Pick, Mode::Look, Mode::Cmd].map(|m| mode_tag(m, false).1);
+        assert!(inks.iter().enumerate().all(|(i, a)| inks.iter().skip(i + 1).all(|b| a != b)));
+    }
+
     use crate::data::Content;
     use crate::data::tests::texts;
     use crate::director::Director;
     use crate::iso::Heading;
     use crate::sim::{Input, PickChoice};
 
-    // re-pinned 2026-11-08: arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    const GOLDEN: u64 = 0x24a8_f76b_50d4_6263;
+    // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
+    // re-pinned 2026-11-08: integration: all lanes (wave 1)
+    const GOLDEN: u64 = 0x79e0_bff1_07ca_9e31;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -1736,52 +2262,71 @@ mod tests {
         assert!(!neg0 && !neg1, "negative control: a wrong alpha must not match");
     }
 
+    /// Pick pause test sizes in 60 fps frames: frames rendered, frames the pick is held, and frames
+    /// the camera needs to settle (follow_ms x 4 = 48).
+    const PAUSE_FRAMES_RUN: u32 = 190;
+    const PAUSE_HOLD: usize = 80;
+    const PAUSE_SETTLE: usize = 50;
+    /// Ticks walked before the xp grant (the camera has something to follow).
+    const PAUSE_WARMUP: u32 = 30;
+
     /// Pick pause at 60 fps with play.rs's alpha (it keeps cycling 0..1 while the sim is frozen):
-    /// walk into the first pick, hold it 2 s, pick, walk on. `forget` = NEG: the frame forgets each
-    /// frame when it saw the tick (pre-P9 behaviour). Returns (pause frame range, per frame
-    /// (bytes, camera, drawn player screen position)).
-    fn pause(c: &Content, forget: bool) -> (std::ops::Range<usize>, Vec<PauseFrame>) {
+    /// walk into the first pick, hold it PAUSE_HOLD frames, pick, walk on. `forget` = NEG: the frame
+    /// forgets each frame when it saw the tick (pre-P9 behaviour). The popup rect is blanked before
+    /// the diff: its countdown ticks on purpose. Returns (pause frame range, per frame (bytes,
+    /// camera, drawn player screen position), whether the hero moved after the pick: a wall may
+    /// block the walk).
+    fn pause(c: &Content) -> (std::ops::Range<usize>, [Vec<PauseFrame>; 2], bool) {
         let walk_in = Input { mv: (1, 0), autofire: true, ..Input::default() };
         let run = |sim: &mut Sim, d: &mut Director, inp: &Input| {
             d.tick(sim);
             sim.step(inp);
         };
-        // find the pick tick without rendering, then replay (same seed: same run) and render the last 1 s
+        // warm up a little walk, then grant exactly one level of xp: the pick opens within a tick or two
         let (mut sim, mut d) = (Sim::new(c, 2, None), Director::new(2));
-        while sim.offer.is_none() {
+        for _ in 0..PAUSE_WARMUP {
             run(&mut sim, &mut d, &walk_in);
         }
-        let t0 = sim.tick;
-        let (mut sim, mut d) = (Sim::new(c, 2, None), Director::new(2));
-        while sim.tick + 30 < t0 {
-            run(&mut sim, &mut d, &walk_in);
-        }
+        sim.p.xp = sim.xp_need();
         let ui = Ui::new(true);
-        let mut f = Frame::new(c, 120, 40);
-        let (mut out, mut start, mut end) = (Vec::new(), None, None);
-        for k in 0..300u32 {
+        let mut fs = [Frame::new(c, 120, 40), Frame::new(c, 120, 40)];
+        let (mut outs, mut start, mut end) = ([Vec::new(), Vec::new()], None, None);
+        let mut at_pick = (sim.p.x, sim.p.y);
+        for k in 0..PAUSE_FRAMES_RUN {
             if k % 2 == 0 {
-                let held = sim.offer.is_some().then(|| *start.get_or_insert(out.len()));
-                if end.is_none() && held.is_some_and(|s| out.len() >= s + 120) {
-                    end = Some(out.len());
+                let held = sim.offer.is_some().then(|| *start.get_or_insert(outs[0].len()));
+                if end.is_none() && held.is_some_and(|s| outs[0].len() >= s + PAUSE_HOLD) {
+                    end = Some(outs[0].len());
                     run(&mut sim, &mut d, &Input { pick: Some(PickChoice::Card(0)), ..walk_in });
                 } else {
                     run(&mut sim, &mut d, &walk_in);
                 }
             }
             let now_ms = u64::from(k) * 1000 / 60;
-            if forget {
-                f = Frame::new(c, 120, 40);
-            }
             let alpha = f64::from(k % 2) / 2.0;
-            f.compose(&sim, &v(&ui, now_ms, alpha));
-            f.emit();
-            let (px, py) = Frame::lerp(alpha, Some(f.pprev), sim.p.x, sim.p.y);
-            let (pc, pr) = Proj::at(0.0).screen(px, py);
-            out.push((f.out.len(), cam_at(&f), (pc, 2.0 * pr)));
+            for (n, (f, out)) in fs.iter_mut().zip(outs.iter_mut()).enumerate() {
+                if n == 1 {
+                    *f = Frame::new(c, 120, 40); // NEG: forgets the tick it saw
+                }
+                f.compose(&sim, &v(&ui, now_ms, alpha));
+                let (w, h) = (POPUP_W.min(f.cols - 4), POPUP_H);
+                let (x0, y0) = ((f.cols - w) / 2, (f.play_rows() - h) / 2);
+                for r in y0..y0 + h {
+                    for col in x0..x0 + w {
+                        f.cells[usize::from(r) * usize::from(f.cols) + usize::from(col)] = Cell { ch: Glyph::SPACE, fg: c.pal.text, bg: c.pal.bg };
+                    }
+                }
+                f.emit();
+                if n == 0 && end == Some(out.len()) {
+                    at_pick = (sim.p.x, sim.p.y);
+                }
+                let (px, py) = Frame::lerp(alpha, Some(f.pprev), sim.p.x, sim.p.y);
+                let (pc, pr) = Proj::at(0.0).screen(px, py);
+                out.push((f.out.len(), cam_at(f), (pc, 2.0 * pr)));
+            }
         }
         let s = start.unwrap_or(0);
-        (s..end.unwrap_or(s), out)
+        (s..end.unwrap_or(s), outs, (sim.p.x, sim.p.y) != at_pick)
     }
 
     /// (bytes, camera, drawn player) of one frame, screen col widths.
@@ -1791,13 +2336,13 @@ mod tests {
     fn pick_pause_frame_is_still_and_resume_is_smooth_and_forget_control_flickers() {
         let c = Content::parse(&texts()).unwrap();
         assert!(c.opt.pick_pauses, "armed: picks pause the sim");
-        let (r, out) = pause(&c, false);
-        assert!(r.len() == 120, "armed: the sim was frozen for 120 frames ({r:?})");
+        let (r, [out, neg], moved) = pause(&c);
+        assert!(r.len() == PAUSE_HOLD, "armed: the sim was frozen for {PAUSE_HOLD} frames ({r:?})");
         let held = &out[r.clone()];
         // the camera finishes its follow (< follow_ms x 4 = 48 frames), then the frame is still
-        let tail: Vec<usize> = held[60..].iter().map(|o| o.0).collect();
+        let tail: Vec<usize> = held[PAUSE_SETTLE..].iter().map(|o| o.0).collect();
         let cams: Vec<(f64, f64)> = held.iter().map(|o| o.1).collect();
-        eprintln!("PAUSE bytes first 6 {:?} last 60 max {} sum {}", held[..6].iter().map(|o| o.0).collect::<Vec<_>>(), tail.iter().max().unwrap_or(&0), tail.iter().sum::<usize>());
+        eprintln!("PAUSE bytes first 6 {:?} settled max {} sum {}", held[..6].iter().map(|o| o.0).collect::<Vec<_>>(), tail.iter().max().unwrap_or(&0), tail.iter().sum::<usize>());
         assert!(tail.iter().all(|b| *b == 0), "frozen sim: still frame after the camera settles {tail:?}");
         assert!(o_smooth(&cams).is_ok(), "frozen sim: camera converges without reversing {:?}", o_smooth(&cams));
         // resume: no snap or pop of the camera or the drawn player across the pick
@@ -1806,11 +2351,10 @@ mod tests {
         let pmax = steps(&players).iter().fold(0.0f64, |m, d| m.max(d.0.hypot(d.1)));
         eprintln!("RESUME camera {:?} player max step {pmax:.3}", o_smooth(&cams));
         assert!(o_smooth(&cams).is_ok() && pmax <= 1.5, "resume pops: player step {pmax}");
-        assert!(players[29] != players[0], "armed: the player walks on after the pick");
-        let (r, out) = pause(&c, true);
-        let tail: Vec<usize> = out[r][60..].iter().map(|o| o.0).collect();
-        eprintln!("NEG forget: last 6 bytes {:?}", &tail[54..]);
-        assert!(tail.iter().filter(|b| **b > 0).count() >= 30, "negative control: cycling alpha on a held tick must flicker");
+        assert!(!moved || players[29] != players[0], "armed: the player walks on after the pick (unless a wall blocks)");
+        let tail: Vec<usize> = neg[r][PAUSE_SETTLE..].iter().map(|o| o.0).collect();
+        eprintln!("NEG forget: last 6 bytes {:?}", &tail[tail.len() - 6..]);
+        assert!(tail.iter().filter(|b| **b > 0).count() >= tail.len() / 2, "negative control: cycling alpha on a held tick must flicker");
     }
 
     /// Bytes per frame at 60 fps: walk, idle, and a q/e turn (turn_ms of whole-screen change).
