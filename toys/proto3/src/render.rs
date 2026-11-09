@@ -1552,8 +1552,6 @@ impl Frame {
         let (ui, now_ms) = (v.ui, v.now_ms);
         self.sky_fx(sim, now_ms);
         self.boss_bar(sim);
-        self.popup(sim, ui, now_ms);
-        self.menu(sim, ui);
         let c = sim.c;
         let unit = c.view.floor_cell.max(1) * MAP_K;
         let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
@@ -1584,10 +1582,13 @@ impl Frame {
         for &(_, x, y, fg) in calls.iter().take(PAL_CALLS) {
             self.pointer(sim, x, y, fg);
         }
-        // shouts last: nothing may cover them
+        // shouts last: only the popups may cover them
         self.pal_calls(sim);
         self.roars_fx(sim);
         self.hero_shout(sim);
+        // popups (picker, shop) over everything in the arena, shouts included (tot-ms8)
+        self.popup(sim, ui, now_ms);
+        self.menu(sim, ui);
         self.death_fx(sim, now_ms);
         self.sky_banner_fx(sim, now_ms);
     }
@@ -1635,23 +1636,24 @@ impl Frame {
             return;
         }
         let pal = &sim.c.pal;
-        let glow = chest_glow(pal, sim.tick);
+        // a vivid role colour, never the plain chest white: each pane filled with its glow, the top one pulsing (tot-8zt)
+        let fg = pal.role(POWER_ROLE);
+        let pulse = (sim.tick / CHEST_PULSE).is_multiple_of(2);
         for k in 0..n.min(LOOT_PANES) {
             let top = i32::from(MAP_H) + 1 + i32::from(k) * 3;
             if top + 3 > i32::from(self.play_rows()) {
                 break;
             }
-            self.plate(0, top, LOOT_PANE_W, 3, pal.hud_bg);
+            let glow = mix(fg, pal.hud_bg, if k == 0 && pulse { POWER_GLOW_HI } else { POWER_GLOW });
+            self.plate(0, top, LOOT_PANE_W, 3, glow);
             let w = LOOT_PANE_W as usize - 2;
-            self.text(top as u16, 0, &format!("╭{}╮", "─".repeat(w)), pal.chest);
-            self.text(top as u16 + 1, 0, &format!("│{:<w$}│", " ✦ POWER-UP"), pal.chest);
-            self.text(top as u16 + 2, 0, &format!("╰{}╯", "─".repeat(w)), pal.chest);
+            self.text(top as u16, 0, &format!("╭{}╮", "─".repeat(w)), fg);
+            self.text(top as u16 + 1, 0, "│", fg);
+            self.text(top as u16 + 1, 1, &format!("{:<w$}", " ✦ POWER-UP"), pal.text);
+            self.text(top as u16 + 1, w as u16 + 1, "│", fg);
+            self.text(top as u16 + 2, 0, &format!("╰{}╯", "─".repeat(w)), fg);
             if k == 0 {
-                // the top pane carries the key and glows
-                let i = (top as usize + 1) * usize::from(self.cols);
-                for cell in &mut self.cells[i + 1..i + 1 + w] {
-                    cell.bg = glow;
-                }
+                // the top pane carries the key
                 self.text(top as u16 + 2, 2, " p ", key_fg(pal));
             }
         }
@@ -1660,18 +1662,14 @@ impl Frame {
         }
     }
 
-    /// Compass rose in the map's bottom-right corner: a star, a ring, and N E S W on it. It turns with the eased
-    /// camera (the same rotation the map makes at rest), so a q/e turn swings it smoothly. N in the alarm colour.
+    /// Tiny compass in the map's top-left corner: a 3x3 plate of its own (so the map never hides it), a star in
+    /// the middle and N E S W round it. It turns with the eased camera (the same rotation the map makes at rest),
+    /// so a q/e turn swings it smoothly. N in the alarm colour (tot-5ah).
     fn rose(&mut self, pal: &crate::data::Palette) {
-        let (cx, cy) = (f64::from(MAP_W) - ROSE_RX - 2.0, f64::from(MAP_H) - ROSE_RY - 2.0);
         let p = self.eye.p;
-        let at = |(x, y): (f64, f64)| ((cx + x * ROSE_RX).round() as i32, (cy + y * ROSE_RY).round() as i32);
-        for k in 0..8 {
-            let a = f64::from(k) * std::f64::consts::FRAC_PI_4;
-            let (col, row) = at((a.cos(), a.sin()));
-            self.flash_cell(col, row, Glyph::of('·').unwrap_or(Glyph::SPACE), pal.dim);
-        }
-        self.flash_cell(cx as i32, cy as i32, Glyph::of('✦').unwrap_or(Glyph::SPACE), pal.chest);
+        self.plate(0, 0, 3, 3, pal.hud_bg);
+        let at = |(x, y): (f64, f64)| ((ROSE_C + x).round() as i32, (ROSE_C + y).round() as i32);
+        self.flash_cell(ROSE_C as i32, ROSE_C as i32, Glyph::of('✦').unwrap_or(Glyph::SPACE), pal.dim);
         for (letter, wx, wy) in COMPASS {
             let (col, row) = at(p.rot(f64::from(wx), f64::from(wy)));
             self.flash_cell(col, row, Glyph::of(letter).unwrap_or(Glyph::SPACE), if letter == 'N' { pal.alarm } else { pal.text });
@@ -2404,12 +2402,15 @@ fn chest_glow(pal: &crate::data::Palette, tick: u32) -> Rgb {
     mix(pal.chest, pal.bg, if (tick / CHEST_PULSE).is_multiple_of(2) { 550 } else { 750 })
 }
 
-/// Rose radii in cells (cells are about twice as tall as wide, so the ring is a wide ellipse).
-const ROSE_RX: f64 = 3.0;
-const ROSE_RY: f64 = 1.5;
+/// Compass centre cell (col = row) in the 3x3 plate at the map's top-left.
+const ROSE_C: f64 = 1.0;
 /// Waiting power-up panes: most shown, and their width.
 const LOOT_PANES: u16 = 4;
 const LOOT_PANE_W: i32 = 16;
+/// Power-up panes: their colour role and fill (permille toward the panel background; the top pane pulses to HI).
+const POWER_ROLE: Role = Role::Unique;
+const POWER_GLOW: u32 = 700;
+const POWER_GLOW_HI: u32 = 450;
 /// Compass letters with their world direction (y grows south).
 const COMPASS: [(char, i32, i32); 4] = [('N', 0, -1), ('E', 1, 0), ('S', 0, 1), ('W', -1, 0)];
 
@@ -2599,10 +2600,13 @@ mod tests {
             f.eye.p = Proj::at(q);
             f.rose(&c.pal);
             let i = (0..usize::from(MAP_H) * 120).find(|&i| i % 120 < usize::from(MAP_W) && f.cells[i].ch.ch() == 'N' && f.cells[i].fg == c.pal.alarm).unwrap();
+            // tiny: the whole compass on its own plate in the 3x3 top-left corner
+            assert!((i % 120) < 3 && i / 120 < 3, "N in the top-left 3x3");
+            assert!([0, 1, 2].iter().all(|&r| f.cells[r * 120..r * 120 + 3].iter().all(|cl| cl.bg == c.pal.hud_bg)), "on its own plate");
             for row in 0..usize::from(MAP_H) {
                 f.cells[row * 120..row * 120 + usize::from(MAP_W)].fill(Cell { ch: Glyph::SPACE, fg: c.pal.text, bg: c.pal.bg });
             }
-            ((i % 120) as f64 - (f64::from(MAP_W) - ROSE_RX - 2.0), (i / 120) as f64 - (f64::from(MAP_H) - ROSE_RY - 2.0))
+            ((i % 120) as f64 - ROSE_C, (i / 120) as f64 - ROSE_C)
         };
         let mut h = Heading::default();
         for k in 0..4 {
@@ -3101,6 +3105,38 @@ mod tests {
     }
 
     #[test]
+    fn hero_shout_never_covers_the_picker() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut ui = Ui::new(true);
+        ui.sync(true);
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Char('p'), kind: crate::input::Kind::Press, text: Some('p') }, &c, 0);
+        assert_eq!(ui.mode, Mode::Pick);
+        // the same run up to its first offer, then the hero gets gold (a shout) or not
+        let shot = |gold: u32| {
+            let mut s = Sim::new(&c, 2, None);
+            let mut d = Director::new(2);
+            while s.offer.is_none() {
+                d.tick(&mut s);
+                s.step(&Input { autofire: true, ..Input::default() });
+            }
+            s.p.unhurt = 1000;
+            let mut f = Frame::new(&c, 120, 40);
+            f.compose(&s, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            s.p.gold += gold;
+            s.tick += 1;
+            f.compose(&s, &View { ui: &ui, now_ms: 40, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f
+        };
+        let (quiet, loud) = (shot(0), shot(5));
+        let (w, h) = (POPUP_W.min(120 - 4), POPUP_H);
+        let (x0, y0) = ((120 - w) / 2, (quiet.play_rows() - h) / 2);
+        let in_box = |j: usize| (x0..x0 + w).contains(&((j % 120) as u16)) && (y0..y0 + h).contains(&((j / 120) as u16));
+        let diff: Vec<usize> = (0..quiet.cells.len()).filter(|&j| quiet.cells[j] != loud.cells[j]).collect();
+        assert!(diff.iter().any(|&j| !in_box(j)), "control: the shout shows outside the picker");
+        assert!(diff.iter().all(|&j| !in_box(j)), "the picker is untouched by the shout");
+    }
+
+    #[test]
     fn power_ups_wait_as_loot_panes_until_p() {
         let c = Content::parse(&texts()).unwrap();
         let mut sim = Sim::new(&c, 2, None);
@@ -3116,6 +3152,11 @@ mod tests {
         ui.sync(sim.offer.is_some());
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         assert!(f.plain().contains("POWER-UP") && !f.plain().contains("UPGRADE"), "waits as a pane, no popup");
+        // coloured to be spotted: the frame in the power colour (not the plain chest white), the inside filled
+        let corner = f.cells[usize::from(MAP_H + 1) * 120];
+        assert_eq!((corner.ch.ch(), corner.fg), ('╭', c.pal.role(POWER_ROLE)), "pane frame in the power colour");
+        assert_ne!(c.pal.role(POWER_ROLE), c.pal.chest, "control: not the chest white");
+        assert_ne!(f.cells[usize::from(MAP_H + 2) * 120 + 3].bg, c.pal.hud_bg, "pane filled with its glow");
         assert_eq!(ui.mode, Mode::Play);
         ui.key(crate::input::KeyEv { key: crate::input::Key::Char('p'), kind: crate::input::Kind::Press, text: Some('p') }, &c, 7_000);
         f.compose(&sim, &View { ui: &ui, now_ms: 7_000, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
@@ -3167,6 +3208,29 @@ mod tests {
         assert!(top(&mut f, &sim).contains(text.as_str()), "typed out whole");
         sim.tick = at + c.hz().get() * STORY_S;
         assert!(!top(&mut f, &sim).contains("◆ STORY"), "gone after its time");
+    }
+
+    #[test]
+    fn hero_pane_highlights_the_selection_in_every_tab() {
+        let c = Content::parse(&texts()).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let mut f = Frame::new(&c, 200, 60);
+        let sel = mix(c.pal.alarm, c.pal.hud_bg, heropane::SEL_BG);
+        // cells on the selection background
+        let mut lit = |ui: &Ui| {
+            f.compose(&sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            (0..f.cells.len()).filter(|&j| f.cells[j].bg == sel).collect::<Vec<_>>()
+        };
+        let mut ui = Ui::new(true);
+        assert!(lit(&ui).is_empty(), "control: no pane, no selection");
+        for mode in [Mode::Gear, Mode::Tree, Mode::Bags] {
+            ui.mode = mode;
+            (ui.gear_sel, ui.tree_sel, ui.bag_sel) = (0, 0, 0);
+            let a = lit(&ui);
+            (ui.gear_sel, ui.tree_sel, ui.bag_sel) = (1, 1, 1);
+            let b = lit(&ui);
+            assert!(!a.is_empty() && !b.is_empty() && a != b, "{mode:?}: selection lit and it moves");
+        }
     }
 
     #[test]
@@ -3316,7 +3380,8 @@ mod tests {
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
     // re-pinned 2026-11-09: hero shout holds the screen spot where it began (tot-7op)
-    const GOLDEN: u64 = 0xdcd8_1ae4_96ae_0264;
+    // re-pinned 2026-11-09: tiny compass on a 3x3 plate at the map top-left (tot-5ah)
+    const GOLDEN: u64 = 0x678b_effd_c84e_162b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

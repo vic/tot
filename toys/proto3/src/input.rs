@@ -1018,6 +1018,23 @@ mod tests {
     }
 
     #[test]
+    fn pane_keys_switch_tabs_and_own_key_closes() {
+        let c = content();
+        let mut ui = Ui::new(true);
+        let modes = [('i', Mode::Gear), ('t', Mode::Tree), ('b', Mode::Bags)];
+        for (from_key, from) in modes {
+            for (to_key, to) in modes {
+                ui.mode = Mode::Play;
+                ui.key(press(from_key), &c, 0);
+                assert_eq!(ui.mode, from);
+                ui.key(press(to_key), &c, 0);
+                // the open tab's own key closes the pane (control); another key switches to its tab
+                assert_eq!(ui.mode, if from == to { Mode::Play } else { to }, "{from_key} then {to_key}");
+            }
+        }
+    }
+
+    #[test]
     fn gear_mode_navigates_drops_and_esc_returns() {
         let c = content();
         let mut ui = Ui::new(true);

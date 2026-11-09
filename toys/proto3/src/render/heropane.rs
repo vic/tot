@@ -1,6 +1,6 @@
 //! The hero pane: bottom right, the stats pane's width. Tabs ARMOR (the hero itself, its worn gear coloured by
-//! rarity) and SKILLS (the hero's skill tree as a grid of nodes with their links). `i` and `t` focus a tab;
-//! out of those modes the pane keeps showing the last tab.
+//! rarity), SKILLS (the hero's skill tree as a grid of nodes with their links) and BAGS. `i`, `t` and `b` open
+//! the pane on their tab and switch tabs while it is open; out of those modes there is no pane.
 use super::*;
 use crate::data::{Slot, Tree};
 
@@ -8,6 +8,8 @@ use crate::data::{Slot, Tree};
 pub(super) const PANE_H: u16 = 15;
 const NODE_W: i32 = 11;
 const NODE_H: i32 = 3;
+/// Selection background: the alarm colour mixed this far (permille) toward the pane background.
+pub(super) const SEL_BG: u32 = 350;
 /// Text room inside the borders and margins.
 const INNER: usize = PANEL_W as usize - 4;
 
@@ -120,6 +122,9 @@ impl Frame {
                 None => ("-".to_string(), pal.dim),
             };
             self.text(row + 1, x + 1, &name, fg);
+            if k == ui.gear_sel {
+                self.hilite(i32::from(row), i32::from(x), 2, PANEL_W as usize - 17 - 2, pal);
+            }
         }
         // the selected slot's item, described on the last row
         if let Some(it) = Slot::ALL.get(ui.gear_sel).and_then(|s| sim.gear.worn(*s)).and_then(|id| c.items.get(usize::from(id.0))) {
@@ -165,10 +170,7 @@ impl Frame {
             self.text(y as u16, x as u16, if learned { "◆" } else { "◇" }, fg);
             self.text(y as u16, x as u16 + 1, &name, fg);
             if k == ui.tree_sel {
-                let i = y as usize * usize::from(self.cols) + x as usize;
-                for cell in &mut self.cells[i..i + 1 + name.chars().count()] {
-                    cell.bg = mix(pal.alarm, pal.hud_bg, 600);
-                }
+                self.hilite(y, x, 1, 1 + name.chars().count(), pal);
             }
         }
         let n = &tree.nodes[ui.tree_sel.min(tree.nodes.len() - 1)];
@@ -181,6 +183,17 @@ impl Frame {
 }
 
 impl Frame {
+    /// The selection in any tab: `rows` x `w` cells from (x, y) on the selection background (tot-9rh).
+    fn hilite(&mut self, y: i32, x: i32, rows: i32, w: usize, pal: &crate::data::Palette) {
+        let cols = usize::from(self.cols);
+        for r in y..y + rows {
+            let i = r as usize * cols + x as usize;
+            for cell in &mut self.cells[i..(i + w).min((r as usize + 1) * cols)] {
+                cell.bg = mix(pal.alarm, pal.hud_bg, SEL_BG);
+            }
+        }
+    }
+
     /// The bags as a grid of slots: each item's glyph in its rarity colour on a rarity glow, empty slots dotted,
     /// the cursor's slot framed; the selected item's name and description below, then how to use it.
     fn pane_bags(&mut self, sim: &Sim, ui: &Ui, (l, t): (i32, i32)) {
@@ -204,6 +217,9 @@ impl Frame {
                 None => {
                     self.text(y as u16 + 1, x as u16 + 1, "·", pal.dim);
                 }
+            }
+            if k == ui.bag_sel {
+                self.hilite(y, x, 3, 3, pal);
             }
         }
         let y = (t + 6) as u16;

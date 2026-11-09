@@ -102,3 +102,9 @@
 {"t":"bind","mode":"shop","keys":["3"],"action":"shop_3","label":"buy 3"}
 {"t":"bind","mode":"shop","keys":["4"],"action":"shop_4","label":"buy 4"}
 {"t":"bind","mode":"shop","keys":["5"],"action":"forge","label":"forge"}
+{"t":"bind","mode":"tree","keys":["i"],"action":"gear","label":"gear"}
+{"t":"bind","mode":"tree","keys":["b"],"action":"bags","label":"bags"}
+{"t":"bind","mode":"bags","keys":["i"],"action":"gear","label":"gear"}
+{"t":"bind","mode":"bags","keys":["t"],"action":"tree","label":"tree"}
+{"t":"bind","mode":"gear","keys":["t"],"action":"tree","label":"tree"}
+{"t":"bind","mode":"gear","keys":["b"],"action":"bags","label":"bags"}
