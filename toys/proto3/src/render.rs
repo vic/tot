@@ -1918,6 +1918,12 @@ impl Frame {
         changed
     }
 
+    /// URL of the clickable span under screen cell (col, row), if any.
+    pub fn link_at(&self, col: u16, row: u16) -> Option<&'static str> {
+        let i = usize::from(row) * usize::from(self.cols) + usize::from(col);
+        self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2)
+    }
+
     /// Glyphs only, one line per row (for `proto2 snapshot`).
     pub fn plain(&self) -> String {
         let mut s = String::new();
@@ -2626,6 +2632,9 @@ mod tests {
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         assert!(f.plain().contains(SUPPORT_PLEA), "death plea");
         assert_eq!(f.links.len(), 2, "button + plea are both links");
+        let (fx, _) = (0..120u16).map(|x| (x, f.link_at(x, 39))).find(|p| p.1.is_some()).unwrap();
+        assert_eq!(f.link_at(fx, 39), Some(SUPPORT_URL), "click on the bottom button hits the link");
+        assert_eq!(f.link_at(0, 0), None, "NEG: elsewhere no link");
     }
 
     #[test]

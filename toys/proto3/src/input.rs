@@ -220,12 +220,23 @@ pub enum Event {
     Key(KeyEv),
     KbdFlags(u32),
     DeviceAttrs,
+    /// left button pressed at screen cell (col, row), 0-based (SGR mouse)
+    Click(u16, u16),
     Other,
 }
 
 #[derive(Default)]
 pub struct Parser {
     buf: Vec<u8>,
+}
+
+/// SGR mouse report body after `<` (`b;x;y`, 1-based cells, final M = press): a left press is a click.
+fn sgr_click(body: &str) -> Event {
+    let mut f = body.split(';').map(|v| v.parse::<u16>().ok());
+    match (f.next().flatten(), f.next().flatten(), f.next().flatten()) {
+        (Some(0), Some(x), Some(y)) if x > 0 && y > 0 => Event::Click(x - 1, y - 1),
+        _ => Event::Other,
+    }
 }
 
 fn csi_key(params: &str, fin: u8) -> Event {
@@ -300,6 +311,7 @@ impl Parser {
                     evs.push(match (fin, body.strip_prefix('?')) {
                         (b'u', Some(f)) => f.parse().map_or(Event::Other, Event::KbdFlags),
                         (b'c', Some(_)) => Event::DeviceAttrs,
+                        (b'M', None) if body.starts_with('<') => sgr_click(&body[1..]),
                         (b'u' | b'A' | b'B' | b'C' | b'D', None) => csi_key(&body, fin),
                         _ => Event::Other,
                     });
@@ -758,6 +770,14 @@ mod tests {
         feed(&mut ui, b"\x1b[32;1:3u");
         let _ = volleys(&mut ui, &mut sim, 30);
         assert_eq!(volleys(&mut ui, &mut sim, 60), 0, "released: stops");
+    }
+
+    #[test]
+    fn sgr_left_press_is_a_click_others_are_not() {
+        let mut p = Parser::default();
+        let e = p.feed(b"\x1b[<0;10;40M\x1b[<0;10;40m\x1b[<2;5;5M");
+        assert!(matches!(e[0], Event::Click(9, 39)), "{:?}", e.len());
+        assert!(matches!(e[1], Event::Other) && matches!(e[2], Event::Other), "release and right button ignored");
     }
 
     #[test]

@@ -108,6 +108,11 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
         pending.extend(tty.events());
         let mut restart = auto.is_some() && ended && ended_at.elapsed() > Duration::from_secs(4);
         for e in pending.drain(..) {
+            if let Event::Click(x, y) = e
+                && let Some(url) = frame.link_at(x, y)
+            {
+                ui.msg = open_url(url);
+            }
             if let Event::Key(k) = e {
                 if ended && k.kind == crate::input::Kind::Press {
                     match k.key {
@@ -224,4 +229,44 @@ pub fn play(c: &Content, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveB
     drop(tty);
     println!("telemetry: {}", path.display());
     Ok(())
+}
+
+/// Openers tried in order: the desktop's default, then browsers by name.
+const OPENERS: [&str; 7] = ["xdg-open", "open", "firefox", "chromium", "chromium-browser", "google-chrome", "chrome"];
+
+/// Open `url` with the first opener found in PATH, detached (no shell, output discarded). Returns the status line.
+fn open_url(url: &str) -> String {
+    let Some(bin) = opener(&std::env::var_os("PATH").unwrap_or_default()) else {
+        return format!("no browser found: open {url}");
+    };
+    let null = std::process::Stdio::null;
+    match std::process::Command::new(&bin).arg(url).stdin(null()).stdout(null()).stderr(null()).spawn() {
+        Ok(_) => format!("opening {url} - thank you!"),
+        Err(e) => format!("could not open {url}: {e}"),
+    }
+}
+
+/// First of OPENERS that exists as a file in the PATH list `path`.
+fn opener(path: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
+    OPENERS.iter().find_map(|o| std::env::split_paths(path).map(|d| d.join(o)).find(|p| p.is_file()))
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::*;
+
+    #[test]
+    fn opener_prefers_xdg_open_and_falls_back_to_browsers() {
+        let dir = std::env::temp_dir().join(format!("tot-open-{}", std::process::id()));
+        let (a, b) = (dir.join("a"), dir.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("firefox"), "").unwrap();
+        let path = std::env::join_paths([&a, &b]).unwrap();
+        assert_eq!(opener(&path), Some(b.join("firefox")), "falls back to a browser");
+        std::fs::write(a.join("xdg-open"), "").unwrap();
+        assert_eq!(opener(&path), Some(a.join("xdg-open")), "xdg-open first");
+        assert_eq!(opener(std::ffi::OsStr::new("")), None, "NEG: empty PATH");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

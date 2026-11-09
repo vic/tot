@@ -46,7 +46,8 @@ impl Tty {
             }
         });
         let mut t = Tty { w, rx, parser: Parser::default(), saved, kitty: false, writes: 0 };
-        t.send(b"\x1b[?1049h\x1b[?25l\x1b[2J")?;
+        // SGR mouse (button presses only): the sponsor button is clickable
+        t.send(b"\x1b[?1049h\x1b[?25l\x1b[2J\x1b[?1000h\x1b[?1006h")?;
         Ok(t)
     }
 
@@ -123,7 +124,7 @@ impl Drop for Tty {
         // best effort restore; Drop has no caller to report to
         let pop: &[u8] = if self.kitty { b"\x1b[<u" } else { b"" };
         let _ = self.w.write_all(pop);
-        let _ = self.w.write_all(b"\x1b[0m\x1b[?25h\x1b[?1049l");
+        let _ = self.w.write_all(b"\x1b[?1006l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l");
         let _ = stty(&[self.saved.as_str()]);
     }
 }
