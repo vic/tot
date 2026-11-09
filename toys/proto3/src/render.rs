@@ -1384,6 +1384,14 @@ impl Frame {
         }
     }
 
+    /// The sponsor button at the right end of `row` (every screen has it); returns its first column.
+    pub(crate) fn sponsor(&mut self, c: &Content, row: u16) -> u16 {
+        let label = c.texts.get(t::SUPPORT_LABEL);
+        let sx = self.cols.saturating_sub(label.chars().count() as u16 + 5);
+        self.button((row, sx), label, (c.pal.alarm, c.pal.bg), false, c.texts.get(t::SUPPORT_URL));
+        sx
+    }
+
     /// A clickable button: ` label ` filled with `bg`, rounded by half blocks (`▐ … ▌`); `tall` adds rims above and
     /// below in quadrant blocks so it reads as a raised key. Returns its width. Off-screen parts are clipped.
     fn button(&mut self, (row, col): (u16, u16), label: &str, (bg, fg): (Rgb, Rgb), tall: bool, url: &str) -> u16 {
@@ -1975,8 +1983,7 @@ impl Frame {
         // first fit: each entry goes on row B if it fits there, else on row C after the mode tag; never split
         let key = key_fg(pal);
         // the sponsor button owns the right end of row C; hints never cover it
-        let sx = self.cols.saturating_sub(c.texts.get(t::SUPPORT_LABEL).chars().count() as u16 + 5);
-        self.button((rcm, sx), c.texts.get(t::SUPPORT_LABEL), (pal.alarm, pal.bg), false, c.texts.get(t::SUPPORT_URL));
+        let sx = self.sponsor(c, rcm);
         let limit = [self.cols, sx.saturating_sub(1)];
         let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
         for h in &entries {
@@ -3346,6 +3353,28 @@ mod tests {
         ui.class = c.class_id(1).unwrap();
         let s = shot(&ui);
         assert!(s.contains("{o_o}") && !s.contains("[o_o]"), "the second class's art\n{s}");
+    }
+
+    #[test]
+    fn every_start_step_has_the_sponsor_button() {
+        use crate::input::Start;
+        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        let c = Content::load_profile(d, None).unwrap();
+        let advs = crate::data::profiles(d).unwrap();
+        let agents = crate::peer::tests::sessions_named(&["a"]);
+        let (label, url) = (c.texts.get(t::SUPPORT_LABEL), c.texts.get(t::SUPPORT_URL));
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Start;
+        let n = advs.len();
+        let steps = [Start::Adventure { sel: 0 }, Start::Class { adv: 0, sel: 0 }, Start::Describe { adv: n }, Start::Agent { adv: n, sel: 0 }, Start::Asking { adv: n, agent: 0 }];
+        for step in steps {
+            ui.start = step;
+            let mut f = Frame::new(&c, 120, 40);
+            f.start(&c, &ui, &StartView { advs: &advs, agents: &agents, news: None });
+            let last = f.plain().lines().last().unwrap_or_default().to_string();
+            assert!(last.contains(label), "{step:?}: the button on the last row: {last}");
+            assert!((0..120).any(|x| f.link_at(x, 39) == Some(url)), "{step:?}: the button opens the sponsor page");
+        }
     }
 
     #[test]

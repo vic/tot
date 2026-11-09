@@ -86,8 +86,15 @@ impl Frame {
             self.text(row, centre(self.cols, fit.chars().count()), &fit, pal.alarm);
         }
         if let Some(last) = rows.checked_sub(1) {
+            // the sponsor button owns the right end of the last row; the key hints stop before it
+            self.links.clear();
+            let sx = self.sponsor(c, last);
             let mut x = 1;
             for h in hints(c, ui) {
+                let w = (h.keys.chars().count() + h.label.chars().count() + 3) as u16;
+                if x + w >= sx {
+                    break;
+                }
                 x = self.text(last, x, &h.keys, key_fg(pal));
                 x = self.text(last, x + 1, &h.label, pal.dim) + 2;
             }

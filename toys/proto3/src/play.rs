@@ -99,6 +99,11 @@ fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) 
     loop {
         for e in tty.wait(dt) {
             sync(&ui, &advs, &mut adv, &mut frame)?;
+            if let Event::Click(x, y) = e
+                && let Some(url) = frame.link_at(x, y)
+            {
+                news = Some(open_url(base, url));
+            }
             if let Event::Key(k) = e {
                 ui.key(k, adv.as_ref().map_or(base, |a| &a.1), 0);
             }
