@@ -13,11 +13,11 @@ all of them. Here are two runs, played by the built-in demo player.
 
 <video src="demo/cyberpunk.mp4" controls muted loop width="100%"></video>
 
-*Cyberpunk: a sanitation unit wakes up in neon sector 7 and the grid wants it gone.*
+[https://youtu.be/c5ZQUrfc5uY](*Cyberpunk: a sanitation unit wakes up in neon sector 7 and the grid wants it gone.*)
 
 <video src="demo/tristram.mp4" controls muted loop width="100%"></video>
 
-*Tristram: a second adventure on the same engine.*
+[https://youtu.be/r5SbGXClt_Y](*Tristram: a second adventure on the same engine.*)
 
 If a video does not play in your viewer, open the files in `demo/` directly.
 
