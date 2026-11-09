@@ -807,8 +807,19 @@ impl Frame {
             };
             let s = c.skill(card.skill);
             let rar = [("common", pal.text), ("RARE", pal.of(Hue::Kin)), ("EPIC", pal.of(Hue::Therm)), ("LEGEND", pal.chest)][usize::from(card.rarity.min(3))];
+            // the card reads in a glance: its rows tinted by rarity, a kind icon in the power colour, then the name
+            if card.rarity > 0 {
+                let i = usize::from(row) * usize::from(self.cols) + usize::from(x0 + 1);
+                let tint = mix(rar.1, pal.hud_bg, CARD_TINT);
+                for r in 0..3 {
+                    for cell in &mut self.cells[i + r * usize::from(self.cols)..i + r * usize::from(self.cols) + usize::from(w - 2)] {
+                        cell.bg = tint;
+                    }
+                }
+            }
             let mut x = self.text(row, x0 + 2, if sel { "> " } else { "  " }, pal.alarm);
-            x = self.num(row, x, k as i64 + 1, pal.dim);
+            x = self.num(row, x, k as i64 + 1, key_fg(pal));
+            x = self.text(row, x + 1, kind_icon(s.kind), pal.of(s.hue));
             // power type colour: same as the stats pane
             x = self.text(row, x + 1, &s.name, pal.of(s.hue));
             x = self.text(row, x + 2, rar.0, rar.1);
@@ -2085,6 +2096,24 @@ impl Frame {
     }
 }
 
+/// One icon per power kind for the picker: attacks are arrows and blasts, traits are solid marks.
+fn kind_icon(k: crate::data::SkillKind) -> &'static str {
+    use crate::data::SkillKind as K;
+    match k {
+        K::Bolt => "▶",
+        K::Hack => "▣",
+        K::Orbit => "◐",
+        K::Pulse => "◎",
+        K::Chain => "◆",
+        K::Mine => "●",
+        K::Might => "▲",
+        K::Haste => "►",
+        K::Plating => "■",
+        K::Magnet => "◇",
+        K::Regen => "◉",
+    }
+}
+
 /// Letter and colour of an NPC, on the arena and on the map: pals in the hero colour, keepers in gold.
 fn npc_ink(npc: crate::sim::Npc, pal: &crate::data::Palette) -> (char, Rgb) {
     use crate::sim::Npc;
@@ -2229,6 +2258,8 @@ const YOU_DIED_W: i32 = 29;
 const WK_MAX_W: usize = 72;
 /// Toggle label background: state colour mixed this far (permille) toward the background.
 const TOGGLE_BG: u32 = 450;
+/// Picker card rows: rarity colour mixed this far (permille) toward the panel background.
+const CARD_TINT: u32 = 780;
 /// Floor loot: glow mix toward the background (permille), tallest beam (rows), pulse period (ticks).
 const LOOT_GLOW: u32 = 650;
 const LOOT_BEAM_MAX: i32 = 4;
@@ -3133,7 +3164,12 @@ mod tests {
         let name = sim.offer.and_then(|o| o.cards[0]).map(|k| c.skill(k.skill).name.clone()).unwrap();
         assert!(row(39).contains("-- PICK --"));
         // the picker is a popup in the play area: the card name shows there, the strip only points at it
-        assert!((0..37).any(|r| row(r).contains(&format!("1 {name}"))), "popup shows card 1");
+        let kind = sim.offer.and_then(|o| o.cards[0]).map(|k| kind_icon(c.skill(k.skill).kind)).unwrap();
+        assert!((0..37).any(|r| row(r).contains(&format!("1 {kind} {name}"))), "popup shows card 1 with its kind icon");
+        // every kind has its own icon, drawable
+        use crate::data::SkillKind as K;
+        let all = [K::Bolt, K::Hack, K::Orbit, K::Pulse, K::Chain, K::Mine, K::Might, K::Haste, K::Plating, K::Magnet, K::Regen].map(kind_icon);
+        assert!(all.iter().enumerate().all(|(i, a)| a.chars().all(|ch| Glyph::of(ch).is_some()) && !all[i + 1..].contains(a)), "distinct drawable icons");
         assert!(!row(38).contains(&name), "{}", row(38));
         assert!((38..40).any(|r| row(r).contains("take")), "pick keys on the key rows");
     }
