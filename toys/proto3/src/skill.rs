@@ -36,10 +36,15 @@ Rules the loader checks:
 
 /// The skill text: intro, schema, then each installed adventure's files in the answer format.
 pub fn skill(dir: &Path) -> Result<String> {
+    skill_with(dir, |_| true)
+}
+
+/// The skill text with only the adventures `pick` keeps as examples.
+pub fn skill_with(dir: &Path, pick: impl Fn(&str) -> bool) -> Result<String> {
     let mut s = String::from(INTRO);
     s += &crate::data::schema_doc();
     s += "\n## shipped adventures (examples: the format and the balance, not the content)\n";
-    let advs = crate::data::profiles(dir)?;
+    let advs: Vec<_> = crate::data::profiles(dir)?.into_iter().filter(|p| pick(&p.id)).collect();
     if advs.is_empty() {
         return Err(crate::Error::Usage(format!("no adventures under {}/profiles: the skill needs at least one example", dir.display())));
     }

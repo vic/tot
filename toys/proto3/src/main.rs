@@ -1,4 +1,5 @@
 //! proto2: ToT FP1 playable survivor-like (Netrunner) + headless bot harness. Spec: vic/design.md.
+mod agentic;
 mod bigtext;
 mod bot;
 mod cam;
@@ -9,6 +10,7 @@ mod floorgen;
 mod input;
 mod iso;
 mod json;
+mod peer;
 mod play;
 mod render;
 mod rng;
@@ -32,6 +34,8 @@ pub enum Error {
     TooSmall { need: (u16, u16), have: (u16, u16) },
     NoKitty,
     ControlsFailed,
+    /// local Claude session link (cross-session socket protocol)
+    Peer(String),
 }
 
 impl fmt::Display for Error {
@@ -45,6 +49,7 @@ impl fmt::Display for Error {
             Error::TooSmall { need, have } => write!(f, "terminal {}x{} is smaller than {}x{}; enlarge it", have.0, have.1, need.0, need.1),
             Error::NoKitty => write!(f, "this terminal does not speak the kitty keyboard protocol (needed for held keys). Use ghostty, kitty or rio."),
             Error::ControlsFailed => write!(f, "a negative control did not fire"),
+            Error::Peer(s) => write!(f, "claude link: {s}"),
         }
     }
 }
@@ -65,6 +70,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 const USAGE: &str = "proto2 play [--data DIR] [--profile NAME] [--seed N] [--out DIR]
 proto2 schema   (adventure schema docs: every shown message, art and field, where it shows)
 proto2 skill [--data DIR]   (agent skill: write and update adventures; schema + every shipped adventure as examples)
+proto2 agentic [--to PID --brief TEXT --wait-s S]   (no --to: list live local Claude sessions; else ask one for an adventure)
 proto2 snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
 proto2 bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
 proto2 controls --seeds N [--data DIR]";
@@ -125,6 +131,7 @@ fn run() -> Result<()> {
             };
             play::play(&c, &dir, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
         }
+        Some("agentic") => agentic_cli(&dir, &args),
         Some("skill") => {
             print!("{}", skill::skill(&dir)?);
             Ok(())
@@ -185,4 +192,34 @@ fn main() {
         eprintln!("proto2: {e}");
         std::process::exit(1);
     }
+}
+
+/// `agentic`: list the live local Claude sessions, or ask one (`--to PID --brief TEXT --wait-s S`) for an
+/// adventure and wait for it, as the start screen does.
+fn agentic_cli(dir: &std::path::Path, args: &Args) -> Result<()> {
+    let (reg, socks) = peer::default_dirs().ok_or_else(|| Error::Usage("HOME and XDG_RUNTIME_DIR must be set".into()))?;
+    let live = peer::sessions(&reg, std::path::Path::new("/proc"));
+    let Some(pid) = args.val("--to") else {
+        for s in &live {
+            println!("{} {}{} {}", s.pid, s.name, if s.busy { " (busy)" } else { "" }, s.cwd);
+        }
+        return Ok(());
+    };
+    let to = live.into_iter().find(|s| s.pid.to_string() == pid).ok_or_else(|| Error::Usage(format!("no live Claude session with pid {pid}")))?;
+    let brief = args.val("--brief").ok_or_else(|| Error::Usage("--brief TEXT".into()))?;
+    let wait = std::time::Duration::from_secs(args.val("--wait-s").ok_or_else(|| Error::Usage("--wait-s S".into()))?.parse().map_err(|_| Error::Usage("--wait-s: not a number".into()))?);
+    let mut link = agentic::Link::ask(dir, &socks, to, brief)?;
+    eprintln!("asked; accept the request in that Claude Code session");
+    let start = std::time::Instant::now();
+    while start.elapsed() < wait {
+        match link.poll(dir)? {
+            agentic::Heard::Installed(id) => {
+                println!("{id}");
+                return Ok(());
+            }
+            agentic::Heard::Refused(why) => eprintln!("refused, sent back: {why}"),
+            agentic::Heard::Nothing => std::thread::sleep(std::time::Duration::from_millis(200)),
+        }
+    }
+    Err(Error::Peer(format!("no adventure within {} s", wait.as_secs())))
 }

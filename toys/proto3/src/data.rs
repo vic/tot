@@ -1689,7 +1689,7 @@ const FILES: [&str; 11] = [
 ];
 
 /// Files a profile may replace: the content, never the options or the key bindings.
-const PROFILE_FILES: [&str; 9] =
+pub const PROFILE_FILES: [&str; 9] =
     ["tuning.jsonl", "palette.jsonl", "enemies.jsonl", "skills.jsonl", "bosses.jsonl", "waves.jsonl", "trees.jsonl", "items.jsonl", "texts.jsonl"];
 
 /// Header of a profile directory (`profile.jsonl`).
