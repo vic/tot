@@ -1,8 +1,12 @@
 # ToT
 
 ToT is a survival game that runs in your terminal. You are a lone hero in a dark dungeon. Foes come in waves, bosses
-come at times you cannot predict, and you grow strong enough to beat them or you do not. The game draws iso-view
-scenes with text glyphs, so it needs no graphics card and no window system. The game is a prototype.
+come at times you don't want, and you grow strong enough to beat them or you do not. The game draws iso-view
+scenes with text glyphs, so it needs no graphics card and no window system. 
+
+The game is in development, will always be free and supported by [donations](https://github.com/sponsors/vic).
+
+**TODO**: Skills Tree, Item Shops, Meta Progression and Resource discipline.
 
 Each adventure is a set of data files: the foes, the bosses, the words, the colors and the art. The same engine plays
 all of them. Here are two runs, played by the built-in demo player.
