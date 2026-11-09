@@ -401,7 +401,7 @@ pub struct Palette {
     pub face: [Glyph; 3],
     pub shadow: Glyph,
     pub body: Glyph,
-    /// base24 scheme id named by the record (file `schemes/<id>.yaml`), applied by `Content::load`
+    /// base24 scheme id named by the record (file `schemes/<id>.yaml`), applied by `Content::load_profile`
     pub scheme: Option<SchemeId>,
     roles: RoleTable,
 }
@@ -1383,10 +1383,6 @@ fn profile_dir(dir: &Path, name: &str) -> Result<std::path::PathBuf> {
 }
 
 impl Content {
-    pub fn load(dir: &Path) -> Result<Content> {
-        Content::load_profile(dir, None)
-    }
-
     /// `profile` = a theme under `dir/profiles/<name>/`: any content file it ships replaces the base
     /// file whole (same schema); the rest, plus options and bindings always, come from `dir`.
     pub fn load_profile(dir: &Path, profile: Option<&str>) -> Result<Content> {
@@ -2478,7 +2474,7 @@ pub mod tests {
         let d = data_dir();
         let ps = profiles(&d).unwrap();
         assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyber-sanitation", "dark-fantasy"]);
-        let base = Content::load(&d).unwrap();
+        let base = Content::load_profile(&d, None).unwrap();
         let cyber = Content::load_profile(&d, Some("cyber-sanitation")).unwrap();
         let names = |c: &Content| c.fams.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
         assert_eq!(names(&cyber), names(&base), "cyber-sanitation = the base data");

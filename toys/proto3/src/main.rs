@@ -79,18 +79,10 @@ impl Args {
     }
 }
 
-fn load_content(dir: &std::path::Path, profile: Option<&str>) -> Result<data::Content> {
-    match profile {
-        None => data::Content::load(dir),
-        // swap for driver-c's `Content::load_profile(dir, Some(name))` when it lands
-        Some(name) => Err(Error::Usage(format!("--profile {name}: profile loader not landed"))),
-    }
-}
-
 fn run() -> Result<()> {
     let args = Args(std::env::args().skip(1).collect());
     let dir = PathBuf::from(args.val("--data").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/data")));
-    let c = load_content(&dir, args.val("--profile"))?;
+    let c = data::Content::load_profile(&dir, args.val("--profile"))?;
     match args.0.first().map(String::as_str) {
         Some("bot") => {
             let mv = bot::MoveBot::parse(args.val("--move").unwrap_or("kiter"))?;
@@ -180,15 +172,5 @@ fn main() {
     if let Err(e) = run() {
         eprintln!("proto2: {e}");
         std::process::exit(1);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn profile_flag_is_a_usage_error_until_the_loader_lands() {
-        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
-        assert!(matches!(super::load_content(d, Some("x")), Err(super::Error::Usage(_))));
-        assert!(super::load_content(d, None).is_ok());
     }
 }
