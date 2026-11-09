@@ -2814,7 +2814,8 @@ mod tests {
         assert!(!banner(&f), "banner fades");
         sim.tick = tick_of(&sim, Weather::Rain);
         let rain = at(&mut f, &sim, 10_000);
-        assert!(rain.matches('/').count() > clear.matches('/').count() + 20, "rain streaks");
+        let streak = c.texts.glyph(g::RAIN).ch();
+        assert!(rain.matches(streak).count() > clear.matches(streak).count() + 20, "rain streaks");
     }
 
     #[test]
@@ -2932,7 +2933,7 @@ mod tests {
         }
         sim.p.level = HERO_TIERS[1];
         let geared = look(&sim);
-        assert_eq!(geared[0], Some(('█', ink(armor).1)), "armour plates the torso");
+        assert_eq!(geared[0], Some((c.texts.glyph(g::HERO_ARMOR).ch(), ink(armor).1)), "armour plates the torso");
         assert_eq!((geared[1], geared[2]), (Some(ink(weapon)), Some(ink(charm))), "weapon right, charm left");
         assert_eq!((geared[3].map(|t| t.0), geared[4].map(|t| t.0)), (Some('▟'), Some('▙')), "tier-2 shoulders");
     }
@@ -3085,16 +3086,17 @@ mod tests {
         sim.world.npcs.clear();
         sim.world.goblins.clear();
         f.compose(&sim, &view);
-        assert!(!map(&f).contains('m') && !map(&f).contains('g'), "control: none on the map");
+        let (merchant, goblin) = (c.texts.glyph(g::NPC_MERCHANT).ch(), c.texts.glyph(g::MAP_GOBLIN).ch());
+        assert!(!map(&f).contains(merchant) && !map(&f).contains(goblin), "control: none on the map");
         let gold_arrows = |f: &Frame| f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == c.pal.chest).count();
         let before = gold_arrows(&f);
         sim.world.npcs = vec![Placed { npc: Npc::Merchant { honest: true }, x: sim.p.x + 40_000, y: sim.p.y }];
         f.compose(&sim, &view);
-        assert!(map(&f).contains('m'), "merchant on the map");
+        assert!(map(&f).contains(merchant), "merchant on the map");
         assert_eq!(gold_arrows(&f), before + 1, "and a gold arrow points at it");
         sim.world.goblins.push(crate::sim::Goblin { x: sim.p.x, y: sim.p.y - 30_000 });
         f.compose(&sim, &view);
-        assert!(map(&f).contains('g'), "goblin on the map");
+        assert!(map(&f).contains(goblin), "goblin on the map");
     }
 
     #[test]
@@ -3447,7 +3449,8 @@ mod tests {
     // re-pinned 2026-11-09: hero shout holds the screen spot where it began (tot-7op)
     // re-pinned 2026-11-09: tiny compass on a 3x3 plate at the map top-left (tot-5ah)
     // re-pinned 2026-11-09: cyberpunk faces, walls and art from the adventure data (tot-62z.6)
-    const GOLDEN: u64 = 0x4bbe_0252_6aa5_37aa;
+    // re-pinned 2026-11-09: cyberpunk sprite glyphs themed (tot-62z.17)
+    const GOLDEN: u64 = 0x6b2c_035d_8cf2_e829;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

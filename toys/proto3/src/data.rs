@@ -2944,6 +2944,8 @@ pub mod tests {
             assert!(art(&c).iter().all(|x| !art(&base).contains(x)), "{}: its own hero art per class", p.id);
             assert!(Bark::ALL.iter().all(|&b| c.texts.lines(b) != base.texts.lines(b)), "{}: its own voice for every bark", p.id);
             assert_ne!(c.pal.face, base.pal.face, "{}: its own walls", p.id);
+            let same = GLYPHS.iter().enumerate().filter(|(k, _)| c.texts.glyph(GlyphId(*k)) == base.texts.glyph(GlyphId(*k))).count();
+            assert!(same * 2 < GLYPHS.len(), "{}: most sprite glyphs its own ({same} of {} same)", p.id, GLYPHS.len());
         }
     }
 
