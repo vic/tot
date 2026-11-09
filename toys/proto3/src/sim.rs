@@ -421,7 +421,20 @@ pub fn dist2(dx: i32, dy: i32) -> i64 {
     i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy)
 }
 fn dist(dx: i32, dy: i32) -> i32 {
-    dist2(dx, dy).isqrt() as i32
+    isqrt(dist2(dx, dy)) as i32
+}
+/// floor(sqrt(n)), n >= 0: same value as `i64::isqrt`, faster. The f64 root lands within one of the answer
+/// (n rounds to 53 bits); the integer steps make it exact.
+pub fn isqrt(n: i64) -> i64 {
+    let n128 = i128::from(n);
+    let mut r = (n as f64).sqrt() as i64;
+    while i128::from(r) * i128::from(r) > n128 {
+        r -= 1;
+    }
+    while i128::from(r + 1) * i128::from(r + 1) <= n128 {
+        r += 1;
+    }
+    r
 }
 fn scale(v: i32, permille: i64) -> i32 {
     (i64::from(v) * permille / 1000) as i32
@@ -676,15 +689,20 @@ struct Grid {
     start: Vec<u32>,
     items: Vec<u32>,
     cell: Vec<u32>,
-    // positions + radius copied in cell order: neighbour scans read contiguous memory
-    gx: Vec<i32>,
-    gy: Vec<i32>,
-    gr: Vec<i32>,
+    // position + radius copied in cell order, one record per item: neighbour scans read one cache line each
+    at: Vec<GridPos>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct GridPos {
+    x: i32,
+    y: i32,
+    r: i32,
 }
 
 impl Grid {
     fn new(cap: usize) -> Grid {
-        Grid { ox: 0, oy: 0, start: vec![0; GRID_N * GRID_N + 1], items: vec![0; cap], cell: vec![0; cap], gx: vec![0; cap], gy: vec![0; cap], gr: vec![0; cap] }
+        Grid { ox: 0, oy: 0, start: vec![0; GRID_N * GRID_N + 1], items: vec![0; cap], cell: vec![0; cap], at: vec![GridPos::default(); cap] }
     }
     fn cxy(&self, x: i32, y: i32) -> (usize, usize) {
         let c = |v: i32| ((v.div_euclid(GRID_CELL)).clamp(0, GRID_N as i32 - 1)) as usize;
@@ -698,23 +716,21 @@ impl Grid {
             let (a, b) = self.cxy(x, y);
             let c = b * GRID_N + a;
             self.cell[i] = c as u32;
-            self.start[c + 1] += 1;
-        }
-        for c in 0..GRID_N * GRID_N {
-            self.start[c + 1] += self.start[c];
-        }
-        for i in 0..xs.len() {
-            let c = self.cell[i] as usize;
-            let k = self.start[c];
-            self.items[k as usize] = i as u32;
-            (self.gx[k as usize], self.gy[k as usize], self.gr[k as usize]) = (xs[i], ys[i], rs[i]);
             self.start[c] += 1;
         }
-        // start[c] now = end of c = start of c+1; shift back
-        for c in (1..=GRID_N * GRID_N).rev() {
-            self.start[c] = self.start[c - 1];
+        // inclusive prefix: start[c] = end of cell c
+        for c in 1..GRID_N * GRID_N {
+            self.start[c] += self.start[c - 1];
         }
-        self.start[0] = 0;
+        self.start[GRID_N * GRID_N] = xs.len() as u32;
+        // reverse scatter with falling cursors keeps ascending i inside a cell and leaves start[c] = begin of c
+        for i in (0..xs.len()).rev() {
+            let c = self.cell[i] as usize;
+            self.start[c] -= 1;
+            let k = self.start[c] as usize;
+            self.items[k] = i as u32;
+            self.at[k] = GridPos { x: xs[i], y: ys[i], r: rs[i] };
+        }
     }
     /// Enemy indices in cells touching the square of half-size r around (x, y).
     fn query(&self, x: i32, y: i32, r: i32, out: &mut Vec<u32>) {
@@ -1564,6 +1580,26 @@ mod tests {
         eprintln!("PERF 20k: tick p50 {} us p99 {p99} us max {} us", times[50], times[99]);
         assert!(p99 <= 4000, "p99 {p99} us (p50 {} us)", times[50]);
         assert_eq!(allocated, 0);
+    }
+
+    /// Same value as i64::isqrt: small n, around perfect squares up to the top (where f64 rounds n), extremes.
+    #[test]
+    fn isqrt_equals_std() {
+        let mut ns: Vec<i64> = (0..5000).collect();
+        let mut k = 3i64;
+        while k < 3_037_000_499 {
+            ns.extend([k * k - 1, k * k, k * k + 1]);
+            k = k * 9 / 8 + 1;
+        }
+        let mut rng = Xo::seeded(3);
+        ns.extend((0..5000).map(|_| (rng.next() >> 1) as i64));
+        ns.push(i64::MAX);
+        let mut fixed = 0;
+        for &n in &ns {
+            assert_eq!(isqrt(n), n.isqrt(), "n {n}");
+            fixed += u32::from(((n as f64).sqrt() as i64) != n.isqrt());
+        }
+        assert!(fixed > 10, "control: the f64 root alone is wrong for some n ({fixed}), so the integer steps are exercised");
     }
 
     #[test]

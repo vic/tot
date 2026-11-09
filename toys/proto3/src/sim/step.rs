@@ -320,8 +320,9 @@ impl<'c> Sim<'c> {
                         if j == i || Some(j) == boss {
                             continue;
                         }
-                        let rr = e.rad[i] + g.gr[k];
-                        let (dx, dy) = (x - g.gx[k], y - g.gy[k]);
+                        let p = g.at[k];
+                        let rr = e.rad[i] + p.r;
+                        let (dx, dy) = (x - p.x, y - p.y);
                         let d2 = dist2(dx, dy);
                         let rr2 = i64::from(rr).pow(2);
                         if d2 < rr2 {
@@ -579,7 +580,7 @@ impl<'c> Sim<'c> {
             let j = j as usize;
             let (ex, ey) = (self.e.x[j] - px, self.e.y[j] - py);
             let d2 = dist2(ex, ey);
-            let d = d2.isqrt();
+            let d = isqrt(d2);
             if d2 <= r2 && (d == 0 || (i64::from(ex) * i64::from(ux) + i64::from(ey) * i64::from(uy)) >= i64::from(s.base.arc_cos) * d) {
                 self.add_glitch(j, f.glitch);
             }
