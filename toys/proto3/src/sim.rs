@@ -947,7 +947,7 @@ impl<'c> Sim<'c> {
             drops: Drops::default(),
             boss_home: Vec::new(),
             treasures: Vec::with_capacity(TREASURES as usize),
-            world: world::World::new(seed, &arena, NonZeroU32::MIN.saturating_add(c.hz().get() - 1)),
+            world: world::World::new(seed, &arena, NonZeroU32::MIN.saturating_add(c.hz().get() - 1), &c.world),
             gear: Gear::default(),
             bag: Vec::with_capacity(BAG_SLOTS),
             mines: Vec::with_capacity(64),

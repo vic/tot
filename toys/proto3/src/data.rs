@@ -361,6 +361,18 @@ pub struct ViewDef {
     pub turn_ms: u32,
 }
 
+/// Dungeon population per run (tuning.jsonl `world`).
+pub struct WorldDef {
+    /// NPCs placed (pals, merchants, smiths, witches, bystanders)
+    pub npcs: u32,
+    /// chance (permille) an NPC is bad: a pal that turns on the hero, a cheating keeper
+    pub bad: u32,
+    /// treasure chests placed
+    pub chests: u32,
+    /// power-up chests a rescued pal gives
+    pub rescue_chests: u16,
+}
+
 /// Arena generator ranges (floorgen.rs draws inside them per run seed).
 pub struct ArenaDef {
     pub glyphs: (u32, u32),
@@ -1074,6 +1086,7 @@ pub fn schema_doc() -> String {
         s += &format!("- `{}`: {}\n", g.id, g.doc);
     }
     s += &format!("\n## texts.jsonl `letter` records (the big block font: shouts, roars, banners)\n\nOne record per character A-Z ! ? . and space (`\"id\":\"A\"`): `rows` = 3 rows of one width 1..={} in width-1 cell glyphs. The game puts one blank column between letters. Keep the letters distinct.\n", crate::bigtext::LETTER_MAX_W);
+    s += "\n## tuning.jsonl gameplay (each adventure plays different)\n\n`player` = the hero: hp, regen_s, armour, speed_mps (must stay above every foe), pickup_m, crit_chance, crit_bonus, dash_m, dodge_cd_s... `spawn` = the horde: trash_hp, dmg0, rate0_s (seconds between spawns at the start)... `world` = who lives in the dungeon: npcs (pals, keepers, bystanders placed, 0..=64), bad_chance (0..1: a pal turns on the hero, a keeper cheats), chests (0..=64), rescue_chests (power-up chests a rescued pal gives, 0..=5). The loader names the field and range of any value out of bounds.\n";
     s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
     s += &format!(
         "\n## trees.jsonl class art\n\nEach `class` record has `art`: the hero of that class drawn in the hero pane's gear tab, {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} cell glyphs (head on top, feet at the bottom); and `paint`: {HERO_ART_ROWS} rows of {HERO_ART_COLS} letters, one per art cell, naming what colours it: `a` armor, `r` ring, `j` jewel, `w` weapon, `c` charm (the worn item's rarity colour, dim when the slot is empty), `.` the body (text colour). Draw the gear where it is worn: armor on the torso, weapon in a hand, ring on a finger.\n"
@@ -1635,6 +1648,7 @@ pub struct Content {
     pub view: ViewDef,
     pub bars: Bars,
     pub arena: ArenaDef,
+    pub world: WorldDef,
     pub pal: Palette,
     pub fams: Vec<Fam>,
     pub skills: Vec<Skill>,
@@ -1823,6 +1837,7 @@ impl Content {
             view: view(only(&tu, "view", "tuning.jsonl")?, hz, &spawn)?,
             bars: bars(only(&tu, "bars", "tuning.jsonl")?)?,
             arena: arena_def(only(&tu, "arena", "tuning.jsonl")?)?,
+            world: world_def(only(&tu, "world", "tuning.jsonl")?)?,
             pal: palette(only(&pa, "palette", "palette.jsonl")?)?,
             opt,
             player,
@@ -2131,6 +2146,17 @@ fn arena_def(r: &Rec) -> Result<ArenaDef> {
         decor: pm("decor", 1.0)?,
         decor_cell: mm(r.num("decor_cell_m", 2.0, 100.0)?),
         decor_r: (mm(dr.0), mm(dr.1)),
+    })
+}
+
+/// `world` record: who lives in the dungeon and what they give.
+fn world_def(r: &Rec) -> Result<WorldDef> {
+    r.allow(&["t", "npcs", "bad_chance", "chests", "rescue_chests"])?;
+    Ok(WorldDef {
+        npcs: r.int("npcs", 0, 64)? as u32,
+        bad: permille(r.num("bad_chance", 0.0, 1.0)?),
+        chests: r.int("chests", 0, 64)? as u32,
+        rescue_chests: r.int("rescue_chests", 0, 5)? as u16,
     })
 }
 
@@ -2973,6 +2999,8 @@ pub mod tests {
             assert!(art(&c).iter().all(|x| !art(&base).contains(x)), "{}: its own hero art per class", p.id);
             assert!(Bark::ALL.iter().all(|&b| c.texts.lines(b) != base.texts.lines(b)), "{}: its own voice for every bark", p.id);
             assert_ne!(c.pal.face, base.pal.face, "{}: its own walls", p.id);
+            let play = |c: &Content| (c.player.hp, c.world.npcs, c.world.bad);
+            assert_ne!(play(&c), play(&base), "{}: its own hero and pal gameplay", p.id);
             assert!(c.texts.font().distinct() && c.texts.font().rows("A") != base.texts.font().rows("A"), "{}: its own readable lettering", p.id);
             let same = GLYPHS.iter().enumerate().filter(|(k, _)| c.texts.glyph(GlyphId(*k)) == base.texts.glyph(GlyphId(*k))).count();
             assert!(same * 2 < GLYPHS.len(), "{}: most sprite glyphs its own ({same} of {} same)", p.id, GLYPHS.len());

@@ -12,10 +12,6 @@ use crate::data::FamId;
 use crate::rng::mix;
 use std::num::NonZeroU32;
 
-/// NPCs placed per run. shortcut: fixed count, upgrade to data when NPC density gets tuning.
-const NPCS: u32 = 12;
-/// World chests per run.
-const CHESTS: u32 = 10;
 /// A false chest shows its tell when the hero is this close (mm).
 const TELL_R: i32 = 6000;
 /// Bomb: fuse (s), blast radius (mm), damage as a fraction of max HP (permille), mimic pack size.
@@ -93,12 +89,12 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(seed: u64, arena: &Arena, hz: NonZeroU32) -> World {
+    pub fn new(seed: u64, arena: &Arena, hz: NonZeroU32, def: &crate::data::WorldDef) -> World {
         // total: a tick count that would overflow u32 saturates, the schedule just gets one long segment
         let seg = hz.saturating_mul(SEGMENT_S);
-        let npcs = place(seed, arena, NPCS);
+        let npcs = place(seed, arena, def.npcs, def.bad);
         let shops = vec![Vec::new(); npcs.len()];
-        World { schedule: Schedule::new(seed, seg), foe_key: mix(seed ^ FOE_SALT), chests: place_chests(seed, arena, CHESTS), blasts: Vec::new(), goblins: Vec::new(), traps: Vec::new(), gold_piles: Vec::new(), goblins_spawned: 0, npcs, services: Vec::new(), shops, open_shop: None, pals: 0 }
+        World { schedule: Schedule::new(seed, seg), foe_key: mix(seed ^ FOE_SALT), chests: place_chests(seed, arena, def.chests), blasts: Vec::new(), goblins: Vec::new(), traps: Vec::new(), gold_piles: Vec::new(), goblins_spawned: 0, npcs, services: Vec::new(), shops, open_shop: None, pals: 0 }
     }
 
     pub fn forecast(&self, tick: u32) -> Forecast {
@@ -217,7 +213,7 @@ impl Sim<'_> {
         match out {
             Outcome::Rescued => {
                 self.world.pals += 1;
-                self.pending_chest += 1;
+                self.pending_chest += self.c.world.rescue_chests;
             }
             Outcome::TurnsPal => self.world.pals += 1,
             Outcome::TurnsFoe => {
@@ -448,6 +444,20 @@ mod tests {
         s.p.x += 4500;
         s.world_step();
         assert_eq!((s.e.x.len(), s.pending_chest), (before + 1, 0), "traitor becomes a foe, no loot");
+    }
+
+    #[test]
+    fn world_record_sets_pal_reward_and_population() {
+        let at = crate::data::tests::texts().iter().position(|t| t.contains("\"t\":\"world\"")).unwrap();
+        let mut ts = crate::data::tests::texts();
+        ts[at] = ts[at].replace("\"npcs\":12,\"bad_chance\":0.25,\"chests\":10,\"rescue_chests\":1", "\"npcs\":3,\"bad_chance\":0.25,\"chests\":10,\"rescue_chests\":2");
+        let (base, c) = (content(), crate::data::Content::parse(&ts).unwrap());
+        assert_ne!(base.world.rescue_chests, c.world.rescue_chests, "control edit applied");
+        let mut s = sim_with(&c, Npc::Pal { traitor: false });
+        s.p.x += 4500;
+        s.world_step();
+        assert_eq!(s.pending_chest, 2, "a rescued pal gives the adventure's chest count");
+        assert!(Sim::new(&c, 7, None).world.npcs.len() <= 3 && Sim::new(&base, 7, None).world.npcs.len() > 3, "the adventure's NPC count");
     }
 
     #[test]

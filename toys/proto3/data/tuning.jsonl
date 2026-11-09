@@ -9,3 +9,4 @@
 {"t":"bars","kiter_tag_win":[0.55,0.75],"kiter_random_win":[0.15,0.35],"oracle_win_min":0.95,"none_median_max_s":270,"still_median_max_s":300,"n2_earlier_min":0.4,"skill_share_max":0.6,"degenerate_dmg_share":0.57,"meter_ratio_min":1.5}
 {"t":"arena","glyphs":[4,8],"density":[0.2,0.4],"fam_mult":[0.5,1.6],"decor":[0.15,0.45],"decor_cell_m":14,"decor_r_m":[1.0,3.5]}
 {"t":"scaling","par_levels_per_min":0.8,"speedup_per_level":0.25,"speedup_cap":1.0,"mini_per_level":0.04,"mini_cap":1.5,"horde_per_level":0.03,"horde_cap":1.5}
+{"t":"world","npcs":12,"bad_chance":0.25,"chests":10,"rescue_chests":1}

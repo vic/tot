@@ -76,8 +76,7 @@ impl Npc {
 
 /// Rooms around the origin room that hold NPCs, per axis.
 const ROOM_SPAN: u32 = 5;
-/// Chance an NPC is bad (traitor pal, cheating shopkeeper), permille.
-const BAD: u32 = 250;
+
 /// Rejection tries per NPC before it is skipped.
 const TRIES: u32 = 32;
 /// Stream salt so placement never mirrors the treasure draws on Stream::Map.
@@ -89,11 +88,11 @@ fn pick(rng: &mut Xo, n: u32) -> u32 {
 
 /// Seeded NPC placement on free floor tiles in rooms within ROOM_SPAN/2 of the origin room, never in it.
 /// May return fewer than `count` when tries run out (never panics).
-pub fn place(seed: u64, arena: &Arena, count: u32) -> Vec<Placed> {
+pub fn place(seed: u64, arena: &Arena, count: u32, bad_permille: u32) -> Vec<Placed> {
     let mut rng = Xo::stream(seed ^ SALT, Stream::Map);
     let mut out = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        let bad = pick(&mut rng, 1000) < BAD;
+        let bad = pick(&mut rng, 1000) < bad_permille;
         let npc = match pick(&mut rng, 5) {
             0 | 1 => Npc::Pal { traitor: bad },
             2 => Npc::Merchant { honest: !bad },
@@ -160,9 +159,9 @@ mod tests {
     fn placement_pure_free_and_outside_start_room() {
         let c = content();
         let a = arena(3, 0, &c);
-        let p = place(3, &a, 12);
-        assert_eq!(p, place(3, &a, 12));
-        assert_ne!(p, place(4, &a, 12));
+        let p = place(3, &a, 12, 250);
+        assert_eq!(p, place(3, &a, 12, 250));
+        assert_ne!(p, place(4, &a, 12, 250));
         assert!(p.len() >= 8);
         for q in &p {
             assert_eq!(a.tile_mm(q.x, q.y), Tile::Floor);
@@ -171,7 +170,7 @@ mod tests {
         }
         // mix of kinds appears across seeds
         let kinds: std::collections::HashSet<_> =
-            (0..10).flat_map(|s| place(s, &a, 12)).map(|q| std::mem::discriminant(&q.npc)).collect();
+            (0..10).flat_map(|s| place(s, &a, 12, 250)).map(|q| std::mem::discriminant(&q.npc)).collect();
         assert_eq!(kinds.len(), 5);
     }
 }
