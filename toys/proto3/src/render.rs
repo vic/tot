@@ -3267,10 +3267,10 @@ mod tests {
             f.plain()
         };
         let first = shot(&ui);
-        assert!(first.contains("(◉ ◉)") && !first.contains("{o_o}"), "control: the first class's art");
+        assert!(first.contains("[o_o]") && !first.contains("{o_o}"), "control: the first class's art");
         ui.class = c.class_id(1).unwrap();
         let s = shot(&ui);
-        assert!(s.contains("{o_o}") && !s.contains("(◉ ◉)"), "the second class's art\n{s}");
+        assert!(s.contains("{o_o}") && !s.contains("[o_o]"), "the second class's art\n{s}");
     }
 
     #[test]
@@ -3315,7 +3315,7 @@ mod tests {
         ui.mode = Mode::Gear;
         let armor = show(&ui, &sim);
 
-        assert!(armor.contains("(◉ ◉)") && armor.contains(&c.items[0].name), "the hero and its gear");
+        assert!(armor.contains("[o_o]") && armor.contains(&c.items[0].name), "the hero and its gear");
         ui.mode = Mode::Play;
         let play = show(&ui, &sim);
         assert!(!play.contains("(◉ ◉)") && !play.contains(" SKILLS "), "out of the tab modes there is no pane");
@@ -3446,7 +3446,8 @@ mod tests {
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
     // re-pinned 2026-11-09: hero shout holds the screen spot where it began (tot-7op)
     // re-pinned 2026-11-09: tiny compass on a 3x3 plate at the map top-left (tot-5ah)
-    const GOLDEN: u64 = 0x678b_effd_c84e_162b;
+    // re-pinned 2026-11-09: cyberpunk faces, walls and art from the adventure data (tot-62z.6)
+    const GOLDEN: u64 = 0x4bbe_0252_6aa5_37aa;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

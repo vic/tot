@@ -1,5 +1,5 @@
 {"t":"head","schema_version":1,"file":"trees"}
-{"t":"class","id":"scripter","name":"SCRIPTER","desc":"Writes kill scripts on the fly. Code skills, overclocked hands.","art":["    ▄███▄    ","    (◉ ◉)    ","  ╔═▓▓▓▓▓═╗  ","  ║ ▓▓▓▓▓ ║─┼","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
+{"t":"class","id":"scripter","name":"SCRIPTER","desc":"Writes kill scripts on the fly. Code skills, overclocked hands.","art":["    ▄▀▀▀▄    ","    [o_o]    ","  ╔═▒▒▒▒▒═╗  ","  ║ ▒▒▒▒▒ ║─╪","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
 {"t":"class","id":"janitor","name":"JANITOR","desc":"Cleans the grid by force. Heavy tools, thick plating.","art":["    ▄███▄    ","    (◉ ◉)    ","  ╔═▓▓▓▓▓═╗  ","  ║ ▓▓▓▓▓ ║─┼","  ╚═╤═◆═╤═╝  ","    ║   ║  ○ ","   ▀▀▀ ▀▀▀   "],"paint":["aaaaaaaaaaaaa",".............","aaaaaaaaaaaaa","aaaaaaaaaaaww","ccccccjcccccc","...........r.","............."]}
 {"t":"tree","id":"packet","name":"PACKET ARTS","class":"scripter","tag":"magic"}
 {"t":"node","tree":"packet","id":"packet0","name":"SYN FLOOD","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}

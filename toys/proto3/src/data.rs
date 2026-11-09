@@ -2711,7 +2711,7 @@ pub mod tests {
         };
         let c = content();
         let row = |k: usize, r: usize| c.classes[k].art.rows()[r].iter().map(|(g, _)| g.ch()).collect::<String>();
-        assert_eq!(row(0, 1), "    (◉ ◉)    ", "control: the shipped art");
+        assert_eq!((row(0, 1).as_str(), row(1, 1).as_str()), ("    [o_o]    ", "    (◉ ◉)    "), "control: the shipped art of both classes");
         assert_eq!(c.classes[0].art.rows()[3][12].1, Some(Slot::Weapon), "paint names the slot of a cell");
         assert!(with("\"...........r.\"", "\"...........x.\"").contains("not one of"), "a paint letter that names no slot");
         assert!(with("\"...........r.\"", "\"..........r.\"").contains("exactly 13"), "a paint row of the wrong size");
@@ -2867,10 +2867,10 @@ pub mod tests {
         assert!(with(drop("face_pain")).contains("missing art 'face_pain'"));
         assert!(with(drop("map_hero")).contains("missing glyph 'map_hero'"));
         assert!(with(base.replace("\"id\":\"ore\",\"glyph\":\"▪\"", "\"id\":\"ore\",\"glyph\":\"▪▪\"")).contains("exactly one width-1 glyph"), "one glyph per sprite");
-        assert!(with(base.replace("\" (> <) \"", "\" (><) \"")).contains("exactly 7"), "a face row of the wrong width");
-        assert!(with(base.replace("\"+*+\",\" * \",\" . \"", "\"+*+\",\" * \"")).contains("3..=3 rows"), "a burst with a missing frame");
+        assert!(with(base.replace("\" [> <] \"", "\" [><] \"")).contains("exactly 7"), "a face row of the wrong width");
+        assert!(with(base.replace("\"<#>\",\" # \",\" . \"", "\"<#>\",\" # \"")).contains("3..=3 rows"), "a burst with a missing frame");
         assert!(with(base.replace("\"shout\":\"SHINY!\"", "\"shout\":\"$$$\"")).contains("block font"), "a shout the big font cannot draw");
-        assert!(with(base.replace("\"shout\":\"BRR!\",\"lines\":[\"B-b-brr!\",\"Who left the door open?\",\"C-can't feel my t-toes.\"]", "\"shout\":\"BRR!\",\"lines\":[]")).contains("at least one line"));
+        assert!(with(base.replace("\"shout\":\"BRR!\",\"lines\":[\"B-b-buffer underrun!\",\"Who opened the cold storage?\",\"C-c-cores throttling.\"]", "\"shout\":\"BRR!\",\"lines\":[]")).contains("at least one line"));
         assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"nope\",\"text\":\"x\"}}\n")).contains("no text 'nope'"));
         assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"pick_class\",\"text\":\"x\"}}\n")).contains("duplicate 'pick_class'"));
         assert!(with(base.replace("CHOOSE YOUR HERO", "CHOOSE €")).contains("drawable"), "a char the terminal cannot draw");
@@ -2935,6 +2935,15 @@ pub mod tests {
             assert_ne!(c.texts.get(crate::text::t::PANEL_FLUX), base.texts.get(crate::text::t::PANEL_FLUX), "{}: its own words", p.id);
             assert!(foes(&c).iter().all(|f| !foes(&base).contains(f)), "{}: its own foes", p.id);
             assert_ne!(c.pal.role(Role::Bg), base.pal.role(Role::Bg), "{}: its own colours", p.id);
+            // art and voices in the language of its fantasy
+            use crate::text::a;
+            assert_ne!(c.texts.art(a::FACE_CALM[0]), base.texts.art(a::FACE_CALM[0]), "{}: its own face", p.id);
+            assert_ne!(c.texts.art(a::DEATH_BANNER), base.texts.art(a::DEATH_BANNER), "{}: its own death banner", p.id);
+            assert_ne!(c.texts.art(a::ROAR_SIGN), base.texts.art(a::ROAR_SIGN), "{}: its own boss sign", p.id);
+            let art = |c: &Content| c.classes.iter().map(|k| k.art.rows().iter().map(|r| r.iter().map(|(g, _)| g.ch()).collect::<String>()).collect::<Vec<_>>()).collect::<Vec<_>>();
+            assert!(art(&c).iter().all(|x| !art(&base).contains(x)), "{}: its own hero art per class", p.id);
+            assert!(Bark::ALL.iter().all(|&b| c.texts.lines(b) != base.texts.lines(b)), "{}: its own voice for every bark", p.id);
+            assert_ne!(c.pal.face, base.pal.face, "{}: its own walls", p.id);
         }
     }
 
@@ -2978,7 +2987,7 @@ pub mod tests {
         let e = edit(1, "\"block_rows\":[7,2]", "\"block_rows\":[7,9]");
         assert!(e.contains("tuning.jsonl") && e.contains("block_rows") && e.contains("need 2 integers in [0, 8]"), "{e}");
         assert!(edit(1, "\"actor_rows\":[2,2,3]", "\"actor_rows\":[2,2]").contains("need 3 integers"));
-        assert!(edit(2, "\"face_glyphs\":\"▓█▒\"", "\"face_glyphs\":\"▓█\"").contains("top, lit side, dark side"));
+        assert!(edit(2, "\"face_glyphs\":\"▒█▓\"", "\"face_glyphs\":\"▓█\"").contains("top, lit side, dark side"));
         assert_eq!(edit(1, "\"cut_cols\":10", "\"cut_cols\":0"), "OK", "control: 0 = no cutaway is valid");
     }
 

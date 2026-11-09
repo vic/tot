@@ -2,18 +2,18 @@
 {"t":"art","id":"title","rows":["████████╗            ████████╗","╚══██╔══╝            ╚══██╔══╝","   ██║     ██████╗      ██║   ","   ██║    ██╔═══██╗     ██║   ","   ██║    ██║   ██║     ██║   ","   ██║    ╚██████╔╝     ██║   ","   ╚═╝     ╚═════╝      ╚═╝   "]}
 {"t":"text","id":"pick_adventure","text":"CHOOSE YOUR ADVENTURE"}
 {"t":"text","id":"pick_class","text":"CHOOSE YOUR DELVER"}
-{"t":"bark","id":"low_hp","shout":"HELP!","lines":["Medic! ...anyone?","I am fine. Totally fine.","Is that my blood? It is.","Tell my clan I tried.","I see a light. Is it mithril?","Running is a strategy, right?"]}
-{"t":"bark","id":"hurt","shout":"OW!","lines":["Ow. Rude.","That is coming out of your pay!","My good beard!","Hey! I was walking here!","That one I felt in my soul.","Not the face!","I bruise like a peach!"]}
-{"t":"bark","id":"reloading","shout":"HUH?","lines":["Still reloading!","Patience, I am not a vending machine.","Give it a second!"]}
-{"t":"bark","id":"passive","shout":"HUH?","lines":["That one works on its own.","Passive. Like me on Mondays.","No button for that, friend."]}
-{"t":"bark","id":"no_target","shout":"HUH?","lines":["Nothing to hit!","Save it for a crowd.","Who am I aiming at, the air?"]}
-{"t":"bark","id":"empty","shout":"HUH?","lines":["Nothing in that pocket.","Empty slot. Go find loot!","That hand is empty."]}
-{"t":"bark","id":"level","shout":"LEVEL UP!","lines":["I feel... SPICY.","Patch notes: me, buffed.","Level up! Mom would be proud.","More power. Less sense.","New level, same bad decisions.","I can feel my build coming together!","Ding! Somebody sound the horn."]}
-{"t":"bark","id":"streak","shout":"HA HA!","lines":["Combo! Do I get a sticker?","Bits everywhere. Not cleaning that.","Ha! Next!","Is that all you have got?","Five! Count them! Five!","Someone call their manager.","I am the horde now."]}
-{"t":"bark","id":"special","shout":"BOOM!","lines":["Special delivery!","Ka-BOOM.","Say hello to my reload timer!","Behold! ...ok, behold faster."]}
-{"t":"bark","id":"frozen","shout":"BRR!","lines":["B-b-brr!","Who left the door open?","C-can't feel my t-toes."]}
-{"t":"bark","id":"hungry","shout":"FOOD!","lines":["My stomach is louder than the boss.","Is that a sandwich? Please be a sandwich.","Hero needs food, badly.","I could eat a cave troll."]}
-{"t":"bark","id":"gold","shout":"MITHRIL!","lines":["Mithril!","Cha-ching.","Hoard +1.","Mine. All mine.","Coin! My one true love.","The merchant will hear about this."]}
+{"t":"bark","id":"low_hp","shout":"HELP!","lines":["The deep takes its due.","My beard is singed and so am I.","Tell my clan I tried.","I see a light. Is it mithril?","Hold the line. Somebody."]}
+{"t":"bark","id":"hurt","shout":"OOF!","lines":["My good beard!","Orc steel, cheap and sharp.","That one I felt in my axe arm.","Stone does not flinch. I do."]}
+{"t":"bark","id":"reloading","shout":"WAIT!","lines":["The rune still cools.","Patience, the forge is slow.","The runes need a breath."]}
+{"t":"bark","id":"passive","shout":"HM?","lines":["That rune works by itself.","Carved and forgotten. It works.","No need to call it."]}
+{"t":"bark","id":"no_target","shout":"WHERE?","lines":["Nothing to cleave.","Save it for the horde.","The dark is empty. For now."]}
+{"t":"bark","id":"empty","shout":"NAUGHT!","lines":["No rune there.","An empty socket.","Dig up something first."]}
+{"t":"bark","id":"level","shout":"STRONGER!","lines":["The halls remember me.","Another rune learned.","Ding! Somebody sound the horn.","My axe grows heavier. Good."]}
+{"t":"bark","id":"streak","shout":"HA HA!","lines":["Back to the deep with you!","Count them, I lost count.","Orcs, more orcs.","The halls are ours again."]}
+{"t":"bark","id":"special","shout":"BAROOM!","lines":["Blasting powder!","For the halls!","The runes speak!","Stand back from the charge."]}
+{"t":"bark","id":"frozen","shout":"COLD!","lines":["The deep cold bites.","Ice in the shafts.","My beard is frozen stiff."]}
+{"t":"bark","id":"hungry","shout":"ALE!","lines":["Where is the ale?","Stone bread is still bread.","I could eat a cave troll."]}
+{"t":"bark","id":"gold","shout":"MITHRIL!","lines":["Mithril!","Hoard +1.","Dwarf gold, home again.","Mine. All mine."]}
 {"t":"text","id":"pick_title","text":"RUNE  choose before "}
 {"t":"text","id":"pick_none","text":"(empty)"}
 {"t":"text","id":"pick_cursor","text":"> "}
@@ -101,7 +101,7 @@
 {"t":"pool","id":"level_taunt","lines":["they should dig faster.","send the drums.","still standing.","you call that a horde?"]}
 {"t":"pool","id":"roar_champion","lines":["OI!","MINE!","BONK?","FACE ME","DWARF"]}
 {"t":"pool","id":"roar_mini","lines":["GRR!","SQUEAK!","BEHOLD","BOO!","SMALL AND ANGRY"]}
-{"t":"pool","id":"roar_super","lines":["KNEEL!","FEAR ME","OBEY!","DOOM!","BOW!"]}
+{"t":"pool","id":"roar_super","lines":["KNEEL DWARF","THE DEEP RISES","DIG YOUR GRAVE","DRUMS!","BURN!"]}
 {"t":"pool","id":"roar_uber","lines":["YOUR AXE IS DULL","I EAT DWARVES FOR BREAKFAST","THIS IS MY DEEP","YOU SHALL NOT PASS"]}
 {"t":"pool","id":"foe_quip","lines":["it dug deeper.","it is not the same orc anymore.","it hoards like you do. worse.","you fed this. you did.","it wears your mithril."]}
 {"t":"pool","id":"cheer","lines":["HA!","GG","WOO!","DUG","HA","HAI"]}
@@ -187,23 +187,23 @@
 {"t":"text","id":"panel_hp","text":"HP "}
 {"t":"text","id":"panel_lv","text":"LV "}
 {"t":"text","id":"panel_to_go","text":" to go"}
-{"t":"art","id":"face_calm","rows":[" .---. "," (o o) ","  \\_/  "]}
-{"t":"art","id":"face_calm_left","rows":[" .---. "," (oo ) ","  \\_/  "]}
-{"t":"art","id":"face_calm_right","rows":[" .---. "," ( oo) ","  \\_/  "]}
-{"t":"art","id":"face_fencing","rows":[" \\---/ "," (O O) ","  =#=  "]}
-{"t":"art","id":"face_fencing_left","rows":[" \\---/ "," (OO ) ","  =#=  "]}
-{"t":"art","id":"face_fencing_right","rows":[" \\---/ "," ( OO) ","  =#=  "]}
-{"t":"art","id":"face_grim","rows":[" .-%-. "," (. .) ","  ---  "]}
-{"t":"art","id":"face_grim_left","rows":[" .-%-. "," (.. ) ","  ---  "]}
-{"t":"art","id":"face_grim_right","rows":[" .-%-. "," ( ..) ","  ---  "]}
-{"t":"art","id":"face_pain","rows":[" .---. "," (> <) ","  ~O~  "]}
-{"t":"art","id":"face_laugh","rows":[" .---. "," (^ ^) "," \\vvv/ "]}
-{"t":"art","id":"face_frozen","rows":[" .***. "," (* *) ","  ~~~  "]}
-{"t":"art","id":"face_dead","rows":[" .---. "," (x x) ","  ___  "]}
-{"t":"art","id":"death_banner","rows":["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄","▀█▀ █ █ █ █   █ █  █  █▀  █ █"," █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "]}
-{"t":"art","id":"roar_sign","rows":["█▀▄ ▄▀▄ ▄▀▄ █▀▄","█▀▄ █ █ █▀█ █▀▄","▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"]}
-{"t":"art","id":"chest","rows":["▛▀▜","▙▄▟"]}
-{"t":"art","id":"kill_burst","rows":["+*+"," * "," . "]}
+{"t":"art","id":"face_calm","rows":[" .===. "," (o o) "," {###} "]}
+{"t":"art","id":"face_calm_left","rows":[" .===. "," (oo ) "," {###} "]}
+{"t":"art","id":"face_calm_right","rows":[" .===. "," ( oo) "," {###} "]}
+{"t":"art","id":"face_fencing","rows":[" \\===/ "," (O O) "," {#=#} "]}
+{"t":"art","id":"face_fencing_left","rows":[" \\===/ "," (OO ) "," {#=#} "]}
+{"t":"art","id":"face_fencing_right","rows":[" \\===/ "," ( OO) "," {#=#} "]}
+{"t":"art","id":"face_grim","rows":[" .=%=. "," (. .) "," {---} "]}
+{"t":"art","id":"face_grim_left","rows":[" .=%=. "," (.. ) "," {---} "]}
+{"t":"art","id":"face_grim_right","rows":[" .=%=. "," ( ..) "," {---} "]}
+{"t":"art","id":"face_pain","rows":[" .===. "," (> <) "," {~O~} "]}
+{"t":"art","id":"face_laugh","rows":[" .===. "," (^ ^) "," {vvv} "]}
+{"t":"art","id":"face_frozen","rows":[" .***. "," (* *) "," {~~~} "]}
+{"t":"art","id":"face_dead","rows":[" .===. "," (x x) "," {___} "]}
+{"t":"art","id":"death_banner","rows":["▄▀▀ ▄▀▄ █   █   ▄▀▀ █▄ █","█▀  █▀█ █   █   █▀  █ ▀█","▀   ▀ ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀  ▀"]}
+{"t":"art","id":"roar_sign","rows":["█▀▄ █▀▄ █ █ █▄▄","█ █ █▀▄ █ █ █ █","▀▀  ▀ ▀ ▀▀▀ ▀ ▀"]}
+{"t":"art","id":"chest","rows":["▐█▌","▝▀▘"]}
+{"t":"art","id":"kill_burst","rows":["*▒*"," ░ "," . "]}
 {"t":"glyph","id":"hero_head","glyph":"@"}
 {"t":"glyph","id":"hero_armor","glyph":"█"}
 {"t":"glyph","id":"ore","glyph":"▪"}

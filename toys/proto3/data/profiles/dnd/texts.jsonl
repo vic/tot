@@ -2,18 +2,18 @@
 {"t":"art","id":"title","rows":["████████╗            ████████╗","╚══██╔══╝            ╚══██╔══╝","   ██║     ██████╗      ██║   ","   ██║    ██╔═══██╗     ██║   ","   ██║    ██║   ██║     ██║   ","   ██║    ╚██████╔╝     ██║   ","   ╚═╝     ╚═════╝      ╚═╝   "]}
 {"t":"text","id":"pick_adventure","text":"CHOOSE YOUR ADVENTURE"}
 {"t":"text","id":"pick_class","text":"CHOOSE YOUR CLASS"}
-{"t":"bark","id":"low_hp","shout":"HELP!","lines":["Cleric! ...anyone?","I am fine. Totally fine.","Is that my blood? It is.","Tell my familiar I tried.","I see a light. Is it a death save?","Running is a strategy, right?"]}
-{"t":"bark","id":"hurt","shout":"OW!","lines":["Ow. Rude.","That is coming out of your pay!","My good tunic!","Hey! I was walking here!","That one I felt in my soul.","Not the face!","I bruise like a peach!"]}
-{"t":"bark","id":"reloading","shout":"HUH?","lines":["Still reloading!","Patience, I am not a vending machine.","Give it a second!"]}
-{"t":"bark","id":"passive","shout":"HUH?","lines":["That one works on its own.","Passive. Like me on Mondays.","No button for that, friend."]}
-{"t":"bark","id":"no_target","shout":"HUH?","lines":["Nothing to hit!","Save it for a crowd.","Who am I aiming at, the air?"]}
-{"t":"bark","id":"empty","shout":"HUH?","lines":["Nothing in that pocket.","Empty slot. Go find loot!","That hand is empty."]}
-{"t":"bark","id":"level","shout":"LEVEL UP!","lines":["I feel... SPICY.","Patch notes: me, buffed.","Level up! Mom would be proud.","More power. Less sense.","New level, same bad decisions.","I can feel my build coming together!","Ding! Level up!"]}
-{"t":"bark","id":"streak","shout":"HA HA!","lines":["Combo! Do I get a sticker?","Bits everywhere. Not cleaning that.","Ha! Next!","Is that all you have got?","Five! Count them! Five!","Someone call their manager.","I am the horde now."]}
-{"t":"bark","id":"special","shout":"BOOM!","lines":["Special delivery!","Ka-BOOM.","Say hello to my reload timer!","Behold! ...ok, behold faster."]}
-{"t":"bark","id":"frozen","shout":"BRR!","lines":["B-b-brr!","Who left the door open?","C-can't feel my t-toes."]}
-{"t":"bark","id":"hungry","shout":"FOOD!","lines":["My stomach is louder than the boss.","Is that a sandwich? Please be a sandwich.","Hero needs food, badly.","I could eat a mimic. Wait."]}
-{"t":"bark","id":"gold","shout":"SHINY!","lines":["Shiny!","Cha-ching.","+10 gp.","Mine. All mine.","Coin! My one true love.","The merchant will hear about this."]}
+{"t":"bark","id":"low_hp","shout":"CLERIC!","lines":["Cleric! ...anyone?","Death saves incoming.","I am at one hit point.","Tell my familiar I tried.","Is that light a revivify?"]}
+{"t":"bark","id":"hurt","shout":"CRIT!","lines":["That was a critical hit.","My armor class is a lie.","Roll damage? Ouch.","Hey! Attack of opportunity!"]}
+{"t":"bark","id":"reloading","shout":"WAIT!","lines":["That spell slot is spent.","Short rest first!","Not until my next turn."]}
+{"t":"bark","id":"passive","shout":"HM?","lines":["That one is a passive feature.","No action needed for that.","It is always on."]}
+{"t":"bark","id":"no_target","shout":"WHO?","lines":["No valid target.","Out of range.","I need line of sight."]}
+{"t":"bark","id":"empty","shout":"NOPE!","lines":["No spell prepared there.","Empty slot on my sheet.","I forgot to prepare that."]}
+{"t":"bark","id":"level","shout":"LEVEL UP!","lines":["Hit dice up!","New feat unlocked.","Ding! Level up!","I am not a first-level hero anymore."]}
+{"t":"bark","id":"streak","shout":"NAT TWENTY","lines":["Natural twenty!","Extra attack!","Initiative won.","The dice love me today."]}
+{"t":"bark","id":"special","shout":"FIREBALL!","lines":["Roll for damage!","Concentration!","Spell slot well spent.","Dex save, everyone."]}
+{"t":"bark","id":"frozen","shout":"BRR!","lines":["Cone of cold, really?","I failed my con save.","Restrained by ice."]}
+{"t":"bark","id":"hungry","shout":"RATIONS!","lines":["I forgot to buy rations.","Exhaustion level one.","I could eat a mimic. Wait."]}
+{"t":"bark","id":"gold","shout":"LOOT!","lines":["Ten gold pieces!","Roll on the treasure table.","Mine. Party split later.","+10 gp."]}
 {"t":"text","id":"pick_title","text":"LEVEL UP  choose before "}
 {"t":"text","id":"pick_none","text":"(empty)"}
 {"t":"text","id":"pick_cursor","text":"> "}
@@ -187,23 +187,23 @@
 {"t":"text","id":"panel_hp","text":"HP "}
 {"t":"text","id":"panel_lv","text":"LV "}
 {"t":"text","id":"panel_to_go","text":" to go"}
-{"t":"art","id":"face_calm","rows":[" .---. "," (o o) ","  \\_/  "]}
-{"t":"art","id":"face_calm_left","rows":[" .---. "," (oo ) ","  \\_/  "]}
-{"t":"art","id":"face_calm_right","rows":[" .---. "," ( oo) ","  \\_/  "]}
-{"t":"art","id":"face_fencing","rows":[" \\---/ "," (O O) ","  =#=  "]}
-{"t":"art","id":"face_fencing_left","rows":[" \\---/ "," (OO ) ","  =#=  "]}
-{"t":"art","id":"face_fencing_right","rows":[" \\---/ "," ( OO) ","  =#=  "]}
-{"t":"art","id":"face_grim","rows":[" .-%-. "," (. .) ","  ---  "]}
-{"t":"art","id":"face_grim_left","rows":[" .-%-. "," (.. ) ","  ---  "]}
-{"t":"art","id":"face_grim_right","rows":[" .-%-. "," ( ..) ","  ---  "]}
-{"t":"art","id":"face_pain","rows":[" .---. "," (> <) ","  ~O~  "]}
-{"t":"art","id":"face_laugh","rows":[" .---. "," (^ ^) "," \\vvv/ "]}
-{"t":"art","id":"face_frozen","rows":[" .***. "," (* *) ","  ~~~  "]}
-{"t":"art","id":"face_dead","rows":[" .---. "," (x x) ","  ___  "]}
-{"t":"art","id":"death_banner","rows":["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄","▀█▀ █ █ █ █   █ █  █  █▀  █ █"," █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "]}
-{"t":"art","id":"roar_sign","rows":["█▀▄ ▄▀▄ ▄▀▄ █▀▄","█▀▄ █ █ █▀█ █▀▄","▀ ▀ ▀▄▀ ▀ ▀ ▀ ▀"]}
-{"t":"art","id":"chest","rows":["▛▀▜","▙▄▟"]}
-{"t":"art","id":"kill_burst","rows":["+*+"," * "," . "]}
+{"t":"art","id":"face_calm","rows":[" _[=]_ "," (o o) ","  \\_/  "]}
+{"t":"art","id":"face_calm_left","rows":[" _[=]_ "," (oo ) ","  \\_/  "]}
+{"t":"art","id":"face_calm_right","rows":[" _[=]_ "," ( oo) ","  \\_/  "]}
+{"t":"art","id":"face_fencing","rows":[" \\[=]/ "," (O O) ","  =#=  "]}
+{"t":"art","id":"face_fencing_left","rows":[" \\[=]/ "," (OO ) ","  =#=  "]}
+{"t":"art","id":"face_fencing_right","rows":[" \\[=]/ "," ( OO) ","  =#=  "]}
+{"t":"art","id":"face_grim","rows":[" _[%]_ "," (. .) ","  ---  "]}
+{"t":"art","id":"face_grim_left","rows":[" _[%]_ "," (.. ) ","  ---  "]}
+{"t":"art","id":"face_grim_right","rows":[" _[%]_ "," ( ..) ","  ---  "]}
+{"t":"art","id":"face_pain","rows":[" _[=]_ "," (> <) ","  ~O~  "]}
+{"t":"art","id":"face_laugh","rows":[" _[=]_ "," (^ ^) "," \\vvv/ "]}
+{"t":"art","id":"face_frozen","rows":[" _[*]_ "," (* *) ","  ~~~  "]}
+{"t":"art","id":"face_dead","rows":[" _[=]_ "," (x x) ","  ___  "]}
+{"t":"art","id":"death_banner","rows":["╔══════════════════════╗","║  ROLL A NEW HERO...  ║","╚══════════════════════╝"]}
+{"t":"art","id":"roar_sign","rows":["╔═════════════╗","║ ROLL FOR IT ║","╚═════════════╝"]}
+{"t":"art","id":"chest","rows":["╔═╗","╚═╝"]}
+{"t":"art","id":"kill_burst","rows":["-20"," * "," . "]}
 {"t":"glyph","id":"hero_head","glyph":"@"}
 {"t":"glyph","id":"hero_armor","glyph":"█"}
 {"t":"glyph","id":"ore","glyph":"▪"}
