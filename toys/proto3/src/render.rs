@@ -343,7 +343,7 @@ impl Frame {
                 let i = r as usize * cols + col as usize;
                 let (ax, ay) = self.world(col, r);
                 let (fx, fy) = ((ax / f64::from(fc)).floor() as i32, (ay / f64::from(fc)).floor() as i32);
-                let ar = &sim.arena;
+                let ar = sim.arena();
                 let h = hash(ar.salt ^ ((fx as u64) << 32) ^ (fy as u32 as u64));
                 let anchor = self.scr(f64::from(fx * fc + fc / 2), f64::from(fy * fc + fc / 2)) == (col, r);
                 let ch = if anchor && (h % 1000) < u64::from(ar.density) { ar.glyphs[(h >> 20) as usize % ar.glyphs.len()] } else { Glyph::SPACE };
@@ -436,7 +436,7 @@ impl Frame {
     /// ground silhouette.
     fn blocks(&mut self, sim: &Sim, (fpx, fpy): (f64, f64)) {
         let c = sim.c;
-        let (pal, v, ar) = (&c.pal, &c.view, &sim.arena);
+        let (pal, v, ar) = (&c.pal, &c.view, sim.arena());
         let rows = match ar.template {
             Template::Open => return,
             Template::Pillars => v.block_rows[0],
@@ -1881,11 +1881,13 @@ mod tests {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
     }
 
-    /// Pillar arena on every decor super-cell (render-only override: the sim never reads it).
+    /// Pillar arena on every decor super-cell (sim walls follow it too).
     fn pillars(sim: &mut Sim) {
-        sim.arena.template = crate::floorgen::Template::Pillars;
-        sim.arena.decor_chance = 1000;
-        sim.arena.decor_r = 3000;
+        sim.with_arena(|a| {
+            a.template = crate::floorgen::Template::Pillars;
+            a.decor_chance = 1000;
+            a.decor_r = 3000;
+        });
     }
 
     /// Fixed state: seed 7, 40 s of scripted play, 120x40 frame. Returns (hash, bytes, [changed,
@@ -2038,7 +2040,7 @@ mod tests {
         for k in 0..sim.e.len() {
             let (gx, gy) = ((k % 11) as i32 - 5, (k / 11) as i32 - 5);
             let (x, y) = (sim.p.x + gx * 1600 + 700, sim.p.y + gy * 1600 + 300);
-            let away = solid(&sim.arena, fc, x.div_euclid(fc), y.div_euclid(fc)) || k >= 121;
+            let away = solid(sim.arena(), fc, x.div_euclid(fc), y.div_euclid(fc)) || k >= 121;
             (sim.e.x[k], sim.e.y[k]) = if away { (sim.p.x + 200_000, sim.p.y) } else { (x, y) };
         }
         sim
@@ -2411,10 +2413,10 @@ mod tests {
                 (-2..=2).any(|fx| {
                     let (bx, by) = (px.div_euclid(fc) + fx, py.div_euclid(fc) + fy);
                     let (dc, dr) = h.project(f64::from(bx * fc + fc / 2 - px), f64::from(by * fc + fc / 2 - py));
-                    solid(&sim.arena, fc, bx, by) && dc.abs() <= 1 && (2..=4).contains(&dr)
+                    solid(sim.arena(), fc, bx, by) && dc.abs() <= 1 && (2..=4).contains(&dr)
                 })
             });
-            if front && !solid(&sim.arena, fc, px.div_euclid(fc), py.div_euclid(fc)) {
+            if front && !solid(sim.arena(), fc, px.div_euclid(fc), py.div_euclid(fc)) {
                 (sim.p.x, sim.p.y) = (px, py);
                 return sim;
             }

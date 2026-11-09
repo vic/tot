@@ -32,6 +32,7 @@ impl<'c> Sim<'c> {
         }
         self.tick += 1;
         self.player_step(inp);
+        self.walls.follow(&self.arena, self.p.x, self.p.y);
         self.p.unhurt = self.p.unhurt.saturating_add(1);
         self.morale_step();
         self.world_step();
@@ -154,7 +155,7 @@ impl<'c> Sim<'c> {
         }
         let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(pd.speed, i64::from(HERO_FROZEN_SPEED)) } else { pd.speed };
         let step = if mx != 0 && my != 0 { scale(walk, 707) } else { walk };
-        let (ax, ay) = solid::slide(&self.arena, self.p.x, self.p.y, pd.radius, mx * step, my * step);
+        let (ax, ay) = solid::slide(&self.walls.near(&self.arena), self.p.x, self.p.y, pd.radius, mx * step, my * step);
         self.p.x += ax;
         self.p.y += ay;
         if inp.dodge && self.p.dodge_cd == 0 {
@@ -166,7 +167,7 @@ impl<'c> Sim<'c> {
         if self.p.dash_left > 0 {
             self.p.dash_left -= 1;
             let (dx, dy) = toward(self.p.dash_dir.0, self.p.dash_dir.1, pd.dash);
-            let (ax, ay) = solid::slide(&self.arena, self.p.x, self.p.y, pd.radius, dx, dy);
+            let (ax, ay) = solid::slide(&self.walls.near(&self.arena), self.p.x, self.p.y, pd.radius, dx, dy);
             self.p.x += ax;
             self.p.y += ay;
         }
@@ -235,7 +236,7 @@ impl<'c> Sim<'c> {
             // LOD: off-screen hostiles re-aim every LOD_EVERY ticks (staggered by id), else coast
             if dp2 > sep_r2 && e.side[i] == Side::Hostile && e.tier[i] != Tier::Boss && !(self.tick + e.id[i]).is_multiple_of(LOD_EVERY) {
                 // one query, no sliding, and none at all deep inside a tile: an off-screen coaster just stops at a wall
-                let (sx, sy) = if interior(x, y, e.rad[i] + e.vx[i].abs().max(e.vy[i].abs())) || !solid::blocked(&self.arena, x + e.vx[i], y + e.vy[i], e.rad[i]) { (e.vx[i], e.vy[i]) } else { (0, 0) };
+                let (sx, sy) = if interior(x, y, e.rad[i] + e.vx[i].abs().max(e.vy[i].abs())) || !solid::blocked(&self.walls.near(&self.arena), x + e.vx[i], y + e.vy[i], e.rad[i]) { (e.vx[i], e.vy[i]) } else { (0, 0) };
                 e.nx.push(x + sx);
                 e.ny.push(y + sy);
                 continue;
@@ -346,7 +347,7 @@ impl<'c> Sim<'c> {
                     }
                 }
             }
-            let (sx, sy) = if interior(x, y, e.rad[i] + sx.abs().max(sy.abs())) { (sx, sy) } else { solid::slide(&self.arena, x, y, e.rad[i], sx, sy) };
+            let (sx, sy) = if interior(x, y, e.rad[i] + sx.abs().max(sy.abs())) { (sx, sy) } else { solid::slide(&self.walls.near(&self.arena), x, y, e.rad[i], sx, sy) };
             e.nx.push(x + sx);
             e.ny.push(y + sy);
         }

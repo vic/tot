@@ -46,7 +46,7 @@ impl Telemetry {
             "pick_decide_median_s": d.get(d.len() / 2).map(|m| *m as f64 / 1000.0),
             "kills": sim.stats.kills, "level": sim.p.level, "hijacked_peak": sim.stats.hijacked_peak,
             "rarity_taken": ([0u8, 1, 2, 3].map(|r| sim.stats.picks.iter().filter(|p| p.skill.is_some() && p.rarity == r).count())),
-            "arena": format!("{:?}", sim.arena.template),
+            "arena": format!("{:?}", sim.arena().template),
             "dmg_taken": sim.stats.taken / 1000,
             "rho": sim.stats.rho.iter().map(|(t, r)| [f64::from(*t) / hz, f64::from(*r) / 1000.0]).collect::<Vec<_>>(),
             "options": {"pick_pauses": c.opt.pick_pauses, "tick_hz": c.hz().get(), "rewind": format!("{:?}", c.opt.rewind), "rewind_charges": c.opt.rewind_charges, "backend": format!("{:?}", c.opt.backend), "hot_numbers": format!("{:?}", c.opt.hot_numbers), "whichkey_ms": c.opt.whichkey_ms},

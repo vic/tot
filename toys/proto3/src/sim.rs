@@ -754,7 +754,10 @@ pub struct Sim<'c> {
     mines: Vec<Mine>,
     pub fx: Vec<Fx>,
     pub blades: Vec<(i32, i32)>,
-    pub arena: crate::floorgen::Arena,
+    /// private: `walls` caches it, so every write goes through `with_arena` (keeps cache == arena)
+    arena: crate::floorgen::Arena,
+    /// solid-tile cache around the hero (follows it each tick); sim wall queries read it
+    walls: solid::Walls,
     pub tele: Vec<Tele>,
     pub owned: Vec<Owned>,
     pub offer: Option<Offer>,
@@ -787,6 +790,7 @@ impl<'c> Sim<'c> {
         let cap = c.spawn.live_cap + 64;
         let p = &c.player;
         let arena = crate::floorgen::arena(seed, 0, c);
+        let walls = solid::Walls::new(&arena, 0, 0);
         let mut s = Sim {
             c,
             tick: 0,
@@ -818,6 +822,7 @@ impl<'c> Sim<'c> {
             fx: Vec::with_capacity(256),
             blades: Vec::with_capacity(64),
             arena,
+            walls,
             tele: Vec::with_capacity(64),
             owned: Vec::with_capacity(MAX_SKILLS),
             offer: None,
@@ -889,18 +894,29 @@ impl<'c> Sim<'c> {
         s
     }
 
+    pub fn arena(&self) -> &crate::floorgen::Arena {
+        &self.arena
+    }
+
+    /// The one arena writer: edits it, then rebuilds the wall cache from it.
+    #[cfg(test)]
+    pub fn with_arena(&mut self, f: impl FnOnce(&mut crate::floorgen::Arena)) {
+        f(&mut self.arena);
+        self.walls = solid::Walls::new(&self.arena, self.p.x, self.p.y);
+    }
+
     /// The nearest wall-free spot to (x, y) for a circle of radius r: the point itself, else the first free one on
     /// square rings of growing tile steps. Actors that start inside a wall cannot move (slide blocks both axes).
     /// shortcut: gives up after NUDGE_RINGS rings and keeps the point, upgrade if rooms ever get that thick.
     fn free_near(&self, x: i32, y: i32, r: i32) -> (i32, i32) {
         let t = crate::floorgen::TILE_MM;
-        if !solid::blocked(&self.arena, x, y, r) {
+        if !solid::blocked(&self.walls.near(&self.arena), x, y, r) {
             return (x, y);
         }
         for k in 1..=NUDGE_RINGS {
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1), (-1, -1)] {
                 let (nx, ny) = (x + dx * k * t, y + dy * k * t);
-                if !solid::blocked(&self.arena, nx, ny, r) {
+                if !solid::blocked(&self.walls.near(&self.arena), nx, ny, r) {
                     return (nx, ny);
                 }
             }
@@ -1030,7 +1046,7 @@ impl<'c> Sim<'c> {
         for j in 0..SPAWN_TRIES {
             let (cx, cy) = self.trig[((a + j * (TRIG_N / SPAWN_TRIES)) % TRIG_N) as usize];
             let (x, y) = (self.p.x + scale(cx, i64::from(r)) - scale(cy, i64::from(off)), self.p.y + scale(cy, i64::from(r)) + scale(cx, i64::from(off)));
-            if !solid::blocked(&self.arena, x, y, MOB_R_MAX) {
+            if !solid::blocked(&self.walls.near(&self.arena), x, y, MOB_R_MAX) {
                 return (x, y);
             }
         }
@@ -1534,6 +1550,8 @@ mod tests {
         let mut times = Vec::with_capacity(100);
         let before = allocs();
         for k in 0..100 {
+            // a dead hero stops the sim (step returns at once): keep it alive so every tick carries the load
+            sim.p.hp = sim.p.max_hp;
             let s = Instant::now();
             sim.step(&script(k));
             times.push(s.elapsed().as_micros());
@@ -1542,6 +1560,7 @@ mod tests {
         times.sort_unstable();
         let p99 = times[98];
         assert!(sim.live() >= 19_000, "load held: {}", sim.live());
+        assert_eq!((sim.tick, sim.outcome), (100, None), "every tick ran");
         eprintln!("PERF 20k: tick p50 {} us p99 {p99} us max {} us", times[50], times[99]);
         assert!(p99 <= 4000, "p99 {p99} us (p50 {} us)", times[50]);
         assert_eq!(allocated, 0);

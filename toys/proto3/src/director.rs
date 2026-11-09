@@ -77,7 +77,7 @@ impl Director {
         }
         self.last = Some(t);
         if self.fam_mult.is_empty() {
-            self.fam_mult.clone_from(&sim.arena.fam_mult);
+            self.fam_mult.clone_from(&sim.arena().fam_mult);
         }
         let one = NonZeroU16::MIN;
         let level = sim.p.level;
