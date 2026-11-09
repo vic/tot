@@ -497,6 +497,41 @@ mod tests {
     }
 
     /// Under the full moon foes run faster than under a clear sky (same foe, same spot, one step).
+    /// A hero sheltering from acid rain draws the horde: foes come faster than under a clear sky, same spot.
+    /// A mid-boss (mini) leaves a false chest where it falls; a super boss does not.
+    #[test]
+    fn shelter_draws_foes_and_mini_boss_leaves_a_false_chest() {
+        use crate::floorgen::TILE_MM;
+        let c = content();
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        let stride = |w: Weather| {
+            let mut s = Sim::new(&c, 7, None);
+            s.world.npcs.clear();
+            s.tick = tick_of(&s, w);
+            let (px, py) = pillar_spot(&s);
+            let spot = (-3..=3).flat_map(|dx| (-3..=3).map(move |dy| (px + dx, py + dy))).find(|&(x, y)| s.arena.tile(x, y) == crate::floorgen::Tile::Floor && super::super::weather::sheltered(&s.arena, x * TILE_MM + TILE_MM / 2, y * TILE_MM + TILE_MM / 2)).unwrap();
+            (s.p.x, s.p.y) = (spot.0 * TILE_MM + TILE_MM / 2, spot.1 * TILE_MM + TILE_MM / 2);
+            s.walls = crate::sim::solid::Walls::new(&s.arena, s.p.x, s.p.y);
+            s.push_enemy(fam, crate::sim::Tier::Trash, (s.p.x + 8_000, s.p.y + 3_000), 1_000_000, (false, false));
+            let (x0, y0) = (s.e.x[0], s.e.y[0]);
+            s.step(&crate::sim::Input::default());
+            crate::sim::isqrt(dist2(s.e.x[0] - x0, s.e.y[0] - y0))
+        };
+        let (clear, acid) = (stride(Weather::Clear), stride(Weather::AcidRain));
+        assert!(clear > 0 && acid * 1000 >= clear * 1150, "sheltered under acid {acid} vs clear {clear}");
+        let falls = |key: &str| {
+            let mut s = Sim::new(&c, 7, None);
+            s.world.npcs.clear();
+            s.world.chests.clear();
+            let f = c.fam_ids().find(|&f| c.fam(f).key == key).unwrap();
+            s.push_enemy(f, crate::sim::Tier::Boss, (s.p.x + 20_000, s.p.y), 1, (false, false));
+            s.e.hp[0] = 0;
+            s.step(&crate::sim::Input::default());
+            s.world.chests.iter().filter(|w| matches!(w.kind, chest::ChestKind::Bomb | chest::ChestKind::Mimic) && !w.tell).count()
+        };
+        assert_eq!((falls("kiosk"), falls("sweeper")), (1, 0), "mini leaves one false chest, super none");
+    }
+
     #[test]
     fn full_moon_frenzies_foes() {
         let c = content();

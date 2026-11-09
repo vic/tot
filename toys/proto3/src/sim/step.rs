@@ -1,5 +1,6 @@
 //! One tick of the sim, phase by phase. Order is fixed; every phase reads/writes SoA columns.
 use super::*;
+use super::weather::Permille;
 use crate::data::{Hue, Mob, MobRole, Skill, Stat, Target};
 
 /// Effective numbers of one owned skill after ranks, rarity and traits (design sec 11.2).
@@ -228,6 +229,10 @@ impl<'c> Sim<'c> {
         let view_r2 = i64::from(c.view.view_r).pow(2);
         let sep_r2 = i64::from(c.view.view_r + SEP_MARGIN).pow(2);
         let sec = self.sec_ix();
+        // weather pace: the sky sets it, and a hero sheltering from rain or acid draws the horde (they come faster)
+        let sky = self.world.forecast(self.tick).now;
+        let drawn = matches!(sky, Weather::Rain | Weather::AcidRain) && super::weather::sheltered(&self.arena, self.p.x, self.p.y);
+        let pace = if drawn { Permille(sky.foe_speed().0 * SHELTER_DRAW / 1000) } else { sky.foe_speed() };
         let mut near = std::mem::take(&mut self.near);
         let e = &mut self.e;
         e.nx.clear();
@@ -310,7 +315,7 @@ impl<'c> Sim<'c> {
             if Ability::Fast.owned_at(e.loot[i]) {
                 speed = speed * THIEF_FAST / 1000;
             }
-            speed = i64::from(self.world.forecast(self.tick).now.foe_speed().apply(speed as i32));
+            speed = i64::from(pace.apply(speed as i32));
             speed = match e.status[i] {
                 Status::Frozen { .. } => 0,
                 Status::Raging { .. } => (speed * RAGE_SPEED / 1000).min(i64::from(c.player.speed) * RAGE_SPEED_CAP / 1000),
@@ -1179,6 +1184,12 @@ impl<'c> Sim<'c> {
                     }
                     self.drop_at(x, y, Drop::Chest);
                     self.drop_item(x + 600, y, self.e.id[i]);
+                    // a mid-boss leaves a trap behind: a false chest (bomb or mimic) where it fell
+                    if BossClass::of_kind(Tier::Boss, &self.c.fam(self.e.fam[i]).kind) == Some(BossClass::Mini) {
+                        use world::chest::{ChestKind, WorldChest};
+                        let kind = if self.e.id[i].is_multiple_of(2) { ChestKind::Bomb } else { ChestKind::Mimic };
+                        self.world.chests.push(WorldChest { kind, x: x - 1200, y, tell: false });
+                    }
                 }
             }
             self.e.remove(i);

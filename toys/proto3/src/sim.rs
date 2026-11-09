@@ -383,6 +383,8 @@ const ITEM_SALT: u64 = 0x17E5_D80B;
 /// XP magnet: elites drop one in MAGNET_1_IN (by id); on pickup MAGNET_FAR orbs stream in from a ring
 /// MAGNET_RING_MIN..+MAGNET_RING_SPAN mm beyond sight.
 const MAGNET_1_IN: u64 = 10;
+/// Foes run this much faster (permille) toward a hero sheltering from rain or acid.
+const SHELTER_DRAW: u32 = 1200;
 const MAGNET_FAR: u32 = 24;
 const MAGNET_RING_MIN: i32 = 4_000;
 const MAGNET_RING_SPAN: i32 = 20_000;
@@ -1686,10 +1688,11 @@ mod tests {
     /// Re-pinned 2026-11-08: integration: all lanes (wave 1): world NPCs, goblins, blasts via hurt_player, shop stock from Content.
     /// Re-pinned 2026-11-08: cave walls (72 m rooms, noisy rock bands) and bolts hold fire with auto-fire off.
     /// Re-pinned 2026-11-08: blocked chasers walk the flow field round walls.
+    /// Re-pinned 2026-11-09: a hero sheltering from rain or acid draws foes faster.
     #[test]
     fn iso_render_leaves_sim_hash_unchanged() {
         let h = run_hash(&content(), 7, 900);
-        assert_eq!(h, 0xdf6a_060b_54da_82a9, "sim hash {h:#x}");
+        assert_eq!(h, 0x61a4_1c31_5f38_62e8, "sim hash {h:#x}");
     }
 
     #[test]

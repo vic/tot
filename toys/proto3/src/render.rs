@@ -2938,7 +2938,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x9886_1100_2c93_be6b;
+    const GOLDEN: u64 = 0xfdb3_e6de_11c7_8ad5;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
