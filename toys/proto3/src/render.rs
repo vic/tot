@@ -58,6 +58,9 @@ const ARROW_S: char = '▼';
 /// Arrows to pals, keepers and goblins: at most this many, within this distance (mm).
 const PAL_CALLS: usize = 4;
 const PAL_CALL_MM: i64 = 150_000;
+/// Pal HELP!: blink period and sound-wave step (sim ticks).
+const PAL_BLINK: u32 = 8;
+const PAL_WAVE: u32 = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Cell {
@@ -1094,6 +1097,33 @@ impl Frame {
         }
     }
 
+    /// Pals still standing call for help: a big HELP! over them blinking between two colours, and sound waves
+    /// rippling out from the pal. Drawn last, like every shout.
+    fn pal_calls(&mut self, sim: &Sim) {
+        let pal = &sim.c.pal;
+        let big = crate::bigtext::rows("HELP!");
+        let bw = big[0].chars().count() as i32;
+        let (blink, wave) = ((sim.tick / PAL_BLINK).is_multiple_of(2), (sim.tick / PAL_WAVE % 3) as i32 + 1);
+        let fg = if blink { pal.player } else { pal.xp };
+        for p in sim.world.npcs.iter().filter(|p| matches!(p.npc, crate::sim::Npc::Pal { .. })) {
+            if self.cell_of(f64::from(p.x), f64::from(p.y)).is_none() {
+                continue;
+            }
+            let (col, row) = self.scr(f64::from(p.x), f64::from(p.y));
+            for (r, l) in big.iter().enumerate() {
+                for (i, ch) in l.chars().enumerate() {
+                    if ch != ' ' {
+                        self.flash_cell(col - bw / 2 + i as i32, row - 5 + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+                    }
+                }
+            }
+            for k in 1..=wave {
+                self.flash_cell(col - 1 - k, row - 1, Glyph::of('(').unwrap_or(Glyph::SPACE), pal.player);
+                self.flash_cell(col + 1 + k, row - 1, Glyph::of(')').unwrap_or(Glyph::SPACE), pal.player);
+            }
+        }
+    }
+
     /// The hero talks big: the shout word in block letters over its head (big enough to read while it moves),
     /// and the line in a rounded speech bubble standing on the Doom face in the bar (still, so it reads).
     fn hero_shout(&mut self, sim: &Sim) {
@@ -1332,7 +1362,6 @@ impl Frame {
     /// World layer: NPCs (friends in the hero colour, keepers in gold, neutrals dim), goblins and their gold,
     /// world chests (a revealed fake gets a red `!`), boss blast fuses and traps (dim while arming).
     fn world_layer(&mut self, sim: &Sim) {
-        use crate::sim::Npc;
         let pal = &sim.c.pal;
         let w = &sim.world;
         let at = |f: &mut Self, x: i32, y: i32, p: Prio, ch: char, fg: Rgb| {
@@ -1369,13 +1398,6 @@ impl Frame {
         for p in &w.npcs {
             let (ch, fg) = npc_ink(p.npc, pal);
             at(self, p.x, p.y, Prio::EliteBoss, ch, fg);
-            // a pal still standing calls for help
-            if matches!(p.npc, Npc::Pal { .. }) && let Some(i) = self.cell_of(f64::from(p.x), f64::from(p.y)) {
-                let (col, row) = (i % usize::from(self.cols), i / usize::from(self.cols));
-                if row > 0 {
-                    self.text(row as u16 - 1, (col as u16).saturating_sub(2), "HELP!", pal.player);
-                }
-            }
         }
     }
 
@@ -1468,6 +1490,7 @@ impl Frame {
             self.pointer(sim, x, y, fg);
         }
         // shouts last: nothing may cover them
+        self.pal_calls(sim);
         self.roars_fx(sim);
         self.hero_shout(sim);
         self.death_fx(sim, now_ms);
@@ -2485,14 +2508,21 @@ mod tests {
         sim.world.goblins.clear();
         f.compose(&sim, &view);
         let base = arrows(&f);
-        assert!(!play(&f).contains("HELP!"), "control: no pal, no call");
+        let help = crate::bigtext::rows("HELP!");
+        assert!(!painted(&f, &help), "control: no pal, no call");
         sim.world.npcs = vec![Placed { npc: Npc::Pal { traitor: false }, x: sim.p.x + 3000, y: sim.p.y }];
         f.compose(&sim, &view);
-        assert!(play(&f).contains("HELP!") && play(&f).contains('p'), "{}", play(&f));
+        assert!(painted(&f, &help) && play(&f).contains('p') && play(&f).contains('('), "big HELP! with waves\n{}", play(&f));
+        // it blinks: another colour one blink later
+        let fg_now = f.cells.iter().find(|cl| cl.ch.ch() == '▄' && (cl.fg == c.pal.player || cl.fg == c.pal.xp)).map(|cl| cl.fg);
+        sim.tick += PAL_BLINK;
+        f.compose(&sim, &view);
+        let fg_next = f.cells.iter().find(|cl| cl.ch.ch() == '▄' && (cl.fg == c.pal.player || cl.fg == c.pal.xp)).map(|cl| cl.fg);
+        assert!(fg_now.is_some() && fg_now != fg_next, "blinks");
         assert_eq!(arrows(&f), base, "on screen: no arrow");
         sim.world.npcs[0].x = sim.p.x + 100_000;
         f.compose(&sim, &view);
-        assert!(!play(&f).contains("HELP!"));
+        assert!(!painted(&f, &help));
         assert_eq!(arrows(&f), base + 1, "pal off screen in earshot: one more arrow");
         sim.world.npcs[0].x = sim.p.x + 400_000;
         f.compose(&sim, &view);
