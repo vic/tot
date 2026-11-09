@@ -2005,6 +2005,17 @@ impl Frame {
         if sim.e.purger[k] {
             self.text(row, x + 2, "PURGER: kills your hijacked", pal.alarm);
         }
+        // what it has gained, with a line to match: fed thieves grow and learn tricks
+        let loot = sim.e.loot[k];
+        if loot > 0 && usize::from(row) + 1 < usize::from(self.play_rows()) {
+            let tricks: Vec<String> = crate::sim::Ability::ALL.iter().filter(|a| a.owned_at(loot)).map(|a| format!("{a:?}").to_uppercase()).collect();
+            let x = self.text(row + 1, x0, "UPGRADED: ate ", pal.alarm);
+            let x = self.num(row + 1, x, i64::from(loot), pal.chest);
+            let x = self.text(row + 1, x + 1, "loot", pal.alarm);
+            let x = if tricks.is_empty() { x } else { self.text(row + 1, x + 2, &tricks.join(" "), pal.of(Hue::Therm)) };
+            let quip = FOE_QUIPS[usize::from(loot) % FOE_QUIPS.len()];
+            self.text(row + 1, x + 2, quip, pal.dim);
+        }
     }
 
     // ---------- emit ----------
@@ -2260,6 +2271,8 @@ const WK_MAX_W: usize = 72;
 const TOGGLE_BG: u32 = 450;
 /// Picker card rows: rarity colour mixed this far (permille) toward the panel background.
 const CARD_TINT: u32 = 780;
+/// What the look tooltip says about a foe that ate loot.
+const FOE_QUIPS: [&str; 5] = ["it got ideas.", "it is not the same foe anymore.", "it eats like you do. worse.", "you fed this. you.", "it remembers your loot fondly."];
 /// Floor loot: glow mix toward the background (permille), tallest beam (rows), pulse period (ticks).
 const LOOT_GLOW: u32 = 650;
 const LOOT_BEAM_MAX: i32 = 4;
@@ -2920,6 +2933,26 @@ mod tests {
         f.compose(&sim, &View { ui: &ui, now_ms: 7_000, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         assert!(f.plain().contains("UPGRADE") && !f.plain().contains("POWER-UP"), "p opens the picker");
         assert_eq!(ui.pick_open_ms, 7_000, "its timer starts on opening");
+    }
+
+    #[test]
+    fn look_shows_what_a_foe_has_gained() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        sim.world.npcs.clear();
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        sim.push_enemy(fam, Tier::Trash, (sim.p.x + 300, sim.p.y), 1_000_000, (false, false));
+        let mut ui = Ui::new(true);
+        ui.mode = Mode::Look;
+        let mut f = Frame::new(&c, 120, 40);
+        let mut look = |sim: &Sim| {
+            f.compose(sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        assert!(look(&sim).contains("SCRAPPER") && !look(&sim).contains("UPGRADED"), "control: a foe that ate nothing");
+        sim.e.loot[0] = 30;
+        let s = look(&sim);
+        assert!(s.contains("UPGRADED: ate 30 loot") && FOE_QUIPS.iter().any(|q| s.contains(q)), "what it gained, with a line\n{s}");
     }
 
     #[test]
