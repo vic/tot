@@ -1946,6 +1946,26 @@ impl Frame {
     }
 
     /// Message line at the top of the play area (between map and panel): look tooltip, the picked card, narration,
+    /// The story speaks in a framed card at the top centre, typed out letter by letter so the eye catches it.
+    fn story_card(&mut self, sim: &Sim, text: &str, at: u32) {
+        let pal = &sim.c.pal;
+        let (lo, hi) = (i32::from(MAP_W) + 1, i32::from(self.cols.saturating_sub(PANEL_W + 1)));
+        let room = (hi - lo - 4).max(0) as usize;
+        let line: String = text.chars().take(room).collect();
+        let n = line.chars().count();
+        let typed = (sim.tick.saturating_sub(at) as usize * STORY_CPS / sim.c.hz().get() as usize + 1).min(n);
+        let w = n as i32 + 4;
+        let left = lo + (hi - lo - w) / 2;
+        self.plate(left, 0, w, 3, pal.hud_bg);
+        let edge = pal.of(Hue::Therm);
+        self.text(0, left as u16, &format!("╭─ ◆ STORY {}╮", "─".repeat((w as usize).saturating_sub(13))), edge);
+        self.text(1, left as u16, "│", edge);
+        self.text(1, (left + w - 1) as u16, "│", edge);
+        self.text(2, left as u16, &format!("╰{}╯", "─".repeat(w as usize - 2)), edge);
+        let shown: String = line.chars().take(typed).collect();
+        self.text(1, left as u16 + 2, &shown, pal.text);
+    }
+
     /// or the last action's result.
     fn message(&mut self, sim: &Sim, v: &View) {
         let (c, ui) = (sim.c, v.ui);
@@ -1954,14 +1974,17 @@ impl Frame {
             self.tooltip(sim, ui, 0, MAP_W + 1);
             return;
         }
-        let narration = sim.narration.filter(|(_, at)| sim.tick.saturating_sub(*at) < c.hz().get() * 6).and_then(|(ev, _)| match c.waves.get(ev) {
-            Some(crate::data::WaveEv::Narrate { text, .. }) => Some(text.as_str()),
+        let narration = sim.narration.filter(|(_, at)| sim.tick.saturating_sub(*at) < c.hz().get() * STORY_S).and_then(|(ev, at)| match c.waves.get(ev) {
+            Some(crate::data::WaveEv::Narrate { text, .. }) => Some((text.as_str(), at)),
             _ => None,
         });
         let card = (ui.mode == Mode::Pick).then(|| sim.offer.and_then(|o| o.cards.get(usize::from(ui.sel)).copied().flatten()).map(|cd| c.skill(cd.skill).desc.as_str())).flatten();
         let (text, fg) = match (card, narration) {
             (Some(d), _) => (d, pal.text),
-            (None, Some(n)) => (n, pal.of(Hue::Therm)),
+            (None, Some((n, at))) => {
+                self.story_card(sim, n, at);
+                return;
+            }
             (None, None) => (ui.msg.as_str(), pal.of(Hue::Kin)),
         };
         if text.is_empty() {
@@ -2271,6 +2294,9 @@ const WK_MAX_W: usize = 72;
 const TOGGLE_BG: u32 = 450;
 /// Picker card rows: rarity colour mixed this far (permille) toward the panel background.
 const CARD_TINT: u32 = 780;
+/// Story card: seconds it stays, letters typed per second.
+const STORY_S: u32 = 8;
+const STORY_CPS: usize = 40;
 /// What the look tooltip says about a foe that ate loot.
 const FOE_QUIPS: [&str; 5] = ["it got ideas.", "it is not the same foe anymore.", "it eats like you do. worse.", "you fed this. you.", "it remembers your loot fondly."];
 /// Floor loot: glow mix toward the background (permille), tallest beam (rows), pulse period (ticks).
@@ -2956,6 +2982,32 @@ mod tests {
     }
 
     #[test]
+    fn story_types_out_in_a_framed_card() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut d = Director::new(7);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        while sim.narration.is_none() {
+            d.tick(&mut sim);
+            sim.step(&Input::default());
+        }
+        let (ev, at) = sim.narration.unwrap();
+        let crate::data::WaveEv::Narrate { text, .. } = &c.waves[ev] else { panic!("not a narration") };
+        let top = |f: &mut Frame, sim: &Sim| {
+            f.compose(sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain().lines().take(3).collect::<Vec<_>>().join("\n")
+        };
+        sim.tick = at + 3;
+        let early = top(&mut f, &sim);
+        assert!(early.contains("◆ STORY") && !early.contains(text.as_str()), "framed, still typing\n{early}");
+        sim.tick = at + c.hz().get() * 4;
+        assert!(top(&mut f, &sim).contains(text.as_str()), "typed out whole");
+        sim.tick = at + c.hz().get() * STORY_S;
+        assert!(!top(&mut f, &sim).contains("◆ STORY"), "gone after its time");
+    }
+
+    #[test]
     fn whichkey_opens_a_vim_style_popup() {
         use crate::input::{Key, KeyEv, Kind};
         let c = Content::parse(&texts()).unwrap();
@@ -3071,7 +3123,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x0151_d675_25fc_9bf2;
+    const GOLDEN: u64 = 0x8ba6_ad63_3271_009e;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
