@@ -1,0 +1,56 @@
+{
+  "nodes": {
+    "import-tree": {
+      "locked": {
+        "lastModified": 1788467110,
+        "narHash": "sha256-ljEMTXP/rH0tOvDzc9gzwww6KcHRPRnEHzd9lK48V7s=",
+        "owner": "denful",
+        "repo": "import-tree",
+        "rev": "eb1b52eaecc57f7c136d07ae8a93e724dfecac46",
+        "type": "github"
+      },
+      "original": {
+        "owner": "denful",
+        "repo": "import-tree",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1794042290,
+        "narHash": "sha256-VZ8WvA9m3XN36juXyg/GwbDRU2OezOHJlXpJCXkccv0=",
+        "rev": "f4a03c008967841f2a0b3cb7c436fc6fc31671f6",
+        "type": "tarball",
+        "url": "https://releases.nixos.org/nixos/unstable/nixos-26.11pre1113206.f4a03c008967/nixexprs.tar.xz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://nixos.org/channels/nixos-unstable/nixexprs.tar.xz"
+      }
+    },
+    "root": {
+      "inputs": {
+        "import-tree": "import-tree",
+        "nixpkgs": "nixpkgs",
+        "yen": "yen"
+      }
+    },
+    "yen": {
+      "locked": {
+        "lastModified": 1794191444,
+        "narHash": "sha256-UEfwBosL9rVlryuqKd7IlJKUJA546sMTTaxV3vhX594=",
+        "owner": "vic",
+        "repo": "yen",
+        "rev": "b2a64e9246b7861c07afd18bfe9adb43530a770a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vic",
+        "repo": "yen",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

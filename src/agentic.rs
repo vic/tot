@@ -122,7 +122,7 @@ mod tests {
         let r = request(&Library::shipped(&data_dir()), "a sunken jungle temple", "uds:/r/tot-1.sock").unwrap();
         assert!(r.contains("(cyberpunk)") && r.contains("(hellish)") && !r.contains("(kawai)"), "only the two examples");
         assert!(r.contains("a sunken jungle temple") && r.contains("uds:/r/tot-1.sock") && r.contains(DONE) && r.contains("pick_adventure"));
-        assert!(r.contains("taken: cyberpunk, dnd, hellish, kawai, moriah"), "the ids it must not reuse");
+        assert!(r.contains("taken: cyberpunk, dnd, hellish, kawai, moriah, tristram"), "the ids it must not reuse");
     }
 
     #[test]

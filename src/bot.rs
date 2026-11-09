@@ -193,7 +193,7 @@ pub struct Run {
     pub srcs: Vec<(String, usize, usize)>,
 }
 
-/// KITER+TAG play up to `secs` (for `proto2 snapshot`).
+/// KITER+TAG play up to `secs` (for `tot snapshot`).
 pub fn sim_at(c: &Content, seed: u64, secs: u32) -> (Sim<'_>, Director) {
     let mut sim = Sim::new(c, seed, None);
     let mut dir = Director::new(seed);

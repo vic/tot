@@ -171,10 +171,11 @@ fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) 
     }
 }
 
-/// `--auto` (the demo) skips the start screen and plays `base`.
+/// `--auto` (the demo) skips the start screen and the kitty probe, and plays `base`.
 pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveBot, PickBot)>) -> Result<()> {
     let mut tty = Tty::open()?;
-    if !tty.probe_kitty()? {
+    // the demo takes no keys, so it runs in any terminal (a vhs recording has no kitty protocol)
+    if auto.is_none() && !tty.probe_kitty()? {
         return Err(Error::NoKitty);
     }
     let need = (base.view.min_cols, base.view.min_rows);

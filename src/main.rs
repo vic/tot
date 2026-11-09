@@ -1,4 +1,4 @@
-//! proto2: ToT FP1 playable survivor-like (Netrunner) + headless bot harness. Spec: vic/design.md.
+//! tot: ToT FP1 playable survivor-like (Netrunner) + headless bot harness. Spec: vic/design.md.
 mod agentic;
 mod bigtext;
 mod bot;
@@ -67,13 +67,13 @@ impl From<serde_json::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-const USAGE: &str = "proto2 play [--data DIR] [--profile NAME] [--seed N] [--out DIR]
-proto2 schema   (adventure schema docs: every shown message, art and field, where it shows)
-proto2 skill [--data DIR]   (agent skill: write and update adventures; schema + every shipped adventure as examples)
-proto2 agentic [--to PID --brief TEXT --wait-s S]   (no --to: list live local Claude sessions; else ask one for an adventure)
-proto2 snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
-proto2 bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
-proto2 controls --seeds N [--data DIR]";
+const USAGE: &str = "tot play [--data DIR] [--profile NAME] [--seed N] [--out DIR]
+tot schema   (adventure schema docs: every shown message, art and field, where it shows)
+tot skill [--data DIR]   (agent skill: write and update adventures; schema + every shipped adventure as examples)
+tot agentic [--to PID --brief TEXT --wait-s S]   (no --to: list live local Claude sessions; else ask one for an adventure)
+tot snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
+tot bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
+tot controls --seeds N [--data DIR]";
 
 struct Args(Vec<String>);
 
@@ -91,6 +91,10 @@ impl Args {
 
 fn run() -> Result<()> {
     let args = Args(std::env::args().skip(1).collect());
+    if matches!(args.0.first().map(String::as_str), Some("--help" | "-h")) {
+        println!("{USAGE}");
+        return Ok(());
+    }
     let dir = PathBuf::from(args.val("--data").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/data")));
     let lib = data::Library::with_user(&dir);
     let c = lib.load(args.val("--profile"))?;
@@ -190,7 +194,7 @@ fn run() -> Result<()> {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("proto2: {e}");
+        eprintln!("tot: {e}");
         std::process::exit(1);
     }
 }

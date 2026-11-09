@@ -2192,7 +2192,7 @@ impl Frame {
         self.links.iter().find(|(lo, hi, _)| (*lo..*hi).contains(&i)).map(|l| l.2.as_str())
     }
 
-    /// Glyphs only, one line per row (for `proto2 snapshot`).
+    /// Glyphs only, one line per row (for `tot snapshot`).
     pub fn plain(&self) -> String {
         let mut s = String::new();
         for row in self.cells.chunks(usize::from(self.cols)) {

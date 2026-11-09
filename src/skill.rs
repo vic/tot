@@ -1,4 +1,4 @@
-//! `proto3 skill`: the agent skill an AI author reads to write adventures for this engine: what the game is, the
+//! `tot skill`: the agent skill an AI author reads to write adventures for this engine: what the game is, the
 //! exact answer format, the shown-content schema, and every shipped adventure in full as an example.
 use crate::Result;
 use std::path::Path;

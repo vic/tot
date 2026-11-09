@@ -4,7 +4,7 @@
 # GHOSTTY=/path/to/ghostty ./play.sh --window   same, in a clean fullscreen Ghostty window
 set -u
 P=$(cd "$(dirname "$0")" && pwd)
-B=$P/target/release/proto3
+B=$P/target/release/tot
 if [ ! -x "$B" ] || [ -n "$(find "$P/src" "$P/Cargo.toml" -newer "$B" 2>/dev/null | head -1)" ]; then
   timeout 300 systemd-run --user --scope -q -p MemoryMax=12G nice -n 10 \
     nix-shell -p cargo rustc --run "cd '$P' && cargo build --release 2>&1 | tail -2" || exit 1
