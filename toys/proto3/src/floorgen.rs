@@ -28,15 +28,22 @@ pub struct Arena {
 
 /// Tile edge (mm). Equals view.floor_cell_m so render cells and sim tiles coincide.
 pub const TILE_MM: i32 = 2000;
-/// Room pitch in tiles: one wall tile plus a 23-tile interior = 46 m rooms.
-const PITCH: i32 = 24;
-/// Wide doorway width in tiles (10 m).
-pub const DOOR_W: i32 = 5;
+/// Room pitch in tiles (72 m rooms); a cave band of rock lies on every boundary line.
+pub const PITCH: i32 = 36;
+/// Wide doorway width in tiles (12 m).
+pub const DOOR_W: i32 = 6;
 /// Local tile index of the room centre; world tile (0,0) is the middle of room (0,0).
-const CENTRE: i32 = PITCH / 2;
+pub const CENTRE: i32 = PITCH / 2;
+/// Cave band half-thickness 1..=BAND_MAX tiles, noise knots every BAND_KNOT tiles along a line, and one tile in
+/// ROUGH_1_IN pushes the edge out by one more (rough rock face).
+const BAND_MAX: i32 = 4;
+const BAND_KNOT: i32 = 5;
+const ROUGH_1_IN: u64 = 3;
+/// Deepest rock reach into a room: doors and pillars keep out of it, so corners never close a doorway.
+const ROCK: i32 = BAND_MAX + 1;
 /// Pillars stay in local [PILLAR_LO, PILLAR_HI] and out of the centre square, so doors and spawn stay clear.
-const PILLAR_LO: i32 = 5;
-const PILLAR_HI: i32 = PITCH - 5;
+const PILLAR_LO: i32 = ROCK + 2;
+const PILLAR_HI: i32 = PITCH - ROCK - 2;
 const CENTRE_CLEAR: i32 = 3;
 /// North doors beyond the guaranteed spine column open with this chance, permille.
 const NORTH_OPEN: u64 = 450;
@@ -68,27 +75,40 @@ impl Arena {
 
     /// Doorway along a wall of room (rx, ry): spans DOOR_W tiles inside the interior; l = local tile along the wall.
     fn door_at(&self, tag: u64, rx: i32, ry: i32, l: i32) -> bool {
-        let span = (PITCH - DOOR_W) as u64;
-        let lo = 1 + (self.edge_hash(tag, rx, ry) % span) as i32;
+        // the span starts past the deepest rock of the crossing line, so the doorway is never closed by a corner
+        let span = (PITCH - DOOR_W - 2 * ROCK + 1) as u64;
+        let lo = ROCK + (self.edge_hash(tag, rx, ry) % span) as i32;
         (lo..lo + DOOR_W).contains(&l)
     }
 
+    /// Half-thickness (tiles, 1..=BAND_MAX) of the rock band along one room boundary line at `along` (world tile
+    /// along the line). Value noise with knots every BAND_KNOT tiles, linear between: caves bulge and thin smoothly.
+    fn band(&self, tag: u64, line: i32, along: i32) -> i32 {
+        let (k, f) = (along.div_euclid(BAND_KNOT), along.rem_euclid(BAND_KNOT));
+        let v = |k: i32| (self.edge_hash(tag ^ 0x5a, line, k) % 1000) as i32;
+        let v = (v(k) * (BAND_KNOT - f) + v(k + 1) * f) / BAND_KNOT;
+        1 + v * BAND_MAX / 1000
+    }
+
+    /// North wall of room (rx, ry) is open at local tile l: on the spine column always, elsewhere by chance.
+    fn north_door(&self, rx: i32, ry: i32, l: i32) -> bool {
+        (rx == self.spine(ry - 1) || self.edge_hash(2, rx, ry) % 1000 < NORTH_OPEN) && self.door_at(2, rx, ry, l)
+    }
+
     /// Tile at world tile coordinates. O(1), pure in (salt, tx, ty).
+    /// Room boundary lines are cave bands of varying thickness with a rough edge; doorways cut through them.
     pub fn tile(&self, tx: i32, ty: i32) -> Tile {
         let (rx, lx) = ((tx + CENTRE).div_euclid(PITCH), (tx + CENTRE).rem_euclid(PITCH));
         let (ry, ly) = ((ty + CENTRE).div_euclid(PITCH), (ty + CENTRE).rem_euclid(PITCH));
-        let door = |open: bool| if open { Tile::Floor } else { Tile::Wall };
-        match (lx == 0, ly == 0) {
-            (true, true) => Tile::Wall,
-            // west wall of room (rx, ry): always has a door
-            (true, false) => door(self.door_at(1, rx, ry, ly)),
-            // north wall of room (rx, ry): door on the spine column, elsewhere by chance
-            (false, true) => door(
-                (rx == self.spine(ry - 1) || self.edge_hash(2, rx, ry) % 1000 < NORTH_OPEN) && self.door_at(2, rx, ry, lx),
-            ),
-            (false, false) => self.interior(tx, ty, lx, ly),
-        }
+        // nearest vertical line = west wall of room vx, nearest horizontal line = north wall of room hy
+        let (vx, dv) = if lx <= PITCH - lx { (rx, lx) } else { (rx + 1, PITCH - lx) };
+        let (hy, dh) = if ly <= PITCH - ly { (ry, ly) } else { (ry + 1, PITCH - ly) };
+        let rough = i32::from(mix(self.salt ^ (u64::from(tx as u32) << 32) ^ u64::from(ty as u32)).is_multiple_of(ROUGH_1_IN));
+        let rock_v = dv < self.band(1, vx, ty) + rough && !self.door_at(1, vx, ry, ly);
+        let rock_h = dh < self.band(2, hy, tx) + rough && !self.north_door(rx, hy, lx);
+        if rock_v || rock_h { Tile::Wall } else { self.interior(tx, ty, lx, ly) }
     }
+
 
     fn interior(&self, tx: i32, ty: i32, lx: i32, ly: i32) -> Tile {
         let core = (PILLAR_LO..=PILLAR_HI).contains(&lx) && (PILLAR_LO..=PILLAR_HI).contains(&ly);
@@ -203,20 +223,26 @@ mod tests {
     fn doorways_wide_and_walls_solid() {
         let c = content();
         let a = arena(9, 0, &c);
-        let (mut west, mut north) = (0, 0);
+        let (mut west, mut north, mut thick) = (0, 0, std::collections::BTreeSet::new());
         for rx in -R..=R {
             for ry in -R..=R {
                 let (x0, y0) = (rx * PITCH - CENTRE, ry * PITCH - CENTRE);
-                let w = (1..PITCH).filter(|&l| !a.tile(x0, y0 + l).solid()).count() as i32;
-                assert_eq!(w, DOOR_W, "west wall always one door");
-                let n = (1..PITCH).filter(|&l| !a.tile(x0 + l, y0).solid()).count() as i32;
-                assert!(n == 0 || n == DOOR_W, "north wall closed or one door, got {n}");
+                // a doorway = a tile along the line where the whole band, both sides, is open
+                let w = (1..PITCH).filter(|&l| (-ROCK..=ROCK).all(|d| !a.tile(x0 + d, y0 + l).solid())).count() as i32;
+                assert_eq!(w, DOOR_W, "west boundary: one doorway through the band");
+                let n = (1..PITCH).filter(|&l| (-ROCK..=ROCK).all(|d| !a.tile(x0 + l, y0 + d).solid())).count() as i32;
+                assert!(n == 0 || n == DOOR_W, "north boundary closed or one doorway, got {n}");
                 west += 1;
                 north += i32::from(n > 0);
-                assert!(a.tile(x0, y0).solid(), "corner post");
+                assert!(a.tile(x0, y0).solid(), "corner rock");
+                // band thickness along the line varies (cave, not a straight wall)
+                for l in 1..PITCH {
+                    thick.insert((0..=ROCK).take_while(|&d| a.tile(x0 + d, y0 + l).solid()).count());
+                }
             }
         }
         assert!(north > 0 && north < west, "some north doors open, some closed");
+        assert!(thick.len() >= 4, "band depth varies: {thick:?}");
     }
 
     #[test]

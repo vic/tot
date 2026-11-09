@@ -58,6 +58,9 @@ const ARROW_E: char = '▶';
 const ARROW_W: char = '◀';
 const ARROW_N: char = '▲';
 const ARROW_S: char = '▼';
+/// Pal arrows: at most this many, within this distance (mm).
+const PAL_CALLS: usize = 3;
+const PAL_CALL_MM: i64 = 150_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Cell {
@@ -439,8 +442,7 @@ impl Frame {
         let c = sim.c;
         let (pal, v, ar) = (&c.pal, &c.view, sim.arena());
         let rows = match ar.template {
-            Template::Open => return,
-            Template::Pillars => v.block_rows[0],
+            Template::Open | Template::Pillars => v.block_rows[0],
             Template::Rubble => v.block_rows[1],
         };
         let (fc, hr, p) = (v.floor_cell, i32::from(rows), self.eye.p);
@@ -803,7 +805,7 @@ impl Frame {
         let c = sim.c;
         let pal = &c.pal;
         // (title, rows of (text, colour)), cursor
-        let (title, rows, sel): (String, Vec<(String, Rgb)>, usize) = match ui.mode {
+        let (title, rows, sel): (String, Vec<(String, Rgb)>, Option<usize>) = match ui.mode {
             Mode::Tree => {
                 let Some(t) = crate::input::hero_tree(c) else { return };
                 let class = c.classes.get(t.class.ix()).map_or("", |k| k.name.as_str());
@@ -812,19 +814,19 @@ impl Frame {
                     let mark = if ui.tree_owned.has(i) { "*" } else { " " };
                     (format!("{mark} {}  {:?}  cost {}  grants {}", n.name, n.tag, n.cost, c.skill(n.effect).name), if ui.tree_owned.has(i) { pal.xp } else { pal.text })
                 });
-                (title, rows.collect(), ui.tree_sel)
+                (title, rows.collect(), Some(ui.tree_sel))
             }
             Mode::Gear => {
                 let rows = crate::data::Slot::ALL.iter().map(|&slot| match sim.gear.worn(slot).and_then(|id| c.items.get(usize::from(id.0))) {
                     Some(it) => (format!("{slot:?}: {} {}  {}", it.glyph.ch(), it.name, it.desc), pal.role(it.rarity.role())),
                     None => (format!("{slot:?}: -"), pal.dim),
                 });
-                ("GEAR".into(), rows.collect(), ui.gear_sel)
+                ("GEAR".into(), rows.collect(), Some(ui.gear_sel))
             }
             Mode::Shop => {
                 let deals = sim.world.open_shop.and_then(|i| sim.world.shops.get(i)).map_or(&[][..], Vec::as_slice);
-                let rows = deals.iter().filter_map(|d| c.items.get(usize::from(d.item.0)).map(|it| (format!("{} {}  {} gold", it.glyph.ch(), it.name, d.price), pal.role(it.rarity.role()))));
-                (format!("SHOP  gold {}", sim.p.gold), rows.collect(), ui.shop_sel)
+                let rows = deals.iter().zip(1..).filter_map(|(d, k)| c.items.get(usize::from(d.item.0)).map(|it| (format!("{k} {} {}  {} gold", it.glyph.ch(), it.name, d.price), pal.role(it.rarity.role()))));
+                (format!("SHOP  gold {}   1-4 buy, walk on to leave", sim.p.gold), rows.collect(), None)
             }
             Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd => return,
         };
@@ -833,10 +835,10 @@ impl Frame {
         let fit = usize::from(w) - 4;
         // scroll so the cursor row stays inside the box
         let shown = usize::from(h) - 4;
-        let first = sel.saturating_sub(shown - 1);
+        let first = sel.unwrap_or(0).saturating_sub(shown - 1);
         for (k, (s, fg)) in rows.iter().enumerate().skip(first).take(shown) {
             let row = y0 + 3 + (k - first) as u16;
-            let line: String = format!("{}{s}", if k == sel { "> " } else { "  " }).chars().take(fit).collect();
+            let line: String = format!("{}{s}", if Some(k) == sel { "> " } else { "  " }).chars().take(fit).collect();
             self.text(row, x0 + 2, &line, *fg);
         }
     }
@@ -1134,8 +1136,11 @@ impl Frame {
         for &(x, y) in &sim.treasures {
             self.pointer(sim, x, y, c.pal.chest);
         }
-        for p in sim.world.npcs.iter().filter(|p| matches!(p.npc, crate::sim::Npc::Pal { .. })) {
-            self.pointer(sim, p.x, p.y, c.pal.player);
+        // the nearest few pals in earshot call; every pal on the floor would bury the screen edge in arrows
+        let mut pals: Vec<(i64, i32, i32)> = sim.world.npcs.iter().filter(|p| matches!(p.npc, crate::sim::Npc::Pal { .. })).map(|p| (dist2(p.x - sim.p.x, p.y - sim.p.y), p.x, p.y)).filter(|&(d2, _, _)| d2 <= PAL_CALL_MM.pow(2)).collect();
+        pals.sort_unstable();
+        for &(_, x, y) in pals.iter().take(PAL_CALLS) {
+            self.pointer(sim, x, y, c.pal.player);
         }
     }
 
@@ -1158,6 +1163,8 @@ impl Frame {
                     ('■', pal.chest)
                 } else if t.iter().any(|&(x, y, _)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
                     ('B', pal.alarm)
+                } else if known && rock(sim.arena(), cx, cy) {
+                    ('█', pal.text)
                 } else if known {
                     ('░', pal.floor)
                 } else {
@@ -1373,13 +1380,12 @@ impl Frame {
         let m = (dist2(wx - sim.p.x, wy - sim.p.y) as f64).sqrt() / 1000.0;
         let label = format!("{}m", m as i64);
         let n = label.chars().count() as u16;
-        let start = if col + 2 + n < self.cols { col + 2 } else { col.saturating_sub(n + 1) };
+        // whole label or none (a cut "50" for "502m" lies): right side, else left, on cells no box or label holds
+        let free = |f: &Self, s: u16| s + n <= f.cols && (s..s + n).all(|p| !f.boxed(p, row) && f.cells[usize::from(row) * usize::from(f.cols) + usize::from(p)].bg != pal.hud_bg);
+        let Some(start) = [col + 2, col.saturating_sub(n + 1)].into_iter().find(|&s| free(self, s)) else { return };
         for (k, lc) in label.chars().enumerate() {
-            let pos = start + k as u16;
-            if pos < self.cols && !self.boxed(pos, row) {
-                let j = usize::from(row) * usize::from(self.cols) + usize::from(pos);
-                self.cells[j] = Cell { ch: Glyph::of(lc).unwrap_or(Glyph::SPACE), fg, bg: pal.hud_bg };
-            }
+            let j = usize::from(row) * usize::from(self.cols) + usize::from(start + k as u16);
+            self.cells[j] = Cell { ch: Glyph::of(lc).unwrap_or(Glyph::SPACE), fg, bg: pal.hud_bg };
         }
     }
 
@@ -1543,6 +1549,12 @@ impl Frame {
     pub fn reset_run(&mut self) {
         self.seen.clear();
     }
+}
+
+/// Map cell (MAP_K x MAP_K tiles) is mostly rock: at least a quarter of its tiles are solid.
+fn rock(ar: &Arena, cx: i32, cy: i32) -> bool {
+    let (t0x, t0y) = (cx * MAP_K, cy * MAP_K);
+    (0..MAP_K).flat_map(|dy| (0..MAP_K).map(move |dx| (dx, dy))).filter(|&(dx, dy)| ar.tile(t0x + dx, t0y + dy).solid()).count() as i32 * 4 >= MAP_K * MAP_K
 }
 
 fn solid(ar: &Arena, fc: i32, fx: i32, fy: i32) -> bool {
@@ -1728,7 +1740,7 @@ fn keyhints(mode: Mode, ended: bool) -> &'static str {
         (_, Mode::Cmd) => "enter run  esc back",
         (_, Mode::Tree) => "h/l j/k move  enter spend  esc back",
         (_, Mode::Gear) => "j/k select  x drop  esc back",
-        (_, Mode::Shop) => "j/k select  enter buy  esc leave",
+        (_, Mode::Shop) => "1-4 buy  walk on or esc to leave",
     }
 }
 
@@ -1901,7 +1913,7 @@ mod tests {
     }
 
     #[test]
-    fn pal_on_screen_calls_help_and_far_pal_gets_an_arrow() {
+    fn pal_on_screen_calls_help_and_off_screen_pal_in_earshot_gets_an_arrow() {
         use crate::sim::{Npc, Placed};
         let c = Content::parse(&texts()).unwrap();
         let mut sim = Sim::new(&c, 7, None);
@@ -1919,10 +1931,28 @@ mod tests {
         f.compose(&sim, &view);
         assert!(play(&f).contains("HELP!") && play(&f).contains('p'), "{}", play(&f));
         assert_eq!(arrows(&f), base, "on screen: no arrow");
-        sim.world.npcs[0].x = sim.p.x + 400_000;
+        sim.world.npcs[0].x = sim.p.x + 100_000;
         f.compose(&sim, &view);
         assert!(!play(&f).contains("HELP!"));
-        assert_eq!(arrows(&f), base + 1, "far pal: one more arrow");
+        assert_eq!(arrows(&f), base + 1, "pal off screen in earshot: one more arrow");
+        sim.world.npcs[0].x = sim.p.x + 400_000;
+        f.compose(&sim, &view);
+        assert_eq!(arrows(&f), base, "NEG: pal out of earshot: no arrow");
+    }
+
+    #[test]
+    fn map_shows_rock_only_where_explored() {
+        let c = Content::parse(&texts()).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let map = |f: &Frame| (0..usize::from(MAP_H)).flat_map(|r| f.cells[r * 120..r * 120 + usize::from(MAP_W)].iter().map(|c| c.ch.ch())).filter(|&ch| ch == '█').count();
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let near = map(&f);
+        // explore the whole map window: the room's cave walls appear
+        explore(&mut f.seen, (0, 0), i32::from(MAP_W));
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(map(&f) > near + 10, "explored rock shows on the map ({} vs {near})", map(&f));
     }
 
     #[test]
@@ -1979,8 +2009,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: panel GOLD/PALS row; world layer drawn (NPCs + HELP!, goblins, gold, world chests, blasts, traps)
-    const GOLDEN: u64 = 0x37d1_cfa0_07ce_90d5;
+    // re-pinned 2026-11-08: cave walls drawn on every template, map shows explored rock, whole pointer labels
+    const GOLDEN: u64 = 0x4bfa_7f59_5320_ab0f;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

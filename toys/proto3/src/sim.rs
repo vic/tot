@@ -1450,7 +1450,7 @@ mod tests {
         };
         assert!(first_bolt_vx(Input { autofire: true, ..Input::default() }).is_some_and(|v| v < 0), "autofire aims west at the foe");
         assert!(first_bolt_vx(Input { fire: true, ..Input::default() }).is_some_and(|v| v < 0), "held fire aims west too");
-        assert!(first_bolt_vx(Input::default()).is_some_and(|v| v > 0), "control: neither on, the bolt flies along the facing");
+        assert_eq!(first_bolt_vx(Input::default()), None, "auto-fire off and no fire key: the hero holds fire");
     }
 
     #[test]
@@ -1478,7 +1478,9 @@ mod tests {
         let far = f64::from(c.spawn.ring_max * 4);
         for (h, g) in s.boss_home.iter().zip(&again.boss_home) {
             assert_eq!((h.x, h.y), (g.x, g.y));
-            assert!((f64::from(h.x).hypot(f64::from(h.y)) - far).abs() <= far * 0.01);
+            // free_near moves a home out of rock by at most NUDGE_RINGS tiles on a diagonal
+            let reach = f64::from(NUDGE_RINGS * crate::floorgen::TILE_MM) * std::f64::consts::SQRT_2;
+            assert!((f64::from(h.x).hypot(f64::from(h.y)) - far).abs() <= reach, "home {},{} far {far}", h.x, h.y);
         }
     }
 
@@ -1511,6 +1513,29 @@ mod tests {
             let last = s.e.len() - 1;
             assert!(!solid::blocked(&s.arena, s.e.x[last], s.e.y[last], r), "pushed into a wall, seed {seed}");
         }
+    }
+
+    /// No foe ever overlaps a wall or pillar: director-driven runs with the hero walking, every tick, every foe.
+    #[test]
+    fn foes_never_inside_walls() {
+        let c = content();
+        let (mut checked, mut pressing) = (0u64, 0u64);
+        for seed in [1u64, 5, 9] {
+            let mut s = Sim::new(&c, seed, None);
+            let mut d = Director::new(seed);
+            for k in 0..1500u32 {
+                s.p.hp = s.p.max_hp;
+                d.tick(&mut s);
+                s.step(&script(k));
+                let near = s.walls.near(&s.arena);
+                for i in 0..s.e.len() {
+                    assert!(!solid::blocked(&near, s.e.x[i], s.e.y[i], s.e.rad[i]), "seed {seed} tick {} foe {i} tier {:?} at {},{} r {}", s.tick, s.e.tier[i], s.e.x[i], s.e.y[i], s.e.rad[i]);
+                    checked += 1;
+                    pressing += u64::from(solid::blocked(&near, s.e.x[i], s.e.y[i], s.e.rad[i] + 400));
+                }
+            }
+        }
+        assert!(checked > 10_000 && pressing > 1000, "control: foes checked ({checked}) and pressed against walls ({pressing})");
     }
 
     #[test]
@@ -1557,10 +1582,11 @@ mod tests {
     /// Re-pinned 2026-11-08: sim changed on purpose (hero confidence makes trash panic).
     /// Re-pinned 2026-11-08: foe tactics (surround/bait/flank) solid walls (player, foes, spawns) and status effects (freeze/burn/rage) and thief abilities change the run.
     /// Re-pinned 2026-11-08: integration: all lanes (wave 1): world NPCs, goblins, blasts via hurt_player, shop stock from Content.
+    /// Re-pinned 2026-11-08: cave walls (72 m rooms, noisy rock bands) and bolts hold fire with auto-fire off.
     #[test]
     fn iso_render_leaves_sim_hash_unchanged() {
         let h = run_hash(&content(), 7, 900);
-        assert_eq!(h, 0x640f_80c5_d626_5b3e, "sim hash {h:#x}");
+        assert_eq!(h, 0x4e2d_a56b_8c42_86d3, "sim hash {h:#x}");
     }
 
     #[test]

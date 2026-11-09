@@ -510,8 +510,12 @@ impl<'c> Sim<'c> {
                 self.owned[k].cd -= 1;
                 continue;
             }
+            // auto-fire off: attacks wait for the fire key (orbit blades and traits are passive)
+            if !(inp.autofire || inp.fire) && matches!(s.kind, SkillKind::Bolt | SkillKind::Pulse | SkillKind::Chain | SkillKind::Mine) {
+                continue;
+            }
             let fired = match s.kind {
-                SkillKind::Bolt => self.fire_bolts(&o, &f, inp.autofire || inp.fire),
+                SkillKind::Bolt => self.fire_bolts(&o, &f, inp.fire),
                 SkillKind::Hack => self.hack(&o, &f, inp),
                 SkillKind::Pulse => self.pulse(&o, &f),
                 SkillKind::Chain => self.chain(&o, &f),
@@ -524,16 +528,14 @@ impl<'c> Sim<'c> {
         }
     }
 
-    fn fire_bolts(&mut self, o: &Owned, f: &Eff, auto: bool) -> bool {
+    /// Bolts at the target; with nothing in range only the held fire key shoots, along the facing.
+    fn fire_bolts(&mut self, o: &Owned, f: &Eff, held: bool) -> bool {
         let s = self.c.skill(o.id);
         let (px, py) = (self.p.x, self.p.y);
-        let dir = if auto {
-            match self.aim(s.target, s.base.range) {
-                Some((x, y)) => (x - px, y - py),
-                None => return false,
-            }
-        } else {
-            (self.p.face.0 * 1000, self.p.face.1 * 1000)
+        let dir = match self.aim(s.target, s.base.range) {
+            Some((x, y)) => (x - px, y - py),
+            None if held => (self.p.face.0 * 1000, self.p.face.1 * 1000),
+            None => return false,
         };
         let (vx, vy) = toward(dir.0, dir.1, s.base.speed);
         let ttl = (s.base.range / s.base.speed.max(1)) as u16;

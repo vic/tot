@@ -1,6 +1,6 @@
 //! World chests: plain loot, boss chests (mini/super/uber), and false chests (bomb, mimic pack).
 //! Pure model + seeded placement; Sim effects live in world.rs.
-use crate::floorgen::{Arena, Tile, TILE_MM};
+use crate::floorgen::{Arena, Tile, CENTRE as HALF, PITCH, TILE_MM};
 use crate::rng::{Stream, Xo};
 use std::num::NonZeroU32;
 
@@ -51,8 +51,6 @@ pub struct WorldChest {
     pub tell: bool,
 }
 
-const PITCH: i32 = 24;
-const HALF: i32 = PITCH / 2;
 const ROOM_SPAN: u32 = 7;
 const TRIES: u32 = 32;
 const SALT: u64 = 0x4348_5354_0000_0001;

@@ -109,9 +109,8 @@ pub enum Mode {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
-    ShopPrev,
-    ShopNext,
-    ShopBuy,
+    /// buy shop offer n (0-based)
+    ShopTake(u8),
     OpenGear,
     GearPrev,
     GearNext,
@@ -158,9 +157,10 @@ impl Action {
             "rot_left" => RotLeft,
             "rot_right" => RotRight,
             "autofire" => Autofire,
-            "shop_prev" => ShopPrev,
-            "shop_next" => ShopNext,
-            "shop_buy" => ShopBuy,
+            "shop_1" => ShopTake(0),
+            "shop_2" => ShopTake(1),
+            "shop_3" => ShopTake(2),
+            "shop_4" => ShopTake(3),
             "gear" => OpenGear,
             "gear_prev" => GearPrev,
             "gear_next" => GearNext,
@@ -327,8 +327,7 @@ pub struct Ui {
     /// worn-items cursor over `Slot::ALL`; `gear_drop` is the one-shot take-off request
     pub gear_sel: usize,
     pub gear_drop: Option<Slot>,
-    /// shop cursor and offer count (set by `sync_shop`); `shop_buy` is the one-shot buy request
-    pub shop_sel: usize,
+    /// shop offer count (set by `sync_shop`); `shop_buy` is the one-shot buy request
     pub shop_len: usize,
     pub shop_buy: Option<usize>,
     /// player left the shop with esc and still stands at the service: do not reopen
@@ -364,7 +363,6 @@ impl Ui {
             tree_spent: 0,
             gear_sel: 0,
             gear_drop: None,
-            shop_sel: 0,
             shop_len: 0,
             shop_buy: None,
             shop_left: false,
@@ -412,7 +410,6 @@ impl Ui {
                 self.shop_len = n;
                 if self.mode == Mode::Play && !self.shop_left {
                     self.mode = Mode::Shop;
-                    self.shop_sel = 0;
                     self.seq.clear();
                 }
             }
@@ -457,8 +454,11 @@ impl Ui {
         }
     }
 
+    /// Binding of `keys` in the current mode. The shop is not a trap: keys it does not bind keep their play
+    /// meaning (walk, dodge, fire), so the hero walks on and the shop closes behind.
     fn bound(&self, c: &Content, keys: &[Key]) -> Option<Action> {
-        c.binds.iter().find(|b| b.mode == self.mode && b.keys == keys).map(|b| b.action)
+        let find = |m: Mode| c.binds.iter().find(|b| b.mode == m && b.keys == keys).map(|b| b.action);
+        find(self.mode).or_else(|| if self.mode == Mode::Shop { find(Mode::Play) } else { None })
     }
 
     /// CMD line editing; true if consumed.
@@ -563,9 +563,7 @@ impl Ui {
             Action::RotRight => self.heading = self.heading.right(),
             Action::Autofire => self.msg = self.set_autofire(!self.autofire),
             Action::OpenGear => self.mode = Mode::Gear,
-            Action::ShopPrev => self.shop_sel = self.shop_sel.saturating_sub(1),
-            Action::ShopNext => self.shop_sel = (self.shop_sel + 1).min(self.shop_len.saturating_sub(1)),
-            Action::ShopBuy => self.shop_buy = (self.shop_sel < self.shop_len).then_some(self.shop_sel),
+            Action::ShopTake(n) => self.shop_buy = (usize::from(n) < self.shop_len).then_some(usize::from(n)),
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
             Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(Slot::ALL.len() - 1),
             Action::GearDrop => self.gear_drop = Slot::ALL.get(self.gear_sel).copied(),
@@ -637,7 +635,7 @@ impl Ui {
         if self.mode != Mode::Play {
             self.fire = false;
         }
-        let moving = matches!(self.mode, Mode::Play | Mode::Look | Mode::Cmd) || (self.mode == Mode::Pick && !pick_pauses);
+        let moving = matches!(self.mode, Mode::Play | Mode::Look | Mode::Cmd | Mode::Shop) || (self.mode == Mode::Pick && !pick_pauses);
         let (mut x, mut y) = (0, 0);
         for (dx, dy) in self.held.iter().flatten() {
             x += dx;
@@ -739,13 +737,15 @@ mod tests {
         assert_eq!(ui.mode, Mode::Play);
         ui.sync_shop(Some(3));
         assert_eq!(ui.mode, Mode::Shop);
-        ui.key(press('j'), &c, 0);
-        ui.key(press('j'), &c, 0);
-        ui.key(press('j'), &c, 0);
-        assert_eq!(ui.shop_sel, 2, "clamped to offers");
-        ui.key(KeyEv { key: Key::Enter, kind: Kind::Press, text: None }, &c, 0);
-        assert_eq!(ui.shop_buy, Some(2));
-        assert_eq!(ui.input(true).mv, (0, 0));
+        ui.key(press('4'), &c, 0);
+        assert_eq!(ui.shop_buy, None, "NEG: offer 4 of 3 does not exist");
+        ui.key(press('2'), &c, 0);
+        assert_eq!(ui.shop_buy, Some(1), "2 buys the second offer");
+        // walking keys keep walking in a shop (no trap)
+        ui.key(press('d'), &c, 0);
+        let inp = ui.input(true);
+        assert!(inp.mv != (0, 0) && inp.buy == Some(1), "walks and buys: {inp:?}");
+        ui.key(KeyEv { key: Key::Char('d'), kind: Kind::Release, text: None }, &c, 0);
         ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
         ui.sync_shop(Some(3));
         assert_eq!(ui.mode, Mode::Play, "esc leaves while standing there");

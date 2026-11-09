@@ -82,14 +82,7 @@
 {"t":"bind","mode":"tree","keys":["down"],"action":"tree_down","label":"down"}
 {"t":"bind","mode":"tree","keys":["s"],"action":"tree_down","label":"down"}
 {"t":"bind","mode":"shop","keys":["esc"],"action":"back","label":"leave"}
-{"t":"bind","mode":"shop","keys":["enter"],"action":"shop_buy","label":"buy"}
-{"t":"bind","mode":"shop","keys":["k"],"action":"shop_prev","label":"prev"}
-{"t":"bind","mode":"shop","keys":["up"],"action":"shop_prev","label":"prev"}
-{"t":"bind","mode":"shop","keys":["w"],"action":"shop_prev","label":"prev"}
-{"t":"bind","mode":"shop","keys":["h"],"action":"shop_prev","label":"prev"}
-{"t":"bind","mode":"shop","keys":["left"],"action":"shop_prev","label":"prev"}
-{"t":"bind","mode":"shop","keys":["j"],"action":"shop_next","label":"next"}
-{"t":"bind","mode":"shop","keys":["down"],"action":"shop_next","label":"next"}
-{"t":"bind","mode":"shop","keys":["s"],"action":"shop_next","label":"next"}
-{"t":"bind","mode":"shop","keys":["l"],"action":"shop_next","label":"next"}
-{"t":"bind","mode":"shop","keys":["right"],"action":"shop_next","label":"next"}
+{"t":"bind","mode":"shop","keys":["1"],"action":"shop_1","label":"buy 1"}
+{"t":"bind","mode":"shop","keys":["2"],"action":"shop_2","label":"buy 2"}
+{"t":"bind","mode":"shop","keys":["3"],"action":"shop_3","label":"buy 3"}
+{"t":"bind","mode":"shop","keys":["4"],"action":"shop_4","label":"buy 4"}

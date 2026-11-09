@@ -1,5 +1,5 @@
 //! NPCs: pals who call for help, shopkeepers who may cheat, neutrals who pick a side. Pure model, integer only.
-use crate::floorgen::{Arena, Tile, TILE_MM};
+use crate::floorgen::{Arena, Tile, CENTRE as HALF, PITCH, TILE_MM};
 use crate::rng::{Stream, Xo};
 use std::num::NonZeroU32;
 
@@ -76,9 +76,6 @@ impl Npc {
 
 /// Rooms around the origin room that hold NPCs, per axis.
 const ROOM_SPAN: u32 = 7;
-/// Room pitch in tiles (floorgen) and the tile offset of the room centre.
-const PITCH: i32 = 24;
-const HALF: i32 = PITCH / 2;
 /// Chance an NPC is bad (traitor pal, cheating shopkeeper), permille.
 const BAD: u32 = 250;
 /// Rejection tries per NPC before it is skipped.
