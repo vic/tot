@@ -760,9 +760,10 @@ mod tests {
         assert_eq!(s.p.gold, price, "NEG: away from the counter nothing is sold");
         s.p.x += 4500;
         s.world_step();
-        let n = s.world.shops[0].len();
+        let (n, item) = (s.world.shops[0].len(), s.world.shops[0][0].item);
         s.step(&buy);
         assert_eq!((s.p.gold, s.world.shops[0].len()), (0, n - 1), "bought: purse paid, offer gone");
+        assert_eq!(s.gear.worn(c.items[usize::from(item.0)].slot), Some(item), "bought item is worn");
         s.step(&buy);
         assert_eq!(s.world.shops[0].len(), n - 1, "NEG: empty purse buys nothing");
     }

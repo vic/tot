@@ -1134,6 +1134,10 @@ pub enum Slot {
 }
 const SLOTS: [(&str, Slot); 5] = [("armor", Slot::Armor), ("ring", Slot::Ring), ("jewel", Slot::Jewel), ("weapon", Slot::Weapon), ("charm", Slot::Charm)];
 
+impl Slot {
+    pub const ALL: [Slot; 5] = [Slot::Armor, Slot::Ring, Slot::Jewel, Slot::Weapon, Slot::Charm];
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Rarity {
     Common,

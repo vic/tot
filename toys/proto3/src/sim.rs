@@ -15,6 +15,7 @@ pub use npc::Npc;
 #[cfg(test)]
 pub use npc::Placed;
 pub use world::hazard::TrapState;
+pub use world::shop::ItemId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PickChoice {
@@ -35,6 +36,8 @@ pub struct Input {
     pub pick: Option<PickChoice>,
     /// offer index to buy at the shop the hero stands at
     pub buy: Option<usize>,
+    /// take off the item in this slot
+    pub drop: Option<crate::data::Slot>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -427,6 +430,32 @@ pub fn dist2(dx: i32, dy: i32) -> i64 {
 fn dist(dx: i32, dy: i32) -> i32 {
     isqrt(dist2(dx, dy)) as i32
 }
+
+/// Worn items, one per slot (indexed by `Slot` order, so two items in one slot cannot be represented).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Gear([Option<ItemId>; 5]);
+
+impl Gear {
+    /// Wear `id` in its slot; returns the item it replaced. None if `id` is not in the catalog.
+    pub fn wear(&mut self, c: &Content, id: ItemId) -> Option<Option<ItemId>> {
+        let it = c.items.get(usize::from(id.0))?;
+        Some(self.0[it.slot as usize].replace(id))
+    }
+
+    /// Take off whatever is in `slot`.
+    pub fn drop_slot(&mut self, slot: crate::data::Slot) -> Option<ItemId> {
+        self.0[slot as usize].take()
+    }
+
+    pub fn worn(&self, slot: crate::data::Slot) -> Option<ItemId> {
+        self.0[slot as usize]
+    }
+
+    /// Sum of one stat's mods over worn items, in the stat's data units (milli-HP, mm, permille, armour points).
+    pub fn sum(&self, c: &Content, stat: crate::data::Stat) -> i64 {
+        self.0.iter().flatten().filter_map(|id| c.items.get(usize::from(id.0))).flat_map(|it| &it.mods).filter(|m| m.stat == stat).map(|m| i64::from(m.value)).sum()
+    }
+}
 /// floor(sqrt(n)), n >= 0: same value as `i64::isqrt`, faster. The f64 root lands within one of the answer
 /// (n rounds to 53 bits); the integer steps make it exact.
 pub fn isqrt(n: i64) -> i64 {
@@ -771,6 +800,8 @@ pub struct Sim<'c> {
     /// uncollected treasure (world mm); touching one = one chest pick
     pub treasures: Vec<(i32, i32)>,
     pub world: world::World,
+    /// items the hero wears (bought at shops)
+    pub gear: Gear,
     mines: Vec<Mine>,
     pub fx: Vec<Fx>,
     pub blades: Vec<(i32, i32)>,
@@ -838,6 +869,7 @@ impl<'c> Sim<'c> {
             boss_home: Vec::new(),
             treasures: Vec::with_capacity(TREASURES as usize),
             world: world::World::new(seed, &arena, NonZeroU32::MIN.saturating_add(c.hz().get() - 1)),
+            gear: Gear::default(),
             mines: Vec::with_capacity(64),
             fx: Vec::with_capacity(256),
             blades: Vec::with_capacity(64),
@@ -1178,7 +1210,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {
@@ -1584,6 +1616,36 @@ mod tests {
         eprintln!("PERF 20k: tick p50 {} us p99 {p99} us max {} us", times[50], times[99]);
         assert!(p99 <= 4000, "p99 {p99} us (p50 {} us)", times[50]);
         assert_eq!(allocated, 0);
+    }
+
+    /// One item per slot; worn mods change the hero (max HP, armour, speed); dropping takes them away.
+    #[test]
+    fn gear_one_per_slot_mods_apply_drop_removes() {
+        use crate::data::{Slot, Stat};
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let id = |k: &str| ItemId(c.items.iter().position(|it| it.key == k).unwrap() as u16);
+        let (plate, coat) = (id("hazmat_plate"), id("firewall_coat"));
+        let hp0 = s.max_hp();
+        assert_eq!(s.gear.wear(&c, plate), Some(None));
+        let plus = s.gear.sum(&c, Stat::MaxHp);
+        assert!(plus > 0 && s.gear.sum(&c, Stat::Armour) == 6, "plate: +max hp, +6 armour");
+        assert_eq!(i64::from(s.max_hp()), i64::from(hp0) + plus);
+        assert_eq!(s.gear.wear(&c, coat), Some(Some(plate)), "same slot: the coat replaces the plate");
+        assert_eq!(s.gear.wear(&c, ItemId(u16::MAX)), None, "NEG: not in the catalog");
+        // armour cuts a hit: same hit, less HP lost with the coat on
+        s.p.hp = s.max_hp();
+        let hp = s.p.hp;
+        s.hurt_player(20_000, Cause::Blast, true);
+        let lost_coat = hp - s.p.hp;
+        s.step(&Input { drop: Some(Slot::Armor), ..Input::default() });
+        assert_eq!(s.gear.worn(Slot::Armor), None, "dropped");
+        assert_eq!(s.gear.sum(&c, Stat::Armour), 0);
+        s.p.hp = s.max_hp();
+        s.p.iframes = 0;
+        let hp = s.p.hp;
+        s.hurt_player(20_000, Cause::Blast, true);
+        assert!(hp - s.p.hp > lost_coat, "without armour the same hit costs more ({} vs {lost_coat})", hp - s.p.hp);
     }
 
     /// Same value as i64::isqrt: small n, around perfect squares up to the top (where f64 rounds n), extremes.

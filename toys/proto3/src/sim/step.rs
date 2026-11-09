@@ -1,6 +1,6 @@
 //! One tick of the sim, phase by phase. Order is fixed; every phase reads/writes SoA columns.
 use super::*;
-use crate::data::{Hue, Mob, MobRole, Skill, Target};
+use crate::data::{Hue, Mob, MobRole, Skill, Stat, Target};
 
 /// Effective numbers of one owned skill after ranks, rarity and traits (design sec 11.2).
 #[derive(Clone, Copy)]
@@ -21,11 +21,15 @@ impl<'c> Sim<'c> {
         if let (Some(ch), Some(_)) = (inp.pick, self.offer) {
             self.choose(ch);
         }
-        // shortcut: the bought item is not worn yet (no gear in the sim); wire into gear with the sim gear state
+        // a bought item is worn at once in its slot (replacing what was there)
         if let (Some(o), Some(n)) = (inp.buy, self.world.open_shop)
-            && let Ok((_, left)) = self.world.buy(n, o, self.p.gold)
+            && let Ok((id, left)) = self.world.buy(n, o, self.p.gold)
         {
             self.p.gold = left;
+            self.gear.wear(self.c, id);
+        }
+        if let Some(slot) = inp.drop {
+            self.gear.drop_slot(slot);
         }
         if self.offer.is_some() && self.c.opt.pick_pauses {
             return;
@@ -85,14 +89,14 @@ impl<'c> Sim<'c> {
     fn eff(&self, o: &Owned) -> Eff {
         let s: &Skill = self.c.skill(o.id);
         let extra = i64::from(o.power.saturating_sub(1000));
-        let inc_dmg = 1000 + i64::from(s.per.dmg) * extra / 1000 + self.trait_val(SkillKind::Might);
+        let inc_dmg = 1000 + i64::from(s.per.dmg) * extra / 1000 + self.trait_val(SkillKind::Might) + self.gear.sum(self.c, Stat::Damage);
         let mut dmg = scale(s.base.dmg, inc_dmg);
         if self.mutant == Some(Mutant::Plus500(o.id)) {
             dmg *= 6;
         }
-        let haste = 1000 + i64::from(s.per.haste) * extra / 1000 + self.trait_val(SkillKind::Haste);
+        let haste = 1000 + i64::from(s.per.haste) * extra / 1000 + self.trait_val(SkillKind::Haste) + self.gear.sum(self.c, Stat::Haste);
         let cd = ((i64::from(s.base.cd) * 1000 / haste) as u16).max(3);
-        let area_inc = 1000 + i64::from(s.per.area) * extra / 1000;
+        let area_inc = 1000 + i64::from(s.per.area) * extra / 1000 + self.gear.sum(self.c, Stat::Area);
         let area = (i64::from(s.base.area) * (area_inc * 1000).isqrt() / 1000) as i32;
         let r5 = o.rank >= self.c.picks.max_rank;
         let add = |b: u8, r: u8| b.saturating_add(if r5 { r } else { 0 });
@@ -100,7 +104,7 @@ impl<'c> Sim<'c> {
     }
 
     pub fn max_hp(&self) -> i32 {
-        scale(self.c.player.hp, 1000 + self.trait_val(SkillKind::Plating))
+        (scale(self.c.player.hp, 1000 + self.trait_val(SkillKind::Plating)) + self.gear.sum(self.c, Stat::MaxHp) as i32).max(1000)
     }
 
     pub fn hijack_cap(&self) -> u16 {
@@ -127,7 +131,7 @@ impl<'c> Sim<'c> {
     /// Analytic single-target build DPS, HP/s (the D of rho = H/D, design sec 11.4).
     pub fn dps_capacity(&self) -> i64 {
         let hz = i64::from(self.c.hz().get());
-        let cc = i64::from(self.c.player.crit_chance);
+        let cc = i64::from(self.c.player.crit_chance) + self.gear.sum(self.c, Stat::Crit);
         let crit = 1000 + cc * i64::from(self.c.player.crit_bonus) / 1000;
         let mut d = 0i64;
         for o in &self.owned {
@@ -153,7 +157,8 @@ impl<'c> Sim<'c> {
         if (mx, my) != (0, 0) {
             self.p.face = (mx, my);
         }
-        let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(pd.speed, i64::from(HERO_FROZEN_SPEED)) } else { pd.speed };
+        let speed = scale(pd.speed, 1000 + self.gear.sum(self.c, Stat::Speed)).max(0);
+        let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(speed, i64::from(HERO_FROZEN_SPEED)) } else { speed };
         let step = if mx != 0 && my != 0 { scale(walk, 707) } else { walk };
         let (ax, ay) = solid::slide(&self.walls.near(&self.arena), self.p.x, self.p.y, pd.radius, mx * step, my * step);
         self.p.x += ax;
@@ -174,7 +179,7 @@ impl<'c> Sim<'c> {
         self.p.iframes = self.p.iframes.saturating_sub(1);
         self.p.dodge_cd = self.p.dodge_cd.saturating_sub(1);
         self.p.max_hp = self.max_hp();
-        let regen = i64::from(pd.regen) + mhp_per_tick(self.trait_val(SkillKind::Regen), self.c.hz().get());
+        let regen = i64::from(pd.regen) + mhp_per_tick(self.trait_val(SkillKind::Regen) + self.gear.sum(self.c, Stat::Regen), self.c.hz().get());
         self.p.hp = (self.p.hp + regen as i32).min(self.p.max_hp);
         self.p.flux = (self.p.flux + pd.flux_regen).min(pd.flux);
     }
@@ -184,7 +189,7 @@ impl<'c> Sim<'c> {
             return;
         }
         // armour: taken = D (1 - A / (A + 5 D)), D in HP (design sec 11.2, [E] UNVERIFIED formula)
-        let a = i64::from(self.c.player.armour) * 1000;
+        let a = (i64::from(self.c.player.armour) + self.gear.sum(self.c, Stat::Armour)).max(0) * 1000;
         let dd = i64::from(d);
         let taken = dd - dd * a / (a + 5 * dd);
         self.p.unhurt = 0;
@@ -421,7 +426,7 @@ impl<'c> Sim<'c> {
             (true, Tier::Boss) => 250,
             (true, _) => 500,
         };
-        let cc = self.c.player.crit_chance;
+        let cc = (i64::from(self.c.player.crit_chance) + self.gear.sum(self.c, Stat::Crit)).max(0) as u32;
         let crits = cc / 1000 + u32::from(self.rng_combat.chance(cc % 1000));
         let d = i64::from(dmg) * (1000 + i64::from(crits) * i64::from(self.c.player.crit_bonus)) / 1000 * (1000 - res) / 1000;
         let actual = d.min(i64::from(self.e.hp[i])).max(0);
@@ -1181,7 +1186,7 @@ impl<'c> Sim<'c> {
     pub(super) fn drops_step(&mut self) {
         self.thieves_steal();
         self.treasure_step();
-        let r = scale(self.c.player.pickup, 1000 + self.trait_val(SkillKind::Magnet));
+        let r = scale(self.c.player.pickup + self.gear.sum(self.c, Stat::Pickup) as i32, 1000 + self.trait_val(SkillKind::Magnet));
         let v = self.c.player.speed * 2;
         let mut i = 0;
         while i < self.drops.x.len() {

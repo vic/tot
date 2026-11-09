@@ -1,6 +1,6 @@
 //! Kitty keyboard events + modal UI (design sec 6): PLAY, PICK, LOOK, CMD; which-key on prefixes.
 //! Held directions come only from press/release (no autorepeat path, design sec 6.1).
-use crate::data::{Content, Owned, Tree};
+use crate::data::{Content, Owned, Slot, Tree};
 use crate::iso::{Heading, screen_dir};
 use crate::sim::{Cmd, Input, PickChoice};
 
@@ -324,10 +324,9 @@ pub struct Ui {
     pub tree_owned: Owned,
     pub tree_earned: u16,
     pub tree_spent: u16,
-    /// worn-items cursor and slot count (set on opening); `gear_drop` is the one-shot drop request
+    /// worn-items cursor over `Slot::ALL`; `gear_drop` is the one-shot take-off request
     pub gear_sel: usize,
-    pub gear_len: usize,
-    pub gear_drop: Option<usize>,
+    pub gear_drop: Option<Slot>,
     /// shop cursor and offer count (set by `sync_shop`); `shop_buy` is the one-shot buy request
     pub shop_sel: usize,
     pub shop_len: usize,
@@ -364,7 +363,6 @@ impl Ui {
             tree_earned: 0,
             tree_spent: 0,
             gear_sel: 0,
-            gear_len: 0,
             gear_drop: None,
             shop_sel: 0,
             shop_len: 0,
@@ -564,16 +562,13 @@ impl Ui {
             Action::RotLeft => self.heading = self.heading.left(),
             Action::RotRight => self.heading = self.heading.right(),
             Action::Autofire => self.msg = self.set_autofire(!self.autofire),
-            Action::OpenGear => {
-                self.mode = Mode::Gear;
-                self.gear_len = c.items.len();
-            }
+            Action::OpenGear => self.mode = Mode::Gear,
             Action::ShopPrev => self.shop_sel = self.shop_sel.saturating_sub(1),
             Action::ShopNext => self.shop_sel = (self.shop_sel + 1).min(self.shop_len.saturating_sub(1)),
             Action::ShopBuy => self.shop_buy = (self.shop_sel < self.shop_len).then_some(self.shop_sel),
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
-            Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(self.gear_len.saturating_sub(1)),
-            Action::GearDrop => self.gear_drop = (self.gear_sel < self.gear_len).then_some(self.gear_sel),
+            Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(Slot::ALL.len() - 1),
+            Action::GearDrop => self.gear_drop = Slot::ALL.get(self.gear_sel).copied(),
             Action::OpenTree => self.mode = Mode::Tree,
             Action::TreeMove(dc, dr) => {
                 if let Some(t) = hero_tree(c) {
@@ -656,6 +651,7 @@ impl Ui {
             fire: self.fire,
             pick: self.pick.take(),
             buy: self.shop_buy.take(),
+            drop: self.gear_drop.take(),
         }
     }
 }
@@ -795,15 +791,16 @@ mod tests {
         let mut ui = Ui::new(true);
         ui.key(press('i'), &c, 0);
         assert_eq!(ui.mode, Mode::Gear);
-        assert_eq!(ui.gear_len, c.items.len(), "opening lists the item catalog");
-        ui.gear_len = 0;
+        assert_eq!(ui.mode, Mode::Gear);
         ui.key(press('x'), &c, 0);
-        assert_eq!(ui.gear_drop, None, "empty gear: nothing to drop");
-        ui.gear_len = 2;
-        ui.key(press('j'), &c, 0);
-        ui.key(press('j'), &c, 0);
+        assert_eq!(ui.gear_drop, Some(Slot::Armor), "cursor starts on the first slot");
+        for _ in 0..9 {
+            ui.key(press('j'), &c, 0);
+        }
         ui.key(press('x'), &c, 0);
-        assert_eq!(ui.gear_drop, Some(1));
+        assert_eq!(ui.gear_drop, Some(Slot::Charm), "cursor stops on the last slot");
+        assert_eq!(ui.input(true).drop, Some(Slot::Charm), "the request reaches the sim once");
+        assert_eq!(ui.input(true).drop, None);
         ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
         assert_eq!(ui.mode, Mode::Play);
     }

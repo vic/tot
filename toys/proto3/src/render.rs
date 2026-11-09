@@ -815,7 +815,10 @@ impl Frame {
                 (title, rows.collect(), ui.tree_sel)
             }
             Mode::Gear => {
-                let rows = c.items.iter().map(|it| (format!("{} {}  {:?}  {}", it.glyph.ch(), it.name, it.slot, it.desc), pal.role(it.rarity.role())));
+                let rows = crate::data::Slot::ALL.iter().map(|&slot| match sim.gear.worn(slot).and_then(|id| c.items.get(usize::from(id.0))) {
+                    Some(it) => (format!("{slot:?}: {} {}  {}", it.glyph.ch(), it.name, it.desc), pal.role(it.rarity.role())),
+                    None => (format!("{slot:?}: -"), pal.dim),
+                });
                 ("GEAR".into(), rows.collect(), ui.gear_sel)
             }
             Mode::Shop => {
