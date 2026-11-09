@@ -13,6 +13,7 @@ impl Heading {
     pub fn right(self) -> Heading {
         Heading((self.0 + 1) % 4)
     }
+    #[cfg(test)]
     pub fn name(self) -> &'static str {
         ["N", "E", "S", "W"][usize::from(self.0)]
     }

@@ -136,34 +136,6 @@ impl Weather {
             _ => Permille::ONE,
         }
     }
-
-    /// Icon for the forecast: always-wide emoji (2 cells), one per sky.
-    pub fn icon(self) -> char {
-        match self {
-            Weather::Clear => '🌞',
-            Weather::Rain => '☔',
-            Weather::AcidRain => '🧪',
-            Weather::Snow => '⛄',
-            Weather::Heat => '🔥',
-            Weather::Wind => '💨',
-            Weather::FullMoon => '🌕',
-            Weather::BloodMoon => '🩸',
-        }
-    }
-
-    /// Name for the stats pane and the change banner.
-    pub fn name(self) -> &'static str {
-        match self {
-            Weather::Clear => "CLEAR",
-            Weather::Rain => "RAIN",
-            Weather::AcidRain => "ACID RAIN",
-            Weather::Snow => "SNOW",
-            Weather::Heat => "HEAT WAVE",
-            Weather::Wind => "WIND",
-            Weather::FullMoon => "FULL MOON",
-            Weather::BloodMoon => "BLOOD MOON",
-        }
-    }
 }
 
 /// A pillar stands within SHELTER_TILES of the point (world mm).

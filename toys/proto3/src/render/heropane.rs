@@ -22,13 +22,6 @@ pub(super) enum Tab {
 
 impl Tab {
     const ALL: [Tab; 3] = [Tab::Armor, Tab::Bags, Tab::Skills];
-    fn name(self) -> &'static str {
-        match self {
-            Tab::Armor => "ARMOR",
-            Tab::Skills => "SKILLS",
-            Tab::Bags => "BAGS",
-        }
-    }
 }
 
 /// The hero, 7 rows: each part names the slot whose item colours it (None = the body itself).
@@ -82,7 +75,7 @@ impl Frame {
                 Tab::Bags => "b",
             };
             x = self.text(top, x, key, key_fg(pal));
-            x = self.text(top, x, &format!(" {} ", each.name()), if each == tab { pal.alarm } else { pal.dim });
+            x = self.text(top, x, &format!(" {} ", sim.c.texts.get(t::TAB[each as usize])), if each == tab { pal.alarm } else { pal.dim });
             x += 1;
         }
         match tab {
@@ -116,7 +109,7 @@ impl Frame {
         let x = (l + 15) as u16;
         for (k, slot) in Slot::ALL.iter().enumerate() {
             let row = (t + k as i32 * 2) as u16;
-            self.text(row, x, &format!("{slot:?}").to_uppercase(), pal.dim);
+            self.text(row, x, c.texts.get(t::SLOT[*slot as usize]), pal.dim);
             let (name, fg) = match sim.gear.worn(*slot).and_then(|id| c.items.get(usize::from(id.0))) {
                 Some(it) => (it.name.chars().take(17).collect::<String>(), pal.role(it.rarity.role())),
                 None => ("-".to_string(), pal.dim),
@@ -139,12 +132,12 @@ impl Frame {
         let c = sim.c;
         let pal = &c.pal;
         let Some(tree): Option<&Tree> = crate::input::hero_tree(c, ui.class) else {
-            self.text((t + 1) as u16, l as u16, "no skill tree", pal.dim);
+            self.text((t + 1) as u16, l as u16, c.texts.get(t::PANE_NO_TREE), pal.dim);
             return;
         };
         // title: the tree, its class and power type, nodes learned
         let class = c.classes.get(tree.class.ix()).map_or("", |k| k.name.as_str());
-        let title: String = format!("{} · {class} · {:?} · {} learned", tree.name, tree.tag, ui.tree_owned.count()).chars().take(INNER).collect();
+        let title: String = c.texts.fill(t::TREE_TITLE, [&tree.name, class, c.texts.get(t::TAG[tree.tag as usize]), &ui.tree_owned.count().to_string()]).chars().take(INNER).collect();
         self.text(t as u16, l as u16, &title, pal.text);
         let at = |col: u8, row: u8| (l + i32::from(col) * NODE_W, t + 1 + i32::from(row) * NODE_H);
         // links first, under the nodes: down a column, or a diagonal step
@@ -176,7 +169,7 @@ impl Frame {
         let n = &tree.nodes[ui.tree_sel.min(tree.nodes.len() - 1)];
         let y = (t + 12) as u16;
         // points, cost and what it grants; clipped to the pane
-        let detail = format!("pts {} cost {} {} {:?}", ui.tree_points(), n.cost, c.skill(n.effect).name, n.tag).to_uppercase();
+        let detail = c.texts.fill(t::TREE_DETAIL, [&ui.tree_points().to_string(), &n.cost.to_string(), &c.skill(n.effect).name, c.texts.get(t::TAG[n.tag as usize])]);
         let detail: String = detail.chars().take(INNER).collect();
         self.text(y, l as u16, &detail, pal.of(c.skill(n.effect).hue));
     }
@@ -231,11 +224,11 @@ impl Frame {
                 self.text(y + 1, l as u16, &d, pal.dim);
             }
             None => {
-                self.text(y, l as u16, &format!("{} of {} slots used", sim.bag.len(), crate::sim::BAG_SLOTS), pal.dim);
+                self.text(y, l as u16, &c.texts.fill(t::BAGS_USED, [&sim.bag.len().to_string(), &crate::sim::BAG_SLOTS.to_string()]), pal.dim);
             }
         }
         // resources carried: what the blacksmith forges with
-        let x = self.text((t + 9) as u16, l as u16, "▪ ORE ", pal.text);
+        let x = self.text((t + 9) as u16, l as u16, c.texts.get(t::BAGS_ORE), pal.text);
         self.num((t + 9) as u16, x, i64::from(sim.p.ore), pal.chest);
     }
 }

@@ -107,3 +107,80 @@
 {"t":"pool","id":"cheer","lines":["HA!","GG","WOO!","EZ","LOL","YAY"]}
 {"t":"pool","id":"death_taunt","lines":["The horde sends its regards.","They are already telling the story wrong.","Your loot looks better on them.","Respawn, rematch, revenge.","Even the trash is dancing."]}
 {"t":"text","id":"look_hp","text":"hp {hp}/{max}"}
+{"t":"text","id":"tab_armor","text":"ARMOR"}
+{"t":"text","id":"tab_skills","text":"SKILLS"}
+{"t":"text","id":"tab_bags","text":"BAGS"}
+{"t":"text","id":"slot_armor","text":"ARMOR"}
+{"t":"text","id":"slot_ring","text":"RING"}
+{"t":"text","id":"slot_jewel","text":"JEWEL"}
+{"t":"text","id":"slot_weapon","text":"WEAPON"}
+{"t":"text","id":"slot_charm","text":"CHARM"}
+{"t":"text","id":"pane_no_tree","text":"no skill tree"}
+{"t":"text","id":"tree_title","text":"{tree} · {class} · {tag} · {learned} learned"}
+{"t":"text","id":"tree_detail","text":"PTS {points} COST {cost} {skill} {tag}"}
+{"t":"text","id":"bags_used","text":"{n} of {max} slots used"}
+{"t":"text","id":"bags_ore","text":"▪ ORE "}
+{"t":"text","id":"tag_magic","text":"MAGIC"}
+{"t":"text","id":"tag_melee","text":"MELEE"}
+{"t":"text","id":"tag_necro","text":"NECRO"}
+{"t":"text","id":"tag_thunder","text":"THUNDER"}
+{"t":"text","id":"tag_speed","text":"SPEED"}
+{"t":"text","id":"tag_dex","text":"DEX"}
+{"t":"text","id":"weather_clear","text":"CLEAR"}
+{"t":"text","id":"weather_rain","text":"RAIN"}
+{"t":"text","id":"weather_acid_rain","text":"ACID RAIN"}
+{"t":"text","id":"weather_snow","text":"SNOW"}
+{"t":"text","id":"weather_heat","text":"HEAT WAVE"}
+{"t":"text","id":"weather_wind","text":"WIND"}
+{"t":"text","id":"weather_full_moon","text":"FULL MOON"}
+{"t":"text","id":"weather_blood_moon","text":"BLOOD MOON"}
+{"t":"text","id":"icon_clear","text":"🌞"}
+{"t":"text","id":"icon_rain","text":"☔"}
+{"t":"text","id":"icon_acid_rain","text":"🧪"}
+{"t":"text","id":"icon_snow","text":"⛄"}
+{"t":"text","id":"icon_heat","text":"🔥"}
+{"t":"text","id":"icon_wind","text":"💨"}
+{"t":"text","id":"icon_full_moon","text":"🌕"}
+{"t":"text","id":"icon_blood_moon","text":"🩸"}
+{"t":"text","id":"banner_clear","text":"CLEAR!"}
+{"t":"text","id":"banner_rain","text":"RAIN!"}
+{"t":"text","id":"banner_acid_rain","text":"ACID RAIN!"}
+{"t":"text","id":"banner_snow","text":"SNOW!"}
+{"t":"text","id":"banner_heat","text":"HEAT WAVE!"}
+{"t":"text","id":"banner_wind","text":"WIND!"}
+{"t":"text","id":"banner_full_moon","text":"FULL MOON!"}
+{"t":"text","id":"banner_blood_moon","text":"BLOOD MOON!"}
+{"t":"text","id":"cause_contact","text":"{foe} {tier}"}
+{"t":"text","id":"cause_shot","text":"{foe} shot"}
+{"t":"text","id":"cause_boss","text":"{foe} attack"}
+{"t":"text","id":"cause_blast","text":"blast"}
+{"t":"text","id":"cause_timeout","text":"timeout"}
+{"t":"text","id":"dir_n","text":"N"}
+{"t":"text","id":"dir_e","text":"E"}
+{"t":"text","id":"dir_s","text":"S"}
+{"t":"text","id":"dir_w","text":"W"}
+{"t":"text","id":"msg_autofire_on","text":"autofire on"}
+{"t":"text","id":"msg_autofire_off","text":"autofire off (aim = facing, x = hack)"}
+{"t":"text","id":"msg_autowalk_on","text":"autowalk on"}
+{"t":"text","id":"msg_autowalk_off","text":"autowalk off"}
+{"t":"text","id":"msg_camera","text":"camera {dir}"}
+{"t":"text","id":"msg_quit","text":"quit"}
+{"t":"text","id":"msg_look","text":"look"}
+{"t":"text","id":"msg_spawn_queued","text":"spawn queued (src human)"}
+{"t":"text","id":"msg_spawn_error","text":"spawn: {error}"}
+{"t":"text","id":"msg_director","text":"director: builtin (no agent attached; MCP is FP2)"}
+{"t":"text","id":"msg_later","text":":{cmd} is FP2, not in FP1"}
+{"t":"text","id":"msg_unknown","text":"unknown :{line}  (autofire on|off, autowalk on|off, cam left|right, look, spawn, director, quit)"}
+{"t":"text","id":"msg_learned","text":"learned {node}"}
+{"t":"text","id":"msg_spend_owned","text":"cannot spend: learned already"}
+{"t":"text","id":"msg_spend_points","text":"cannot spend: needs {cost} points, have {have}"}
+{"t":"text","id":"msg_spend_locked","text":"cannot spend: learn {missing} first"}
+{"t":"text","id":"msg_no_power_up","text":"no power-up waiting"}
+{"t":"text","id":"msg_applied","text":"applied (src human)"}
+{"t":"text","id":"msg_rejected","text":"rejected: {reason}"}
+{"t":"text","id":"msg_win","text":"you win. r = new run, q = quit"}
+{"t":"text","id":"msg_dead","text":"DEAD: {cause}. r = new run, q = quit"}
+{"t":"text","id":"msg_no_browser","text":"no browser found: open {url}"}
+{"t":"text","id":"msg_opening","text":"opening {url} - thank you!"}
+{"t":"text","id":"msg_open_failed","text":"could not open {url}: {error}"}
+{"t":"text","id":"whichkey_more","text":"more"}

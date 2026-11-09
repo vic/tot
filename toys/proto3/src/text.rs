@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 86] = [
+pub const TXTS: [Spec; 163] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // upgrade picker (centred popup over the arena)
@@ -126,6 +126,89 @@ pub const TXTS: [Spec; 86] = [
     line("hint_buy", &[], "Key hints, shop: what the offer keys do."),
     line("hint_new_run", &[], "Key hints, finished run: the new run key."),
     line("hint_quit", &[], "Key hints, finished run: the quit key."),
+    // hero pane (bottom right): tabs, slots, tree, bags
+    line("tab_armor", &[], "Hero pane, top border: the worn gear tab's name (after its key)."),
+    line("tab_skills", &[], "Hero pane, top border: the skill tree tab's name."),
+    line("tab_bags", &[], "Hero pane, top border: the bags tab's name."),
+    line("slot_armor", &[], "Hero pane, gear tab: label of the armor slot (beside the hero art)."),
+    line("slot_ring", &[], "Hero pane, gear tab: label of the ring slot."),
+    line("slot_jewel", &[], "Hero pane, gear tab: label of the jewel slot."),
+    line("slot_weapon", &[], "Hero pane, gear tab: label of the weapon slot."),
+    line("slot_charm", &[], "Hero pane, gear tab: label of the charm slot."),
+    line("pane_no_tree", &[], "Hero pane, skills tab: shown when the hero class has no tree."),
+    line("tree_title", &["tree", "class", "tag", "learned"], "Hero pane, skills tab, first row: the tree's name, the class, its power tag (tag_*), nodes learned; cut to the pane width (36 chars)."),
+    line("tree_detail", &["points", "cost", "skill", "tag"], "Hero pane, skills tab, last row: points left, the cursor node's cost, the skill it grants and its tag; cut to 36 chars."),
+    line("bags_used", &["n", "max"], "Hero pane, bags tab: shown when the cursor slot is empty: slots used of the total."),
+    line("bags_ore", &[], "Hero pane, bags tab: label before the ore carried."),
+    // power tags of skills and trees
+    line("tag_magic", &[], "Name of the magic power tag (skill tree title and details)."),
+    line("tag_melee", &[], "Name of the melee power tag."),
+    line("tag_necro", &[], "Name of the necro power tag."),
+    line("tag_thunder", &[], "Name of the thunder power tag."),
+    line("tag_speed", &[], "Name of the speed power tag."),
+    line("tag_dex", &[], "Name of the dex power tag."),
+    // weather (stats panel sky row, weather banner)
+    line("weather_clear", &[], "Name of clear weather (stats panel sky row, after its icon)."),
+    line("weather_rain", &[], "Name of rain (stats panel sky row)."),
+    line("weather_acid_rain", &[], "Name of acid rain (stats panel sky row)."),
+    line("weather_snow", &[], "Name of snow (stats panel sky row)."),
+    line("weather_heat", &[], "Name of the heat wave."),
+    line("weather_wind", &[], "Name of wind (stats panel sky row)."),
+    line("weather_full_moon", &[], "Name of the full moon night."),
+    line("weather_blood_moon", &[], "Name of the blood moon night."),
+    line("icon_clear", &[], "Icon of clear weather before its name (one wide emoji)."),
+    line("icon_rain", &[], "Icon of rain (one wide emoji)."),
+    line("icon_acid_rain", &[], "Icon of acid rain (one wide emoji)."),
+    line("icon_snow", &[], "Icon of snow (one wide emoji)."),
+    line("icon_heat", &[], "Icon of the heat wave."),
+    line("icon_wind", &[], "Icon of wind (one wide emoji)."),
+    line("icon_full_moon", &[], "Icon of the full moon."),
+    line("icon_blood_moon", &[], "Icon of the blood moon."),
+    big("banner_clear", "Big banner across the arena when the weather turns clear (block font)."),
+    big("banner_rain", "Big banner when rain starts."),
+    big("banner_acid_rain", "Big banner when acid rain starts."),
+    big("banner_snow", "Big banner when snow starts."),
+    big("banner_heat", "Big banner when the heat wave starts."),
+    big("banner_wind", "Big banner when wind starts."),
+    big("banner_full_moon", "Big banner when the full moon rises."),
+    big("banner_blood_moon", "Big banner when the blood moon rises."),
+    // what killed the hero (death screen slain_by, status message)
+    line("cause_contact", &["foe", "tier"], "What killed the hero: a foe's touch, with its family name and tier (tier_*)."),
+    line("cause_shot", &["foe"], "What killed the hero: a foe's shot."),
+    line("cause_boss", &["foe"], "What killed the hero: a boss attack."),
+    line("cause_blast", &[], "What killed the hero: a blast (trap, mine)."),
+    line("cause_timeout", &[], "What ended the run: time ran out."),
+    // compass and camera
+    line("dir_n", &[], "Compass letter of north (map corner compass, camera message)."),
+    line("dir_e", &[], "Compass letter of east."),
+    line("dir_s", &[], "Compass letter of south."),
+    line("dir_w", &[], "Compass letter of west."),
+    // status message line (bottom rows, left of the key hints)
+    line("msg_autofire_on", &[], "Status message: auto-fire turned on."),
+    line("msg_autofire_off", &[], "Status message: auto-fire turned off (say how to aim and hack)."),
+    line("msg_autowalk_on", &[], "Status message: auto-walk turned on."),
+    line("msg_autowalk_off", &[], "Status message: auto-walk turned off."),
+    line("msg_camera", &["dir"], "Status message: the camera turned to face a compass direction (dir_*)."),
+    line("msg_quit", &[], "Status message: quitting."),
+    line("msg_look", &[], "Status message: look mode on."),
+    line("msg_spawn_queued", &[], "Status message: a :spawn command was queued."),
+    line("msg_spawn_error", &["error"], "Status message: a :spawn command was refused, with the reason."),
+    line("msg_director", &[], "Status message: what the :director command reports."),
+    line("msg_later", &["cmd"], "Status message: a known command that is not built yet."),
+    line("msg_unknown", &["line"], "Status message: an unknown command, with a list of the known ones."),
+    line("msg_learned", &["node"], "Status message: a skill tree node was learned."),
+    line("msg_spend_owned", &[], "Status message: the cursor node is learned already."),
+    line("msg_spend_points", &["cost", "have"], "Status message: not enough points for the cursor node."),
+    line("msg_spend_locked", &["missing"], "Status message: the cursor node needs another node first (its name)."),
+    line("msg_no_power_up", &[], "Status message: p was pressed with no power-up waiting."),
+    line("msg_applied", &[], "Status message: a typed command was applied."),
+    line("msg_rejected", &["reason"], "Status message: a typed command was refused, with the reason."),
+    line("msg_win", &[], "Status message: the run was won (keys for a new run and quit)."),
+    line("msg_dead", &["cause"], "Status message: the hero died, with what killed it (cause_*)."),
+    line("msg_no_browser", &["url"], "Status message: the sponsor link was clicked but no browser was found."),
+    line("msg_opening", &["url"], "Status message: the sponsor link is opening."),
+    line("msg_open_failed", &["url", "error"], "Status message: the browser did not start."),
+    line("whichkey_more", &[], "Which-key popup: the label of a key that opens a further group."),
 ];
 
 pub const POOLS: [Spec; 9] = [
@@ -306,6 +389,60 @@ pub mod t {
     pub const HINT_BUY: Txt<0> = Txt::named("hint_buy");
     pub const HINT_NEW_RUN: Txt<0> = Txt::named("hint_new_run");
     pub const HINT_QUIT: Txt<0> = Txt::named("hint_quit");
+    /// hero pane tabs: armor, skills, bags
+    pub const TAB: [Txt<0>; 3] = [Txt::named("tab_armor"), Txt::named("tab_skills"), Txt::named("tab_bags")];
+    /// gear slots in `Slot` order: armor, ring, jewel, weapon, charm
+    pub const SLOT: [Txt<0>; 5] = [Txt::named("slot_armor"), Txt::named("slot_ring"), Txt::named("slot_jewel"), Txt::named("slot_weapon"), Txt::named("slot_charm")];
+    pub const PANE_NO_TREE: Txt<0> = Txt::named("pane_no_tree");
+    pub const TREE_TITLE: Txt<4> = Txt::named("tree_title");
+    pub const TREE_DETAIL: Txt<4> = Txt::named("tree_detail");
+    pub const BAGS_USED: Txt<2> = Txt::named("bags_used");
+    pub const BAGS_ORE: Txt<0> = Txt::named("bags_ore");
+    /// power tags in `PowerTag` order
+    pub const TAG: [Txt<0>; 6] = [Txt::named("tag_magic"), Txt::named("tag_melee"), Txt::named("tag_necro"), Txt::named("tag_thunder"), Txt::named("tag_speed"), Txt::named("tag_dex")];
+    /// weather in `Weather` order: names, icons, banners
+    pub const WEATHER: [Txt<0>; 8] = [
+        Txt::named("weather_clear"), Txt::named("weather_rain"), Txt::named("weather_acid_rain"), Txt::named("weather_snow"),
+        Txt::named("weather_heat"), Txt::named("weather_wind"), Txt::named("weather_full_moon"), Txt::named("weather_blood_moon"),
+    ];
+    pub const ICON: [Txt<0>; 8] = [
+        Txt::named("icon_clear"), Txt::named("icon_rain"), Txt::named("icon_acid_rain"), Txt::named("icon_snow"),
+        Txt::named("icon_heat"), Txt::named("icon_wind"), Txt::named("icon_full_moon"), Txt::named("icon_blood_moon"),
+    ];
+    pub const BANNER: [Txt<0>; 8] = [
+        Txt::named("banner_clear"), Txt::named("banner_rain"), Txt::named("banner_acid_rain"), Txt::named("banner_snow"),
+        Txt::named("banner_heat"), Txt::named("banner_wind"), Txt::named("banner_full_moon"), Txt::named("banner_blood_moon"),
+    ];
+    pub const CAUSE_CONTACT: Txt<2> = Txt::named("cause_contact");
+    pub const CAUSE_SHOT: Txt<1> = Txt::named("cause_shot");
+    pub const CAUSE_BOSS: Txt<1> = Txt::named("cause_boss");
+    pub const CAUSE_BLAST: Txt<0> = Txt::named("cause_blast");
+    pub const CAUSE_TIMEOUT: Txt<0> = Txt::named("cause_timeout");
+    /// compass letters, quarter turns from north: N, E, S, W
+    pub const DIR: [Txt<0>; 4] = [Txt::named("dir_n"), Txt::named("dir_e"), Txt::named("dir_s"), Txt::named("dir_w")];
+    pub const MSG_AUTOFIRE: [Txt<0>; 2] = [Txt::named("msg_autofire_off"), Txt::named("msg_autofire_on")];
+    pub const MSG_AUTOWALK: [Txt<0>; 2] = [Txt::named("msg_autowalk_off"), Txt::named("msg_autowalk_on")];
+    pub const MSG_CAMERA: Txt<1> = Txt::named("msg_camera");
+    pub const MSG_QUIT: Txt<0> = Txt::named("msg_quit");
+    pub const MSG_LOOK: Txt<0> = Txt::named("msg_look");
+    pub const MSG_SPAWN_QUEUED: Txt<0> = Txt::named("msg_spawn_queued");
+    pub const MSG_SPAWN_ERROR: Txt<1> = Txt::named("msg_spawn_error");
+    pub const MSG_DIRECTOR: Txt<0> = Txt::named("msg_director");
+    pub const MSG_LATER: Txt<1> = Txt::named("msg_later");
+    pub const MSG_UNKNOWN: Txt<1> = Txt::named("msg_unknown");
+    pub const MSG_LEARNED: Txt<1> = Txt::named("msg_learned");
+    pub const MSG_SPEND_OWNED: Txt<0> = Txt::named("msg_spend_owned");
+    pub const MSG_SPEND_POINTS: Txt<2> = Txt::named("msg_spend_points");
+    pub const MSG_SPEND_LOCKED: Txt<1> = Txt::named("msg_spend_locked");
+    pub const MSG_NO_POWER_UP: Txt<0> = Txt::named("msg_no_power_up");
+    pub const MSG_APPLIED: Txt<0> = Txt::named("msg_applied");
+    pub const MSG_REJECTED: Txt<1> = Txt::named("msg_rejected");
+    pub const MSG_WIN: Txt<0> = Txt::named("msg_win");
+    pub const MSG_DEAD: Txt<1> = Txt::named("msg_dead");
+    pub const MSG_NO_BROWSER: Txt<1> = Txt::named("msg_no_browser");
+    pub const MSG_OPENING: Txt<1> = Txt::named("msg_opening");
+    pub const MSG_OPEN_FAILED: Txt<2> = Txt::named("msg_open_failed");
+    pub const WHICHKEY_MORE: Txt<0> = Txt::named("whichkey_more");
 
     pub const STOLE_LINES: Pool = Pool::named("thief_stole");
     pub const LEVEL_TAUNTS: Pool = Pool::named("level_taunt");

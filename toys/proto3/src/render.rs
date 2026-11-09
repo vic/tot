@@ -1272,7 +1272,7 @@ impl Frame {
                 return;
             }
             let fg = sky_fg(pal, bw);
-            let text = format!("{}!", bw.name());
+            let text = sim.c.texts.get(t::BANNER[bw as usize]).to_string();
             let left = (self.cols as usize / 2).saturating_sub(crate::bigtext::width(&text) / 2) as i32;
             self.plate(left - 2, 1, crate::bigtext::width(&text) as i32 + 4, 5, mix(fg, pal.hud_bg, 850));
             for (r, line) in crate::bigtext::rows(&text).iter().enumerate() {
@@ -1352,7 +1352,7 @@ impl Frame {
             }
         }
         let tx = &sim.c.texts;
-        let by = tx.fill(t::SLAIN_BY, [&crate::bot::cause_name(sim.c, &o)]);
+        let by = tx.fill(t::SLAIN_BY, [&cause_text(sim.c, &o)]);
         let taunt = tx.pick(t::DEATH_TAUNTS, (sim.tick as usize).wrapping_mul(31));
         for (dr, (line, fg)) in [(by.as_str(), pal.text), (taunt, pal.dim), (tx.get(t::DEATH_KEYS), pal.player)].into_iter().enumerate() {
             let w = line.chars().count() as i32;
@@ -1634,7 +1634,7 @@ impl Frame {
                 self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: if ch == '■' { chest_glow(pal, sim.tick) } else if known { pal.hud_bg } else { pal.fog } };
             }
         }
-        self.rose(pal);
+        self.rose(sim.c);
     }
     /// Waiting power-ups stack as small loot panes down the left edge under the map; `p` opens the top one.
     fn loot_panes(&mut self, sim: &Sim, ui: &Ui) {
@@ -1672,14 +1672,16 @@ impl Frame {
     /// Tiny compass in the map's top-left corner: a 3x3 plate of its own (so the map never hides it), a star in
     /// the middle and N E S W round it. It turns with the eased camera (the same rotation the map makes at rest),
     /// so a q/e turn swings it smoothly. N in the alarm colour (tot-5ah).
-    fn rose(&mut self, pal: &crate::data::Palette) {
-        let p = self.eye.p;
+    fn rose(&mut self, c: &Content) {
+        let (p, pal) = (self.eye.p, &c.pal);
         self.plate(0, 0, 3, 3, pal.hud_bg);
         let at = |(x, y): (f64, f64)| ((ROSE_C + x).round() as i32, (ROSE_C + y).round() as i32);
         self.flash_cell(ROSE_C as i32, ROSE_C as i32, Glyph::of('✦').unwrap_or(Glyph::SPACE), pal.dim);
-        for (letter, wx, wy) in COMPASS {
+        // each letter takes one cell: the first glyph of the adventure's compass word
+        for (k, (wx, wy)) in COMPASS.into_iter().enumerate() {
             let (col, row) = at(p.rot(f64::from(wx), f64::from(wy)));
-            self.flash_cell(col, row, Glyph::of(letter).unwrap_or(Glyph::SPACE), if letter == 'N' { pal.alarm } else { pal.text });
+            let letter = Glyph::text(c.texts.get(t::DIR[k])).next().unwrap_or(Glyph::SPACE);
+            self.flash_cell(col, row, letter, if k == 0 { pal.alarm } else { pal.text });
         }
     }
 
@@ -1763,9 +1765,9 @@ impl Frame {
         let fc = sim.world.forecast(sim.tick);
         let sky_fg = |w: Weather| sky_fg(pal, w);
         let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_SKY), pal.text);
-        x = self.text(r, x, &format!("{} {}", fc.now.icon(), fc.now.name()), sky_fg(fc.now));
+        x = self.text(r, x, &format!("{} {}", c.texts.get(t::ICON[fc.now as usize]), c.texts.get(t::WEATHER[fc.now as usize])), sky_fg(fc.now));
         x = self.text(r, x + 1, ">", pal.dim);
-        x = self.text(r, x + 1, &format!("{} {}", fc.next.icon(), fc.next.name()), sky_fg(fc.next));
+        x = self.text(r, x + 1, &format!("{} {}", c.texts.get(t::ICON[fc.next as usize]), c.texts.get(t::WEATHER[fc.next as usize])), sky_fg(fc.next));
         self.clock(r, x + 1, fc.ticks_to_next / c.hz().get(), pal.dim);
         r += 1;
         // powers: name in the power's type colour (same colour as the picker popup)
@@ -2381,6 +2383,22 @@ fn ring_radius(t_ms: u64) -> f64 {
     RING_R0 + (RING_R1 - RING_R0) * (t_ms.min(LEVEL_FLASH_MS) as f64) / LEVEL_FLASH_MS as f64
 }
 
+/// What ended the run, in the adventure's words (death screen, status message). A win has no cause.
+pub fn cause_text(c: &Content, o: &Outcome) -> String {
+    use crate::sim::Cause;
+    let tx = &c.texts;
+    match o {
+        Outcome::Win => String::new(),
+        Outcome::Timeout => tx.get(t::CAUSE_TIMEOUT).to_string(),
+        Outcome::Dead { cause, .. } => match cause {
+            Cause::Contact { fam, tier } => tx.fill(t::CAUSE_CONTACT, [&c.fam(*fam).name, tx.get(t::TIER[*tier as usize]).trim()]),
+            Cause::Shot { fam } => tx.fill(t::CAUSE_SHOT, [&c.fam(*fam).name]),
+            Cause::BossAttack { fam } => tx.fill(t::CAUSE_BOSS, [&c.fam(*fam).name]),
+            Cause::Blast => tx.get(t::CAUSE_BLAST).to_string(),
+        },
+    }
+}
+
 fn level_line(c: &Content, level: u16) -> String {
     c.texts.fill(t::LEVEL_LINE, [&level.to_string(), c.texts.pick(t::LEVEL_TAUNTS, usize::from(level))])
 }
@@ -2399,8 +2417,8 @@ const LOOT_PANE_W: i32 = 16;
 const POWER_ROLE: Role = Role::Unique;
 const POWER_GLOW: u32 = 700;
 const POWER_GLOW_HI: u32 = 450;
-/// Compass letters with their world direction (y grows south).
-const COMPASS: [(char, i32, i32); 4] = [('N', 0, -1), ('E', 1, 0), ('S', 0, 1), ('W', -1, 0)];
+/// Compass world directions (y grows south), in `t::DIR` order: N, E, S, W.
+const COMPASS: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
 
 /// Character kinds besides hostile foes that the stats pane counts.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2578,7 +2596,7 @@ mod tests {
         let mut f = Frame::new(&c, 120, 40);
         let n_at = |f: &mut Frame, q: f64| {
             f.eye.p = Proj::at(q);
-            f.rose(&c.pal);
+            f.rose(&c);
             let i = (0..usize::from(MAP_H) * 120).find(|&i| i % 120 < usize::from(MAP_W) && f.cells[i].ch.ch() == 'N' && f.cells[i].fg == c.pal.alarm).unwrap();
             // tiny: the whole compass on its own plate in the 3x3 top-left corner
             assert!((i % 120) < 3 && i / 120 < 3, "N in the top-left 3x3");

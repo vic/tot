@@ -5,6 +5,7 @@ use crate::director::Director;
 use crate::input::{Event, Mode, Start, Ui};
 use crate::render::{Frame, View};
 use crate::sim::{Outcome, PickChoice, Sim};
+use crate::text::t;
 use crate::tty::Tty;
 use crate::{Error, Result};
 use serde_json::json;
@@ -172,7 +173,7 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
             if let Event::Click(x, y) = e
                 && let Some(url) = frame.link_at(x, y)
             {
-                ui.msg = open_url(url);
+                ui.msg = open_url(c, url);
             }
             if let Event::Key(k) = e {
                 if ended && k.kind == crate::input::Kind::Press {
@@ -226,8 +227,8 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
             if !ended {
                 if let Some(cmd) = ui.human.take() {
                     ui.msg = match sim.command(crate::sim::Src::Human, cmd) {
-                        Ok(()) => "applied (src human)".into(),
-                        Err(e) => format!("rejected: {e:?}"),
+                        Ok(()) => c.texts.get(t::MSG_APPLIED).to_string(),
+                        Err(e) => c.texts.fill(t::MSG_REJECTED, [&format!("{e:?}")]),
                     };
                 }
                 let pick_open = ui.pick_open_ms;
@@ -268,8 +269,8 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
                     ended_at = Instant::now();
                     tel.run_end(c, &sim, run, seed, if o == Outcome::Win { "win" } else { "end" })?;
                     ui.msg = match o {
-                        Outcome::Win => "SWEEPER-9 DOWN. you win. r = new run, q = quit".into(),
-                        _ => format!("DEAD: {}. r = new run, q = quit", cause_name(c, &o)),
+                        Outcome::Win => c.texts.get(t::MSG_WIN).to_string(),
+                        _ => c.texts.fill(t::MSG_DEAD, [&crate::render::cause_text(c, &o)]),
                     };
                 }
             }
@@ -296,14 +297,14 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
 const OPENERS: [&str; 7] = ["xdg-open", "open", "firefox", "chromium", "chromium-browser", "google-chrome", "chrome"];
 
 /// Open `url` with the first opener found in PATH, detached (no shell, output discarded). Returns the status line.
-fn open_url(url: &str) -> String {
+fn open_url(c: &Content, url: &str) -> String {
     let Some(bin) = opener(&std::env::var_os("PATH").unwrap_or_default()) else {
-        return format!("no browser found: open {url}");
+        return c.texts.fill(t::MSG_NO_BROWSER, [url]);
     };
     let null = std::process::Stdio::null;
     match std::process::Command::new(&bin).arg(url).stdin(null()).stdout(null()).stderr(null()).spawn() {
-        Ok(_) => format!("opening {url} - thank you!"),
-        Err(e) => format!("could not open {url}: {e}"),
+        Ok(_) => c.texts.fill(t::MSG_OPENING, [url]),
+        Err(e) => c.texts.fill(t::MSG_OPEN_FAILED, [url, &e.to_string()]),
     }
 }
 

@@ -1,6 +1,7 @@
 //! Kitty keyboard events + modal UI (design sec 6): PLAY, PICK, LOOK, CMD; which-key on prefixes.
 //! Held directions come only from press/release (no autorepeat path, design sec 6.1).
-use crate::data::{ClassId, Content, Owned, Slot, Tree};
+use crate::data::{ClassId, Content, Owned, Slot, SpendErr, Tree};
+use crate::text::{Txt, t};
 use crate::iso::{Heading, screen_dir};
 use crate::sim::{BAG_SLOTS, BagAct, Cmd, Input, PickChoice};
 /// Bag grid columns (BAG_SLOTS / BAG_COLS rows).
@@ -583,49 +584,52 @@ impl Ui {
 
     fn run_cmd(&mut self, line: &str, c: &Content) {
         let words: Vec<&str> = line.split_whitespace().collect();
+        let tx = &c.texts;
+        let camera = |h: Heading| tx.fill(t::MSG_CAMERA, [tx.get(t::DIR[usize::from(h.quarter())])]);
         self.msg = match words.as_slice() {
-            ["autofire", "on"] => self.set_autofire(true),
-            ["autofire", "off"] => self.set_autofire(false),
-            ["autofire"] => self.set_autofire(!self.choice().1),
-            ["autowalk", "on"] => self.set_autowalk(true),
-            ["autowalk", "off"] => self.set_autowalk(false),
-            ["autowalk"] => self.set_autowalk(!self.choice().0),
+            ["autofire", "on"] => tx.get(self.set_autofire(true)).into(),
+            ["autofire", "off"] => tx.get(self.set_autofire(false)).into(),
+            ["autofire"] => tx.get(self.set_autofire(!self.choice().1)).into(),
+            ["autowalk", "on"] => tx.get(self.set_autowalk(true)).into(),
+            ["autowalk", "off"] => tx.get(self.set_autowalk(false)).into(),
+            ["autowalk"] => tx.get(self.set_autowalk(!self.choice().0)).into(),
             ["cam", "left"] | ["cam"] => {
                 self.heading = self.heading.left();
-                format!("camera {}", self.heading.name())
+                camera(self.heading)
             }
             ["cam", "right"] => {
                 self.heading = self.heading.right();
-                format!("camera {}", self.heading.name())
+                camera(self.heading)
             }
             ["q" | "quit"] => {
                 self.quit = true;
-                "quit".into()
+                tx.get(t::MSG_QUIT).into()
             }
             ["look"] => {
                 self.mode = Mode::Look;
-                "look".into()
+                tx.get(t::MSG_LOOK).into()
             }
             ["spawn", rest @ ..] => match crate::director::parse_spawn(c, rest) {
                 Ok(cmd) => {
                     self.human = Some(cmd);
-                    "spawn queued (src human)".into()
+                    tx.get(t::MSG_SPAWN_QUEUED).into()
                 }
-                Err(e) => format!("spawn: {e}"),
+                Err(e) => tx.fill(t::MSG_SPAWN_ERROR, [&e.to_string()]),
             },
-            ["director"] => "director: builtin (no agent attached; MCP is FP2)".into(),
-            [w @ ("prompt" | "edit" | "save" | "vcs" | "keep" | "feed"), ..] => format!(":{w} is FP2, not in FP1"),
-            _ => format!("unknown :{line}  (autofire on|off, autowalk on|off, cam left|right, look, spawn, director, quit)"),
+            ["director"] => tx.get(t::MSG_DIRECTOR).into(),
+            [w @ ("prompt" | "edit" | "save" | "vcs" | "keep" | "feed"), ..] => tx.fill(t::MSG_LATER, [w]),
+            _ => tx.fill(t::MSG_UNKNOWN, [line]),
         };
     }
 
-    fn set_autofire(&mut self, on: bool) -> String {
+    /// Returns the status message for the new state.
+    fn set_autofire(&mut self, on: bool) -> Txt<0> {
         // inside a popup both stay forced on; the toggle sets the choice restored when it closes
         match self.popup_saved.as_mut() {
             Some(s) => s.1 = on,
             None => self.autofire = on,
         }
-        format!("autofire {}", if on { "on" } else { "off (aim = facing, x = hack)" })
+        t::MSG_AUTOFIRE[usize::from(on)]
     }
 
     /// Points still to spend (one per level after the first).
@@ -634,16 +638,19 @@ impl Ui {
     }
 
     fn spend(&mut self, c: &Content) -> String {
-        let Some(t) = hero_tree(c, self.class) else { return "no skill tree".into() };
-        match t.spend(self.tree_owned, self.tree_points(), self.tree_sel) {
+        let tx = &c.texts;
+        let Some(tree) = hero_tree(c, self.class) else { return tx.get(t::PANE_NO_TREE).into() };
+        match tree.spend(self.tree_owned, self.tree_points(), self.tree_sel) {
             Ok((owned, left)) => {
                 self.tree_spent = self.tree_earned.saturating_sub(left);
                 self.tree_owned = owned;
                 // the node grants its skill in the sim (a new hotkey with its special, or a rank up)
-                self.learn = Some(t.nodes[self.tree_sel].effect);
-                format!("learned {}", t.nodes[self.tree_sel].name)
+                self.learn = Some(tree.nodes[self.tree_sel].effect);
+                tx.fill(t::MSG_LEARNED, [&tree.nodes[self.tree_sel].name])
             }
-            Err(e) => format!("cannot spend: {e:?}"),
+            Err(SpendErr::NoSuchNode | SpendErr::AlreadyOwned) => tx.get(t::MSG_SPEND_OWNED).into(),
+            Err(SpendErr::NeedPoints { cost, have }) => tx.fill(t::MSG_SPEND_POINTS, [&cost.to_string(), &have.to_string()]),
+            Err(SpendErr::Locked { missing }) => tx.fill(t::MSG_SPEND_LOCKED, [tree.nodes.get(usize::from(missing)).map_or("", |n| n.name.as_str())]),
         }
     }
 
@@ -652,12 +659,12 @@ impl Ui {
         self.popup_saved.unwrap_or((self.autowalk, self.autofire))
     }
 
-    fn set_autowalk(&mut self, on: bool) -> String {
+    fn set_autowalk(&mut self, on: bool) -> Txt<0> {
         match self.popup_saved.as_mut() {
             Some(s) => s.0 = on,
             None => self.autowalk = on,
         }
-        format!("autowalk {}", if on { "on" } else { "off" })
+        t::MSG_AUTOWALK[usize::from(on)]
     }
 
     fn act(&mut self, a: Action, c: &Content) {
@@ -671,7 +678,10 @@ impl Ui {
             Action::Hack => self.hack = true,
             Action::RotLeft => self.heading = self.heading.left(),
             Action::RotRight => self.heading = self.heading.right(),
-            Action::Autofire => self.msg = self.set_autofire(!self.choice().1),
+            Action::Autofire => {
+                let m = self.set_autofire(!self.choice().1);
+                self.msg = c.texts.get(m).into();
+            }
             Action::OpenGear => self.mode = Mode::Gear,
             Action::OpenBags => self.mode = Mode::Bags,
             Action::BagMove(dc, dr) => {
@@ -693,7 +703,10 @@ impl Ui {
                 }
             }
             Action::TreeSpend => self.msg = self.spend(c),
-            Action::Autowalk => self.msg = self.set_autowalk(!self.choice().0),
+            Action::Autowalk => {
+                let m = self.set_autowalk(!self.choice().0);
+                self.msg = c.texts.get(m).into();
+            }
             Action::Fire => self.fire = true,
             Action::Special(n) => self.special = Some(n),
             Action::OpenPick if self.offer_waiting => {
@@ -701,7 +714,7 @@ impl Ui {
                 self.sel = 0;
                 self.pick_open_ms = self.now_ms;
             }
-            Action::OpenPick => self.msg = "no power-up waiting".into(),
+            Action::OpenPick => self.msg = c.texts.get(t::MSG_NO_POWER_UP).into(),
             Action::Look => {
                 self.mode = Mode::Look;
                 self.cursor = (0, 0);
@@ -765,7 +778,7 @@ impl Ui {
                 b.label.clone()
             } else {
                 let g = c.groups.iter().find(|g| g.mode == self.mode && g.keys.len() == n + 1 && g.keys.starts_with(&self.seq) && g.keys[n] == k);
-                format!("+{}", g.map_or("more", |g| g.label.as_str()))
+                format!("+{}", g.map_or(c.texts.get(t::WHICHKEY_MORE), |g| g.label.as_str()))
             };
             items.push((name, label));
         }
@@ -989,15 +1002,16 @@ mod tests {
         assert_eq!(node(ui.tree_sel).1, 1, "down to the next row");
         // NEG: no points yet
         ui.key(enter, &c, 0);
-        assert!(ui.msg.contains("NeedPoints") || ui.msg.contains("Locked"), "{}", ui.msg);
+        assert!(ui.msg.contains("cannot spend"), "{}", ui.msg);
         assert!(!ui.tree_owned.has(ui.tree_sel));
         ui.tree_earned = 1;
         ui.key(enter, &c, 0);
-        assert!(ui.msg.contains("Locked"), "NEG: requirement unmet: {}", ui.msg);
+        assert!(ui.msg.contains("first"), "NEG: requirement unmet: {}", ui.msg);
         assert_eq!(ui.tree_points(), 1, "a refused spend keeps the point");
         ui.key(press('k'), &c, 0);
         ui.key(enter, &c, 0);
         assert!(ui.tree_owned.has(ui.tree_sel) && ui.tree_points() == 0, "{}", ui.msg);
+        assert_eq!(ui.msg, c.texts.fill(t::MSG_LEARNED, [&hero_tree(&c, ClassId::FIRST).unwrap().nodes[ui.tree_sel].name]), "says what was learned");
         ui.key(KeyEv { key: Key::Esc, kind: Kind::Press, text: None }, &c, 0);
         assert_eq!(ui.mode, Mode::Play);
     }
