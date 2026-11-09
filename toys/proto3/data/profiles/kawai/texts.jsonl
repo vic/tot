@@ -76,9 +76,6 @@
 {"t":"text","id":"look_hostile","text":"grumpy"}
 {"t":"text","id":"look_purger","text":"TATTLETALE: bonks your friends"}
 {"t":"text","id":"look_ate","text":"SNACKED: ate {n} treats"}
-{"t":"text","id":"support_label","text":"support tot <3"}
-{"t":"text","id":"support_plea","text":"if you liked this game, help me make it better and sponsor me"}
-{"t":"text","id":"support_url","text":"https://github.com/sponsors/vic"}
 {"t":"text","id":"level_line","text":"LEVEL {level}! {taunt}"}
 {"t":"text","id":"mode_end","text":"-- END --"}
 {"t":"text","id":"mode_play","text":"-- PLAY ◇ --"}

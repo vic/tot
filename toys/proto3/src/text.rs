@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 178] = [
+pub const TXTS: [Spec; 175] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -117,10 +117,6 @@ pub const TXTS: [Spec; 178] = [
     line("look_hostile", &[], "Look tooltip: a foe fighting the hero."),
     line("look_purger", &[], "Look tooltip: warning on a foe that kills hijacked foes."),
     line("look_ate", &["n"], "Look tooltip: how much loot the foe ate (then a foe_quip line)."),
-    // sponsor button (bottom right) and death screen plea
-    line("support_label", &[], "Sponsor button, bottom right of the status line (clickable)."),
-    line("support_plea", &[], "Death screen: the line asking players to sponsor the game."),
-    line("support_url", &[], "Link the sponsor button opens (a URL, not shown as text)."),
     // level up line (under the hero)
     line("level_line", &["level", "taunt"], "Under the hero on level up: the level reached and a level_taunt line."),
     // status line mode tags (bottom left)
@@ -454,9 +450,6 @@ pub mod t {
     pub const LOOK_HOSTILE: Txt<0> = Txt::named("look_hostile");
     pub const LOOK_PURGER: Txt<0> = Txt::named("look_purger");
     pub const LOOK_ATE: Txt<1> = Txt::named("look_ate");
-    pub const SUPPORT_LABEL: Txt<0> = Txt::named("support_label");
-    pub const SUPPORT_PLEA: Txt<0> = Txt::named("support_plea");
-    pub const SUPPORT_URL: Txt<0> = Txt::named("support_url");
     pub const LEVEL_LINE: Txt<2> = Txt::named("level_line");
     pub const MODE_END: Txt<0> = Txt::named("mode_end");
     pub const MODE_PLAY: Txt<0> = Txt::named("mode_play");

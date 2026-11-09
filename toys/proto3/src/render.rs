@@ -1355,7 +1355,7 @@ impl Frame {
         let top = i32::from(self.play_rows()) / 4;
         // a dark red plate behind banner and text, so it reads over anything
         let plate = mix(pal.alarm, pal.hud_bg, 820);
-        let plea = sim.c.texts.get(t::SUPPORT_PLEA);
+        let plea = SUPPORT_PLEA;
         let (pw, ph) = (plea.chars().count() as i32 + 8, banner.len() as i32 + 9);
         let pl = i32::from(self.cols) / 2 - pw / 2;
         self.plate(pl, top - 1, pw, ph, plate);
@@ -1380,15 +1380,15 @@ impl Frame {
         let w = plea.chars().count() as i32 + 4;
         let (col, row) = (i32::from(self.cols) / 2 - w / 2, top + banner.len() as i32 + 6);
         if col >= 0 && row >= 1 && row + 1 < i32::from(self.play_rows()) {
-            self.button((row as u16, col as u16), plea, (pal.chest, pal.bg), true, sim.c.texts.get(t::SUPPORT_URL));
+            self.button((row as u16, col as u16), plea, (pal.chest, pal.bg), true, SUPPORT_URL);
         }
     }
 
     /// The sponsor button at the right end of `row` (every screen has it); returns its first column.
     pub(crate) fn sponsor(&mut self, c: &Content, row: u16) -> u16 {
-        let label = c.texts.get(t::SUPPORT_LABEL);
+        let label = SUPPORT_LABEL;
         let sx = self.cols.saturating_sub(label.chars().count() as u16 + 5);
-        self.button((row, sx), label, (c.pal.alarm, c.pal.bg), false, c.texts.get(t::SUPPORT_URL));
+        self.button((row, sx), label, (c.pal.alarm, c.pal.bg), false, SUPPORT_URL);
         sx
     }
 
@@ -2386,6 +2386,11 @@ const STORY_CPS: usize = 40;
 const LOOT_GLOW: u32 = 650;
 const LOOT_BEAM_MAX: i32 = 4;
 const LOOT_PULSE: u32 = 10;
+/// The sponsor button and the death screen plea: fixed by the game, the same in every adventure (an adventure
+/// cannot set them: they are not in the text schema). The button opens the author's sponsor page.
+const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
+const SUPPORT_LABEL: &str = "support tot <3";
+const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and sponsor me";
 /// Sponsor link: always at the bottom right, and pleaded on the death screen.
 /// Sky: tint strength (permille) per weather, one streak cell in SKY_STREAK_1_IN, fall speed, banner life.
 const SKY_ACID_CAST: u32 = 90;
@@ -2521,7 +2526,7 @@ struct Hint {
 /// Movement, specials, cards and shop offers fold into one hint each; digit runs read "1-8". In a shop the play
 /// One key row when the widest mode (play) fits whole with the mode tag and the sponsor button, else two.
 fn strip_rows(c: &Content, cols: u16) -> u16 {
-    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + c.texts.get(t::SUPPORT_LABEL).chars().count() + 6;
+    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + SUPPORT_LABEL.chars().count() + 6;
     if need <= usize::from(cols) { 1 } else { STRIP }
 }
 
@@ -3384,7 +3389,7 @@ mod tests {
         let c = Content::load_profile(d, None).unwrap();
         let advs = crate::data::profiles(d).unwrap();
         let agents = crate::peer::tests::sessions_named(&["a"]);
-        let (label, url) = (c.texts.get(t::SUPPORT_LABEL), c.texts.get(t::SUPPORT_URL));
+        let (label, url) = (SUPPORT_LABEL, SUPPORT_URL);
         let mut ui = Ui::new(true);
         ui.mode = Mode::Start;
         let n = advs.len();
@@ -3504,10 +3509,30 @@ mod tests {
     }
 
     #[test]
+    fn the_sponsor_button_is_fixed_and_no_adventure_can_change_it() {
+        let at = texts().iter().position(|t| t.contains("\"pick_adventure\"")).unwrap();
+        let mut ts = texts();
+        ts[at].push_str("{\"t\":\"text\",\"id\":\"support_url\",\"text\":\"https://example.com/not-vic\"}\n");
+        let e = Content::parse(&ts).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("no text 'support_url'"), "an adventure that sets the sponsor link is refused: {e}");
+        assert!(Content::parse(&texts()).is_ok(), "control: the shipped texts load");
+        // every adventure draws the same button with the same link
+        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        for p in crate::data::profiles(d).unwrap() {
+            let c = Content::load_profile(d, Some(&p.id)).unwrap();
+            let ui = Ui::new(true);
+            let mut f = Frame::new(&c, 120, 40);
+            f.compose(&Sim::new(&c, 7, None), &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            assert!(f.plain().lines().last().unwrap_or_default().contains(SUPPORT_LABEL), "{}: the button", p.id);
+            assert!((0..120).any(|x| f.link_at(x, 39) == Some("https://github.com/sponsors/vic")), "{}: vic's sponsor page", p.id);
+        }
+    }
+
+    #[test]
     fn support_link_bottom_right_and_on_death() {
         use crate::sim::{Cause, Outcome};
         let c = Content::parse(&texts()).unwrap();
-        let (label, url) = (c.texts.get(t::SUPPORT_LABEL), c.texts.get(t::SUPPORT_URL));
+        let (label, url) = (SUPPORT_LABEL, SUPPORT_URL);
         let mut sim = Sim::new(&c, 7, None);
         let ui = Ui::new(true);
         let mut f = Frame::new(&c, 120, 40);
@@ -3519,14 +3544,14 @@ mod tests {
         f.emit();
         let out = String::from_utf8_lossy(&f.out).to_string();
         assert!(out.contains(&format!("\x1b]8;id=tot;{url}")), "OSC 8 link emitted");
-        assert_eq!(out.matches("\x1b]8;;").count(), c.texts.get(t::SUPPORT_LABEL).chars().count() + 4, "each link cell closed");
+        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count() + 4, "each link cell closed");
         let fam = c.fam_ids().next().unwrap();
         sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
-        assert!(f.plain().contains(c.texts.get(t::SUPPORT_PLEA)), "death plea");
+        assert!(f.plain().contains(SUPPORT_PLEA), "death plea");
         assert_eq!(f.links.len(), 2, "button + plea are both links");
         let (fx, _) = (0..120u16).map(|x| (x, f.link_at(x, 39))).find(|p| p.1.is_some()).unwrap();
-        assert_eq!(f.link_at(fx, 39), Some(c.texts.get(t::SUPPORT_URL)), "click on the bottom button hits the link");
+        assert_eq!(f.link_at(fx, 39), Some(SUPPORT_URL), "click on the bottom button hits the link");
         assert_eq!(f.link_at(0, 0), None, "NEG: elsewhere no link");
     }
 
@@ -3544,7 +3569,7 @@ mod tests {
         for h in hints(&c, &ui) {
             assert!(last.contains(&format!("{} {}", h.keys, h.label)), "{} missing: {last}", h.label);
         }
-        assert!(last.contains("-- PLAY --") && last.contains(c.texts.get(t::SUPPORT_LABEL)));
+        assert!(last.contains("-- PLAY --") && last.contains(SUPPORT_LABEL));
     }
 
     #[test]
