@@ -1,0 +1,189 @@
+{"t":"head","schema_version":1,"file":"texts"}
+{"t":"art","id":"title","rows":["████████╗            ████████╗","╚══██╔══╝            ╚══██╔══╝","   ██║     ██████╗      ██║   ","   ██║    ██╔═══██╗     ██║   ","   ██║    ██║   ██║     ██║   ","   ██║    ╚██████╔╝     ██║   ","   ╚═╝     ╚═════╝      ╚═╝   "]}
+{"t":"text","id":"pick_adventure","text":"CHOOSE YOUR ADVENTURE"}
+{"t":"text","id":"pick_class","text":"CHOOSE YOUR CLASS"}
+{"t":"bark","id":"low_hp","shout":"HELP!","lines":["Cleric! ...anyone?","I am fine. Totally fine.","Is that my blood? It is.","Tell my familiar I tried.","I see a light. Is it a death save?","Running is a strategy, right?"]}
+{"t":"bark","id":"hurt","shout":"OW!","lines":["Ow. Rude.","That is coming out of your pay!","My good tunic!","Hey! I was walking here!","That one I felt in my soul.","Not the face!","I bruise like a peach!"]}
+{"t":"bark","id":"reloading","shout":"HUH?","lines":["Still reloading!","Patience, I am not a vending machine.","Give it a second!"]}
+{"t":"bark","id":"passive","shout":"HUH?","lines":["That one works on its own.","Passive. Like me on Mondays.","No button for that, friend."]}
+{"t":"bark","id":"no_target","shout":"HUH?","lines":["Nothing to hit!","Save it for a crowd.","Who am I aiming at, the air?"]}
+{"t":"bark","id":"empty","shout":"HUH?","lines":["Nothing in that pocket.","Empty slot. Go find loot!","That hand is empty."]}
+{"t":"bark","id":"level","shout":"LEVEL UP!","lines":["I feel... SPICY.","Patch notes: me, buffed.","Level up! Mom would be proud.","More power. Less sense.","New level, same bad decisions.","I can feel my build coming together!","Ding! Level up!"]}
+{"t":"bark","id":"streak","shout":"HA HA!","lines":["Combo! Do I get a sticker?","Bits everywhere. Not cleaning that.","Ha! Next!","Is that all you have got?","Five! Count them! Five!","Someone call their manager.","I am the horde now."]}
+{"t":"bark","id":"special","shout":"BOOM!","lines":["Special delivery!","Ka-BOOM.","Say hello to my reload timer!","Behold! ...ok, behold faster."]}
+{"t":"bark","id":"frozen","shout":"BRR!","lines":["B-b-brr!","Who left the door open?","C-can't feel my t-toes."]}
+{"t":"bark","id":"hungry","shout":"FOOD!","lines":["My stomach is louder than the boss.","Is that a sandwich? Please be a sandwich.","Hero needs food, badly.","I could eat a mimic. Wait."]}
+{"t":"bark","id":"gold","shout":"SHINY!","lines":["Shiny!","Cha-ching.","+10 gp.","Mine. All mine.","Coin! My one true love.","The merchant will hear about this."]}
+{"t":"text","id":"pick_title","text":"LEVEL UP  choose before "}
+{"t":"text","id":"pick_none","text":"(empty)"}
+{"t":"text","id":"pick_cursor","text":"> "}
+{"t":"text","id":"pick_new","text":"NEW"}
+{"t":"text","id":"pick_rank","text":"rank"}
+{"t":"text","id":"rarity_common","text":"common"}
+{"t":"text","id":"rarity_rare","text":"RARE"}
+{"t":"text","id":"rarity_epic","text":"EPIC"}
+{"t":"text","id":"rarity_legend","text":"LEGEND"}
+{"t":"text","id":"shop_title","text":"MERCHANT  gp {gold}   1-4 buy{forge}"}
+{"t":"text","id":"shop_forge","text":"   5 forge ({ore} of {need} ore)"}
+{"t":"text","id":"shop_row","text":"{key} {glyph} {name}  {price} gp"}
+{"t":"text","id":"special_passive","text":"passive"}
+{"t":"text","id":"special_empty","text":"empty"}
+{"t":"text","id":"death_keys","text":"r new run   q quit"}
+{"t":"text","id":"slain_by","text":"slain by {killer}"}
+{"t":"text","id":"hero_slayer","text":"{foe} ROLLED A NAT 20"}
+{"t":"text","id":"pal_help","text":"HELP!"}
+{"t":"text","id":"roar_quote","text":"\"{word}\""}
+{"t":"text","id":"thief_stole","text":"{line} +{power}"}
+{"t":"text","id":"thief_learned","text":"learned {ability}!"}
+{"t":"text","id":"ability_fast","text":"Dash"}
+{"t":"text","id":"ability_rage","text":"Rage"}
+{"t":"text","id":"ability_shot","text":"Ranged"}
+{"t":"text","id":"power_up","text":" ✦ FEAT"}
+{"t":"text","id":"power_more","text":"+{n} more"}
+{"t":"text","id":"clock_day","text":"🌞 "}
+{"t":"text","id":"clock_night","text":"🌙 "}
+{"t":"text","id":"panel_next","text":"NEXT "}
+{"t":"text","id":"panel_no_boss","text":"NO BOSS LEFT"}
+{"t":"text","id":"panel_flux","text":"XP "}
+{"t":"text","id":"panel_kills","text":"KILLS "}
+{"t":"text","id":"panel_hijack","text":"CHARMED "}
+{"t":"text","id":"panel_nerve","text":"MORALE "}
+{"t":"text","id":"panel_panic","text":"FRIGHT "}
+{"t":"text","id":"panel_gold","text":"GP "}
+{"t":"text","id":"panel_pals","text":"NPCS "}
+{"t":"text","id":"panel_food","text":"RATIONS "}
+{"t":"text","id":"panel_sky","text":"SKY "}
+{"t":"text","id":"panel_powers","text":"SPELLS"}
+{"t":"text","id":"panel_foes","text":"MONSTERS  "}
+{"t":"text","id":"panel_net","text":"NET "}
+{"t":"text","id":"panel_cast","text":"CAST"}
+{"t":"text","id":"cast_hero","text":"HERO hp"}
+{"t":"text","id":"cast_ally","text":"CHARMED allies"}
+{"t":"text","id":"cast_panic","text":"FRIGHTENED foes"}
+{"t":"text","id":"cast_thief","text":"LOOTING rogues"}
+{"t":"text","id":"tier_trash","text":" minion"}
+{"t":"text","id":"tier_elite","text":" VETERAN"}
+{"t":"text","id":"tier_champion","text":" CHAMPION"}
+{"t":"text","id":"tier_boss","text":" LEGENDARY"}
+{"t":"text","id":"hue_kin","text":"SLASH"}
+{"t":"text","id":"hue_therm","text":"FIRE"}
+{"t":"text","id":"hue_emp","text":"COLD"}
+{"t":"text","id":"hue_code","text":"PSYCHIC"}
+{"t":"text","id":"story","text":"◆ DM SAYS"}
+{"t":"text","id":"look_help","text":"LOOK: move cursor with h j k l, esc back. nothing under cursor"}
+{"t":"text","id":"look_glitch","text":"charm "}
+{"t":"text","id":"look_hijacked","text":"CHARMED (yours)"}
+{"t":"text","id":"look_hostile","text":"hostile"}
+{"t":"text","id":"look_purger","text":"DISPELLER: kills your charmed"}
+{"t":"text","id":"look_ate","text":"LOOTED: took {n} items"}
+{"t":"text","id":"support_label","text":"support tot <3"}
+{"t":"text","id":"support_plea","text":"if you liked this game, help me make it better and sponsor me"}
+{"t":"text","id":"support_url","text":"https://github.com/sponsors/vic"}
+{"t":"text","id":"level_line","text":"LEVEL {level}. {taunt}"}
+{"t":"text","id":"mode_end","text":"-- END --"}
+{"t":"text","id":"mode_play","text":"-- PLAY --"}
+{"t":"text","id":"mode_pick","text":"-- PICK --"}
+{"t":"text","id":"mode_look","text":"-- LOOK --"}
+{"t":"text","id":"mode_cmd","text":"-- CMD --"}
+{"t":"text","id":"mode_tree","text":"-- TREE --"}
+{"t":"text","id":"mode_gear","text":"-- GEAR --"}
+{"t":"text","id":"mode_shop","text":"-- SHOP --"}
+{"t":"text","id":"mode_bags","text":"-- BAGS --"}
+{"t":"text","id":"mode_start","text":"-- START --"}
+{"t":"text","id":"hint_move","text":"move"}
+{"t":"text","id":"hint_turn","text":"turn"}
+{"t":"text","id":"hint_special","text":"special"}
+{"t":"text","id":"hint_take","text":"take"}
+{"t":"text","id":"hint_buy","text":"buy"}
+{"t":"text","id":"hint_new_run","text":"new run"}
+{"t":"text","id":"hint_quit","text":"quit"}
+{"t":"pool","id":"thief_stole","lines":["MY LOOT!","sleight of hand!","+1 item","I level up"]}
+{"t":"pool","id":"level_taunt","lines":["they should roll for it.","roll more monsters.","still conscious.","you call that an encounter?"]}
+{"t":"pool","id":"roar_champion","lines":["OI!","MINE!","BONK?","ROLL ME","ADVENTURER"]}
+{"t":"pool","id":"roar_mini","lines":["GRR!","SQUEAK!","BEHOLD","BOO!","SMALL SIZED"]}
+{"t":"pool","id":"roar_super","lines":["KNEEL!","FEAR ME","OBEY!","TPK!","BOW!"]}
+{"t":"pool","id":"roar_uber","lines":["YOUR BUILD IS NOT OPTIMAL","I EAT PARTIES FOR BREAKFAST","THIS IS MY LAIR","ROLL A NEW CHARACTER"]}
+{"t":"pool","id":"foe_quip","lines":["it rolled well.","it leveled up.","it loots like you do. worse.","you gave it advantage.","it is wearing your +1 sword."]}
+{"t":"pool","id":"cheer","lines":["HA!","GG","WOO!","NAT20","CRIT","YAY"]}
+{"t":"pool","id":"death_taunt","lines":["The dungeon master sends regards.","The bard is already embellishing.","Your loot is on their sheet now.","Roll a new character.","Even the kobolds are dancing."]}
+{"t":"text","id":"look_hp","text":"hp {hp}/{max}"}
+{"t":"text","id":"tab_armor","text":"ARMOR"}
+{"t":"text","id":"tab_skills","text":"SKILLS"}
+{"t":"text","id":"tab_bags","text":"BAGS"}
+{"t":"text","id":"slot_armor","text":"ARMOR"}
+{"t":"text","id":"slot_ring","text":"RING"}
+{"t":"text","id":"slot_jewel","text":"JEWEL"}
+{"t":"text","id":"slot_weapon","text":"WEAPON"}
+{"t":"text","id":"slot_charm","text":"CHARM"}
+{"t":"text","id":"pane_no_tree","text":"no skill tree"}
+{"t":"text","id":"tree_title","text":"{tree} · {class} · {tag} · {learned} learned"}
+{"t":"text","id":"tree_detail","text":"PTS {points} COST {cost} {skill} {tag}"}
+{"t":"text","id":"bags_used","text":"{n} of {max} slots used"}
+{"t":"text","id":"bags_ore","text":"▪ ORE "}
+{"t":"text","id":"tag_magic","text":"MAGIC"}
+{"t":"text","id":"tag_melee","text":"MELEE"}
+{"t":"text","id":"tag_necro","text":"NECRO"}
+{"t":"text","id":"tag_thunder","text":"THUNDER"}
+{"t":"text","id":"tag_speed","text":"SPEED"}
+{"t":"text","id":"tag_dex","text":"DEX"}
+{"t":"text","id":"weather_clear","text":"CLEAR"}
+{"t":"text","id":"weather_rain","text":"RAIN"}
+{"t":"text","id":"weather_acid_rain","text":"ACID RAIN"}
+{"t":"text","id":"weather_snow","text":"SNOW"}
+{"t":"text","id":"weather_heat","text":"HEAT WAVE"}
+{"t":"text","id":"weather_wind","text":"WIND"}
+{"t":"text","id":"weather_full_moon","text":"FULL MOON"}
+{"t":"text","id":"weather_blood_moon","text":"BLOOD MOON"}
+{"t":"text","id":"icon_clear","text":"🌞"}
+{"t":"text","id":"icon_rain","text":"☔"}
+{"t":"text","id":"icon_acid_rain","text":"🧪"}
+{"t":"text","id":"icon_snow","text":"⛄"}
+{"t":"text","id":"icon_heat","text":"🔥"}
+{"t":"text","id":"icon_wind","text":"💨"}
+{"t":"text","id":"icon_full_moon","text":"🌕"}
+{"t":"text","id":"icon_blood_moon","text":"🩸"}
+{"t":"text","id":"banner_clear","text":"CLEAR!"}
+{"t":"text","id":"banner_rain","text":"RAIN!"}
+{"t":"text","id":"banner_acid_rain","text":"ACID RAIN!"}
+{"t":"text","id":"banner_snow","text":"SNOW!"}
+{"t":"text","id":"banner_heat","text":"HEAT WAVE!"}
+{"t":"text","id":"banner_wind","text":"WIND!"}
+{"t":"text","id":"banner_full_moon","text":"FULL MOON!"}
+{"t":"text","id":"banner_blood_moon","text":"BLOOD MOON!"}
+{"t":"text","id":"cause_contact","text":"{foe} {tier}"}
+{"t":"text","id":"cause_shot","text":"{foe} shot"}
+{"t":"text","id":"cause_boss","text":"{foe} attack"}
+{"t":"text","id":"cause_blast","text":"blast"}
+{"t":"text","id":"cause_timeout","text":"timeout"}
+{"t":"text","id":"dir_n","text":"N"}
+{"t":"text","id":"dir_e","text":"E"}
+{"t":"text","id":"dir_s","text":"S"}
+{"t":"text","id":"dir_w","text":"W"}
+{"t":"text","id":"msg_autofire_on","text":"autofire on"}
+{"t":"text","id":"msg_autofire_off","text":"autofire off (aim = facing, x = hack)"}
+{"t":"text","id":"msg_autowalk_on","text":"autowalk on"}
+{"t":"text","id":"msg_autowalk_off","text":"autowalk off"}
+{"t":"text","id":"msg_camera","text":"camera {dir}"}
+{"t":"text","id":"msg_quit","text":"quit"}
+{"t":"text","id":"msg_look","text":"look"}
+{"t":"text","id":"msg_spawn_queued","text":"spawn queued (src human)"}
+{"t":"text","id":"msg_spawn_error","text":"spawn: {error}"}
+{"t":"text","id":"msg_director","text":"director: builtin (no agent attached; MCP is FP2)"}
+{"t":"text","id":"msg_later","text":":{cmd} is FP2, not in FP1"}
+{"t":"text","id":"msg_unknown","text":"unknown :{line}  (autofire on|off, autowalk on|off, cam left|right, look, spawn, director, quit)"}
+{"t":"text","id":"msg_learned","text":"learned {node}"}
+{"t":"text","id":"msg_spend_owned","text":"cannot spend: learned already"}
+{"t":"text","id":"msg_spend_points","text":"cannot spend: needs {cost} points, have {have}"}
+{"t":"text","id":"msg_spend_locked","text":"cannot spend: learn {missing} first"}
+{"t":"text","id":"msg_no_power_up","text":"no power-up waiting"}
+{"t":"text","id":"msg_applied","text":"applied (src human)"}
+{"t":"text","id":"msg_rejected","text":"rejected: {reason}"}
+{"t":"text","id":"msg_win","text":"you win. r = new run, q = quit"}
+{"t":"text","id":"msg_dead","text":"DEAD: {cause}. r = new run, q = quit"}
+{"t":"text","id":"msg_no_browser","text":"no browser found: open {url}"}
+{"t":"text","id":"msg_opening","text":"opening {url} - thank you!"}
+{"t":"text","id":"msg_open_failed","text":"could not open {url}: {error}"}
+{"t":"text","id":"whichkey_more","text":"more"}
+{"t":"text","id":"panel_hp","text":"HP "}
+{"t":"text","id":"panel_lv","text":"LV "}
+{"t":"text","id":"panel_to_go","text":" to go"}

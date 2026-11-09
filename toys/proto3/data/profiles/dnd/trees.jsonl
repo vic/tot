@@ -1,0 +1,39 @@
+{"t":"head","schema_version":1,"file":"trees"}
+{"t":"class","id":"gravekeeper","name":"WIZARD","desc":"Reads the old books. Staff, spellbook and a stubborn familiar."}
+{"t":"class","id":"witchhunter","name":"PALADIN","desc":"Sworn to an oath. Longsword, shield and divine smite."}
+{"t":"tree","id":"packet","name":"EVOCATION","class":"gravekeeper","tag":"magic"}
+{"t":"node","tree":"packet","id":"packet0","name":"CANTRIP","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"packet","id":"packet1","name":"FIREBALL","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}
+{"t":"node","tree":"packet","id":"packet2","name":"SCORCHING RAY","effect":"chain","cost":1,"tag":"thunder","requires":["packet0"],"col":2,"row":1}
+{"t":"node","tree":"packet","id":"packet3","name":"WEB","effect":"pulse","cost":2,"tag":"thunder","requires":["packet1","packet2"],"col":1,"row":2}
+{"t":"node","tree":"packet","id":"packet4","name":"ARCHMAGE","effect":"bolt","cost":3,"requires":["packet3"],"col":1,"row":3}
+{"t":"tree","id":"daemon","name":"NECROMANCY","class":"gravekeeper","tag":"necro"}
+{"t":"node","tree":"daemon","id":"daemon0","name":"ANIMATE DEAD","effect":"orbit","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"daemon","id":"daemon1","name":"CREATE UNDEAD","effect":"hack","cost":1,"requires":["daemon0"],"col":0,"row":1}
+{"t":"node","tree":"daemon","id":"daemon2","name":"GLYPH TRAP","effect":"mine","cost":1,"requires":["daemon0"],"col":2,"row":1}
+{"t":"node","tree":"daemon","id":"daemon3","name":"DANSE MACABRE","effect":"hack","cost":2,"requires":["daemon1","daemon2"],"col":1,"row":2}
+{"t":"node","tree":"daemon","id":"daemon4","name":"CLONE","effect":"orbit","cost":3,"requires":["daemon3"],"col":1,"row":3}
+{"t":"tree","id":"clock","name":"HASTE","class":"gravekeeper","tag":"speed"}
+{"t":"node","tree":"clock","id":"clock0","name":"ACTION SURGE","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"clock","id":"clock1","name":"LONGSTRIDER","effect":"haste","cost":1,"requires":["clock0"],"col":0,"row":1}
+{"t":"node","tree":"clock","id":"clock2","name":"MAGE HAND","effect":"magnet","cost":1,"tag":"dex","requires":["clock0"],"col":2,"row":1}
+{"t":"node","tree":"clock","id":"clock3","name":"HEROISM","effect":"regen","cost":2,"requires":["clock1","clock2"],"col":1,"row":2}
+{"t":"node","tree":"clock","id":"clock4","name":"DASH","effect":"haste","cost":3,"requires":["clock3"],"col":1,"row":3}
+{"t":"tree","id":"mop","name":"FIGHTING STYLE","class":"witchhunter","tag":"melee"}
+{"t":"node","tree":"mop","id":"mop0","name":"DUELING","effect":"might","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"mop","id":"mop1","name":"DEFENSE","effect":"plating","cost":1,"requires":["mop0"],"col":0,"row":1}
+{"t":"node","tree":"mop","id":"mop2","name":"WHIRLWIND ATTACK","effect":"orbit","cost":1,"requires":["mop0"],"col":2,"row":1}
+{"t":"node","tree":"mop","id":"mop3","name":"GREAT WEAPON","effect":"might","cost":2,"requires":["mop1","mop2"],"col":1,"row":2}
+{"t":"node","tree":"mop","id":"mop4","name":"DIVINE SMITE","effect":"plating","cost":3,"requires":["mop3"],"col":1,"row":3}
+{"t":"tree","id":"arc","name":"STORM SORCERY","class":"witchhunter","tag":"thunder"}
+{"t":"node","tree":"arc","id":"arc0","name":"SHOCKING GRASP","effect":"chain","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"arc","id":"arc1","name":"CALL LIGHTNING","effect":"pulse","cost":1,"requires":["arc0"],"col":0,"row":1}
+{"t":"node","tree":"arc","id":"arc2","name":"SPARK","effect":"bolt","cost":1,"requires":["arc0"],"col":2,"row":1}
+{"t":"node","tree":"arc","id":"arc3","name":"STORM FRONT","effect":"chain","cost":2,"requires":["arc1","arc2"],"col":1,"row":2}
+{"t":"node","tree":"arc","id":"arc4","name":"WILD MAGIC","effect":"pulse","cost":3,"requires":["arc3"],"col":1,"row":3}
+{"t":"tree","id":"slip","name":"CUNNING ACTION","class":"witchhunter","tag":"dex"}
+{"t":"node","tree":"slip","id":"slip0","name":"DISENGAGE","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"slip","id":"slip1","name":"SLEIGHT OF HAND","effect":"magnet","cost":1,"requires":["slip0"],"col":0,"row":1}
+{"t":"node","tree":"slip","id":"slip2","name":"CALTROPS","effect":"mine","cost":1,"requires":["slip0"],"col":2,"row":1}
+{"t":"node","tree":"slip","id":"slip3","name":"HEALERS KIT","effect":"regen","cost":2,"requires":["slip1","slip2"],"col":1,"row":2}
+{"t":"node","tree":"slip","id":"slip4","name":"SNEAK ATTACK","effect":"haste","cost":3,"requires":["slip3"],"col":1,"row":3}

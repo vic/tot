@@ -1,0 +1,2 @@
+{"t":"head","schema_version":1,"file":"palette"}
+{"t":"palette","scheme":"earthsong","bg":"#121418","fog":"#24282e","floor":"#3a3f47","player":"#e8e4dc","ring":"#4a6a8a","alarm":"#e2582a","text":"#d8d4cc","dim":"#7a7f88","xp":"#c0c8d4","chest":"#e8c25a","hud_bg":"#0c0e12","kin":"#9aa8b8","therm":"#e2582a","emp":"#6ab0d8","code":"#8a6ac8","floor_glyphs":".,:;·`","density_glyphs":"▪▓█","face_glyphs":"▓█▒","shadow_glyph":"▁","body_glyph":"┃"}

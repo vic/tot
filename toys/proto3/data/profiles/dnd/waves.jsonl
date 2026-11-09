@@ -1,0 +1,30 @@
+{"t":"head","schema_version":1,"file":"waves"}
+{"t":"narrate","at_s":0,"text":"ROLL INITIATIVE: the party enters the dungeon."}
+{"t":"cadence","tier":"elite","from_s":30,"every_s":20}
+{"t":"cadence","tier":"champion","from_s":60,"every_s":45}
+{"t":"horde","at_s":210,"pattern":"ring","n":24,"family":"ghoul"}
+{"t":"horde","at_s":390,"pattern":"wall","n":30,"family":"ghoul"}
+{"t":"narrate","at_s":440,"text":"A COLD WIND: the LICH steps out of its crypt."}
+{"t":"boss","at_s":450,"family":"abbot","final":false}
+{"t":"horde","at_s":570,"pattern":"spiral","n":36,"family":"imp"}
+{"t":"horde","at_s":750,"pattern":"ring","n":40,"family":"ghoul"}
+{"t":"thin","at_s":870,"mult":0.5}
+{"t":"narrate","at_s":890,"text":"THE RED DRAGON wakes. the hoard trembles."}
+{"t":"boss","at_s":900,"family":"hollow_king","final":true}
+{"t":"cadence","tier":"miniboss","from_s":120,"every_s":75}
+{"t":"miniboss","family":"gatekeeper","attacks":[{"shape":{"band":{"half_m":1.0}},"lead_s":0.8,"dmg":0.08,"every_s":5.0},{"shape":{"circle":{"r_m":2.5}},"lead_s":0.8,"dmg":0.08,"every_s":7.0}]}
+{"t":"miniboss","family":"brood_mother","attacks":[{"spawn":"rat","n":6,"lead_s":0.8,"every_s":9}]}
+{"t":"miniboss","family":"storm_priest","attacks":[{"shape":{"fan":{"n":3,"r_m":1.2,"spread_m":3}},"lead_s":0.6,"dmg":0.08,"every_s":3.0},{"shape":{"cross":{"half_m":0.9}},"lead_s":0.8,"dmg":0.1,"every_s":6.0}]}
+{"t":"narrate","at_s":12,"text":"the torch gutters. the dungeon master smiles."}
+{"t":"narrate","at_s":35,"text":"gold pieces lie in the rubble. roll for loot."}
+{"t":"narrate","at_s":65,"text":"goblins argue over a map. the dungeon wakes."}
+{"t":"narrate","at_s":100,"text":"acolytes chant in the dark. they rolled a natural 20."}
+{"t":"narrate","at_s":150,"text":"a sign reads: BEWARE OF OWLBEAR."}
+{"t":"narrate","at_s":205,"text":"NEW ROUND: the doors open. roll for initiative."}
+{"t":"narrate","at_s":300,"text":"skeletons stand at the gate. perception check."}
+{"t":"narrate","at_s":385,"text":"NEW ROUND: more crawl out of the pit trap."}
+{"t":"narrate","at_s":520,"text":"the lich is silent. its phylactery hums."}
+{"t":"narrate","at_s":565,"text":"NEW ROUND: giant rats pour from the sewer."}
+{"t":"narrate","at_s":680,"text":"you level up. you are not a first-level adventurer anymore."}
+{"t":"narrate","at_s":745,"text":"FINAL ROUND: the whole encounter table at once."}
+{"t":"narrate","at_s":820,"text":"the dice stop rolling. something with legendary actions arrives."}

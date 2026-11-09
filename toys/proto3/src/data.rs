@@ -2825,7 +2825,7 @@ pub mod tests {
     fn every_installed_profile_loads_and_default_is_the_base_data() {
         let d = data_dir();
         let ps = profiles(&d).unwrap();
-        assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyberpunk", "hellish", "kawai"]);
+        assert_eq!(ps.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["cyberpunk", "dnd", "hellish", "kawai", "moriah"]);
         let base = Content::load_profile(&d, None).unwrap();
         let cyber = Content::load_profile(&d, Some("cyberpunk")).unwrap();
         let names = |c: &Content| c.fams.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
@@ -2845,14 +2845,14 @@ pub mod tests {
         let d = data_dir();
         for bad in ["nope", "../data", "", "Dark-Fantasy"] {
             let e = Content::load_profile(&d, Some(bad)).err().map(|e| e.to_string()).unwrap_or_default();
-            assert!(e.contains(&format!("--profile '{bad}' is not installed; available: cyberpunk hellish kawai")), "{e}");
+            assert!(e.contains(&format!("--profile '{bad}' is not installed; available: cyberpunk dnd hellish kawai moriah")), "{e}");
         }
     }
 
     #[test]
     fn every_profile_tells_its_story_from_minute_one_without_overlap() {
         let d = data_dir();
-        for p in ["cyberpunk", "hellish", "kawai"] {
+        for p in ["cyberpunk", "dnd", "hellish", "kawai", "moriah"] {
             let c = Content::load_profile(&d, Some(p)).unwrap();
             let at: Vec<u32> = c.waves.iter().filter_map(|w| if let WaveEv::Narrate { at, .. } = w { Some(*at) } else { None }).collect();
             let minute = c.hz().ticks(60.0);

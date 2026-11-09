@@ -1,0 +1,30 @@
+{"t":"head","schema_version":1,"file":"waves"}
+{"t":"narrate","at_s":0,"text":"THE DOORS OPEN: you step into the dark halls."}
+{"t":"cadence","tier":"elite","from_s":30,"every_s":20}
+{"t":"cadence","tier":"champion","from_s":60,"every_s":45}
+{"t":"horde","at_s":210,"pattern":"ring","n":24,"family":"ghoul"}
+{"t":"horde","at_s":390,"pattern":"wall","n":30,"family":"ghoul"}
+{"t":"narrate","at_s":440,"text":"DRUMS IN THE DEEP: the DEEP WARDEN comes."}
+{"t":"boss","at_s":450,"family":"abbot","final":false}
+{"t":"horde","at_s":570,"pattern":"spiral","n":36,"family":"imp"}
+{"t":"horde","at_s":750,"pattern":"ring","n":40,"family":"ghoul"}
+{"t":"thin","at_s":870,"mult":0.5}
+{"t":"narrate","at_s":890,"text":"THE FLAME OF THE DEEP rises. the bridge shakes."}
+{"t":"boss","at_s":900,"family":"hollow_king","final":true}
+{"t":"cadence","tier":"miniboss","from_s":120,"every_s":75}
+{"t":"miniboss","family":"gatekeeper","attacks":[{"shape":{"band":{"half_m":1.0}},"lead_s":0.8,"dmg":0.08,"every_s":5.0},{"shape":{"circle":{"r_m":2.5}},"lead_s":0.8,"dmg":0.08,"every_s":7.0}]}
+{"t":"miniboss","family":"brood_mother","attacks":[{"spawn":"rat","n":6,"lead_s":0.8,"every_s":9}]}
+{"t":"miniboss","family":"storm_priest","attacks":[{"shape":{"fan":{"n":3,"r_m":1.2,"spread_m":3}},"lead_s":0.6,"dmg":0.08,"every_s":3.0},{"shape":{"cross":{"half_m":0.9}},"lead_s":0.8,"dmg":0.1,"every_s":6.0}]}
+{"t":"narrate","at_s":12,"text":"the lamp gutters. the halls remember every miner."}
+{"t":"narrate","at_s":35,"text":"coin and ore lie in the dust. the dead miners left them."}
+{"t":"narrate","at_s":65,"text":"goblins gnaw the pillars. the deep wakes."}
+{"t":"narrate","at_s":100,"text":"chanters sing in the shafts. they know your name."}
+{"t":"narrate","at_s":150,"text":"a rune reads: DO NOT WAKE THE TROLLS."}
+{"t":"narrate","at_s":205,"text":"DRUMS: the shafts open. brace yourself."}
+{"t":"narrate","at_s":300,"text":"dead dwarves stand at the gate. what do they guard?"}
+{"t":"narrate","at_s":385,"text":"DRUMS: more climb out of the deep well."}
+{"t":"narrate","at_s":520,"text":"the warden is silent. its eyes follow your lamp."}
+{"t":"narrate","at_s":565,"text":"DRUMS: bats pour from the shaft in a spiral."}
+{"t":"narrate","at_s":680,"text":"your grip is steady. the deep has made you hard."}
+{"t":"narrate","at_s":745,"text":"THE LAST DRUM: the whole deep comes at once."}
+{"t":"narrate","at_s":820,"text":"the drums stop. something of shadow and flame walks the bridge."}

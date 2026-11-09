@@ -1,0 +1,39 @@
+{"t":"head","schema_version":1,"file":"trees"}
+{"t":"class","id":"gravekeeper","name":"RUNE KEEPER","desc":"Reads the runes on the walls. Lamp, chisel and the old tongue."}
+{"t":"class","id":"witchhunter","name":"AXE WARDEN","desc":"Holds the bridge. Axe, shield and a stubborn beard."}
+{"t":"tree","id":"packet","name":"RUNECRAFT","class":"gravekeeper","tag":"magic"}
+{"t":"node","tree":"packet","id":"packet0","name":"FIRST RUNE","effect":"bolt","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"packet","id":"packet1","name":"BLAST RUNE","effect":"bolt","cost":1,"requires":["packet0"],"col":0,"row":1}
+{"t":"node","tree":"packet","id":"packet2","name":"TWIN RUNES","effect":"chain","cost":1,"tag":"thunder","requires":["packet0"],"col":2,"row":1}
+{"t":"node","tree":"packet","id":"packet3","name":"RUNE WEB","effect":"pulse","cost":2,"tag":"thunder","requires":["packet1","packet2"],"col":1,"row":2}
+{"t":"node","tree":"packet","id":"packet4","name":"RUNE MASTER","effect":"bolt","cost":3,"requires":["packet3"],"col":1,"row":3}
+{"t":"tree","id":"daemon","name":"THE ANCESTORS","class":"gravekeeper","tag":"necro"}
+{"t":"node","tree":"daemon","id":"daemon0","name":"CALL ANCESTOR","effect":"orbit","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"daemon","id":"daemon1","name":"OATHSWORN","effect":"hack","cost":1,"requires":["daemon0"],"col":0,"row":1}
+{"t":"node","tree":"daemon","id":"daemon2","name":"TRAP RUNE","effect":"mine","cost":1,"requires":["daemon0"],"col":2,"row":1}
+{"t":"node","tree":"daemon","id":"daemon3","name":"HALL SONG","effect":"hack","cost":2,"requires":["daemon1","daemon2"],"col":1,"row":2}
+{"t":"node","tree":"daemon","id":"daemon4","name":"ANCESTOR STONE","effect":"orbit","cost":3,"requires":["daemon3"],"col":1,"row":3}
+{"t":"tree","id":"clock","name":"DEEP MARCH","class":"gravekeeper","tag":"speed"}
+{"t":"node","tree":"clock","id":"clock0","name":"SECOND BREATH","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"clock","id":"clock1","name":"SURE FOOT","effect":"haste","cost":1,"requires":["clock0"],"col":0,"row":1}
+{"t":"node","tree":"clock","id":"clock2","name":"MINERS EYE","effect":"magnet","cost":1,"tag":"dex","requires":["clock0"],"col":2,"row":1}
+{"t":"node","tree":"clock","id":"clock3","name":"ALE RITE","effect":"regen","cost":2,"requires":["clock1","clock2"],"col":1,"row":2}
+{"t":"node","tree":"clock","id":"clock4","name":"DEEP RUN","effect":"haste","cost":3,"requires":["clock3"],"col":1,"row":3}
+{"t":"tree","id":"mop","name":"AXE FORM","class":"witchhunter","tag":"melee"}
+{"t":"node","tree":"mop","id":"mop0","name":"IRON GRIP","effect":"might","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"mop","id":"mop1","name":"SHIELD WALL","effect":"plating","cost":1,"requires":["mop0"],"col":0,"row":1}
+{"t":"node","tree":"mop","id":"mop2","name":"WHIRLING AXE","effect":"orbit","cost":1,"requires":["mop0"],"col":2,"row":1}
+{"t":"node","tree":"mop","id":"mop3","name":"CLEAVE","effect":"might","cost":2,"requires":["mop1","mop2"],"col":1,"row":2}
+{"t":"node","tree":"mop","id":"mop4","name":"FORGE FIRE","effect":"plating","cost":3,"requires":["mop3"],"col":1,"row":3}
+{"t":"tree","id":"arc","name":"FORGE CALLING","class":"witchhunter","tag":"thunder"}
+{"t":"node","tree":"arc","id":"arc0","name":"FORGE TOUCH","effect":"chain","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"arc","id":"arc1","name":"BELLOWS","effect":"pulse","cost":1,"requires":["arc0"],"col":0,"row":1}
+{"t":"node","tree":"arc","id":"arc2","name":"EMBER","effect":"bolt","cost":1,"requires":["arc0"],"col":2,"row":1}
+{"t":"node","tree":"arc","id":"arc3","name":"FIRESTORM","effect":"chain","cost":2,"requires":["arc1","arc2"],"col":1,"row":2}
+{"t":"node","tree":"arc","id":"arc4","name":"MITHRIL VEIN","effect":"pulse","cost":3,"requires":["arc3"],"col":1,"row":3}
+{"t":"tree","id":"slip","name":"STONE STEP","class":"witchhunter","tag":"dex"}
+{"t":"node","tree":"slip","id":"slip0","name":"SOFT BOOTS","effect":"haste","cost":1,"requires":[],"col":1,"row":0}
+{"t":"node","tree":"slip","id":"slip1","name":"PROSPECT","effect":"magnet","cost":1,"requires":["slip0"],"col":0,"row":1}
+{"t":"node","tree":"slip","id":"slip2","name":"ROCKFALL","effect":"mine","cost":1,"requires":["slip0"],"col":2,"row":1}
+{"t":"node","tree":"slip","id":"slip3","name":"POULTICE","effect":"regen","cost":2,"requires":["slip1","slip2"],"col":1,"row":2}
+{"t":"node","tree":"slip","id":"slip4","name":"SHADOW AXE","effect":"haste","cost":3,"requires":["slip3"],"col":1,"row":3}

@@ -1,0 +1,15 @@
+{"t":"head","schema_version":1,"file":"items"}
+{"t":"item","id":"mesh_vest","name":"MINERS JERKIN","slot":"armor","rarity":"common","glyph":"[","mods":[{"stat":"armour","value":3}],"desc":"Leather and wool. It has crawled through every tunnel."}
+{"t":"item","id":"hazmat_plate","name":"DWARVEN PLATE","slot":"armor","rarity":"rare","glyph":"[","mods":[{"stat":"armour","value":6},{"stat":"max_hp","value":40}],"desc":"Forged under the mountain. It rings when struck."}
+{"t":"item","id":"firewall_coat","name":"MITHRIL COAT","slot":"armor","rarity":"epic","glyph":"[","mods":[{"stat":"armour","value":9},{"stat":"max_hp","value":80},{"stat":"regen","value":1.0}],"desc":"Light as cloth, hard as dragon scale."}
+{"t":"item","id":"loop_band","name":"IRON RING","slot":"ring","rarity":"common","glyph":"o","mods":[{"stat":"haste","value":0.05}],"desc":"A miners ring. It keeps your pace."}
+{"t":"item","id":"signal_ring","name":"FORGE SIGNET","slot":"ring","rarity":"rare","glyph":"o","mods":[{"stat":"crit","value":0.05},{"stat":"damage","value":0.08}],"desc":"Forge fire sleeps in the stone. Every blow bites harder."}
+{"t":"item","id":"overflow_loop","name":"ENDLESS KNOT","slot":"ring","rarity":"legendary","glyph":"o","mods":[{"stat":"haste","value":0.15},{"stat":"damage","value":0.15},{"stat":"crit","value":0.08}],"desc":"A dwarven knot with no end. You do not tire."}
+{"t":"item","id":"lint_chip","name":"LODESTONE","slot":"jewel","rarity":"common","glyph":"*","mods":[{"stat":"pickup","value":1.0}],"desc":"Pulls loose ore and coin to your hand."}
+{"t":"item","id":"prism_core","name":"STAR CRYSTAL","slot":"jewel","rarity":"rare","glyph":"*","mods":[{"stat":"area","value":0.12},{"stat":"pickup","value":1.5}],"desc":"A crystal from the deep. Splits a rune into a fan."}
+{"t":"item","id":"kernel_gem","name":"HEART OF THE MOUNTAIN","slot":"jewel","rarity":"unique","glyph":"*","mods":[{"stat":"damage","value":0.25},{"stat":"speed","value":0.05}],"desc":"The gem the halls were dug for."}
+{"t":"item","id":"push_broom","name":"MINERS PICK","slot":"weapon","rarity":"common","glyph":"/","mods":[{"stat":"damage","value":0.06}],"desc":"Dull for stone, sharp enough for orcs."}
+{"t":"item","id":"arc_wand","name":"RUNE STAFF","slot":"weapon","rarity":"epic","glyph":"/","mods":[{"stat":"damage","value":0.2},{"stat":"area","value":0.1},{"stat":"haste","value":0.08}],"desc":"Iron staff cut with runes that glow in the dark."}
+{"t":"item","id":"lucky_fuse","name":"LUCKY NUGGET","slot":"charm","rarity":"common","glyph":"+","mods":[{"stat":"speed","value":0.03}],"desc":"The first gold you ever dug. Still lucky."}
+{"t":"item","id":"ghost_tag","name":"FELT BOOTS","slot":"charm","rarity":"rare","glyph":"+","mods":[{"stat":"speed","value":0.06},{"stat":"regen","value":0.5}],"desc":"Soft felt over iron soles. The deep does not hear you."}
+{"t":"item","id":"null_idol","name":"DRUM STONE","slot":"charm","rarity":"unique","glyph":"+","mods":[{"stat":"max_hp","value":120},{"stat":"armour","value":4},{"stat":"regen","value":2.0},{"stat":"speed","value":0.04}],"desc":"It hums when drums beat in the deep."}

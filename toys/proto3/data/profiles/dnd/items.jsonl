@@ -1,0 +1,15 @@
+{"t":"head","schema_version":1,"file":"items"}
+{"t":"item","id":"mesh_vest","name":"LEATHER ARMOR","slot":"armor","rarity":"common","glyph":"[","mods":[{"stat":"armour","value":3}],"desc":"AC 11. Light, quiet, and it smells of the road."}
+{"t":"item","id":"hazmat_plate","name":"CHAIN MAIL","slot":"armor","rarity":"rare","glyph":"[","mods":[{"stat":"armour","value":6},{"stat":"max_hp","value":40}],"desc":"AC 16. Heavy, loud, and it has saved you twice."}
+{"t":"item","id":"firewall_coat","name":"MITHRAL SHIRT","slot":"armor","rarity":"epic","glyph":"[","mods":[{"stat":"armour","value":9},{"stat":"max_hp","value":80},{"stat":"regen","value":1.0}],"desc":"Silver-light rings. Grants no disadvantage on stealth."}
+{"t":"item","id":"loop_band","name":"RING OF HASTE","slot":"ring","rarity":"common","glyph":"o","mods":[{"stat":"haste","value":0.05}],"desc":"A copper band. Your turns come sooner."}
+{"t":"item","id":"signal_ring","name":"RING OF FIRE","slot":"ring","rarity":"rare","glyph":"o","mods":[{"stat":"crit","value":0.05},{"stat":"damage","value":0.08}],"desc":"A ruby that holds a fire elemental's spark."}
+{"t":"item","id":"overflow_loop","name":"RING OF REGENERATION","slot":"ring","rarity":"legendary","glyph":"o","mods":[{"stat":"haste","value":0.15},{"stat":"damage","value":0.15},{"stat":"crit","value":0.08}],"desc":"Regain hit points, slowly, forever."}
+{"t":"item","id":"lint_chip","name":"LODESTONE","slot":"jewel","rarity":"common","glyph":"*","mods":[{"stat":"pickup","value":1.0}],"desc":"Pulls loose coin to your hand."}
+{"t":"item","id":"prism_core","name":"IOUN STONE","slot":"jewel","rarity":"rare","glyph":"*","mods":[{"stat":"area","value":0.12},{"stat":"pickup","value":1.5}],"desc":"Orbits your head and widens your spells."}
+{"t":"item","id":"kernel_gem","name":"DRAGON HEART","slot":"jewel","rarity":"unique","glyph":"*","mods":[{"stat":"damage","value":0.25},{"stat":"speed","value":0.05}],"desc":"Still warm. Legendary, requires attunement."}
+{"t":"item","id":"push_broom","name":"LONGSWORD","slot":"weapon","rarity":"common","glyph":"/","mods":[{"stat":"damage","value":0.06}],"desc":"1d8 slashing. Versatile."}
+{"t":"item","id":"arc_wand","name":"STAFF OF STORMS","slot":"weapon","rarity":"epic","glyph":"/","mods":[{"stat":"damage","value":0.2},{"stat":"area","value":0.1},{"stat":"haste","value":0.08}],"desc":"A staff that crackles when you roll initiative."}
+{"t":"item","id":"lucky_fuse","name":"LUCKSTONE","slot":"charm","rarity":"common","glyph":"+","mods":[{"stat":"speed","value":0.03}],"desc":"+1 to the rolls that matter."}
+{"t":"item","id":"ghost_tag","name":"CLOAK OF ELVENKIND","slot":"charm","rarity":"rare","glyph":"+","mods":[{"stat":"speed","value":0.06},{"stat":"regen","value":0.5}],"desc":"Your steps make no sound."}
+{"t":"item","id":"null_idol","name":"BAG OF HOLDING","slot":"charm","rarity":"unique","glyph":"+","mods":[{"stat":"max_hp","value":120},{"stat":"armour","value":4},{"stat":"regen","value":2.0},{"stat":"speed","value":0.04}],"desc":"Bigger inside. Do not put it in another bag."}
