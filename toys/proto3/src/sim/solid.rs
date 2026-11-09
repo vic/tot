@@ -22,6 +22,9 @@ impl Tiles for Arena {
 
 /// Window edge in tiles (256 m): foes near the hero hit the cache. Power of two, so wrap = mask.
 const WIN: i32 = 128;
+const CELLS: usize = (WIN * WIN) as usize;
+/// Flow field: tile not reachable from the hero inside the window.
+const FAR: u16 = u16::MAX;
 
 /// Neighbourhood mask bits by column dx = -1, 0, 1 and by row dy = -1, 0, 1.
 const COL: [u16; 3] = [0b001_001_001, 0b010_010_010, 0b100_100_100];
@@ -41,6 +44,10 @@ pub struct Walls {
     x0: i32,
     y0: i32,
     rows: Box<[u128; WIN as usize]>,
+    /// walking steps (4-neighbour tiles) from the hero tile, window-relative [v * WIN + u]; FAR = unreachable
+    flow: Box<[u16; CELLS]>,
+    /// BFS queue, kept so a rebuild never allocates
+    queue: Box<[u16; CELLS]>,
 }
 
 type Span = std::ops::Range<i32>;
@@ -49,8 +56,9 @@ impl Walls {
     /// Window centred on the tile under (x_mm, y_mm).
     pub fn new(arena: &Arena, x_mm: i32, y_mm: i32) -> Walls {
         let (x0, y0) = origin(x_mm, y_mm);
-        let mut w = Walls { x0, y0, rows: Box::new([0; WIN as usize]) };
+        let mut w = Walls { x0, y0, rows: Box::new([0; WIN as usize]), flow: Box::new([FAR; CELLS]), queue: Box::new([0; CELLS]) };
         w.fill(arena, x0..x0 + WIN, y0..y0 + WIN);
+        w.reflow();
         w
     }
 
@@ -64,14 +72,73 @@ impl Walls {
         (self.x0, self.y0) = (nx, ny);
         if (nx - ox).abs() >= WIN || (ny - oy).abs() >= WIN {
             self.fill(arena, nx..nx + WIN, ny..ny + WIN);
+        } else {
+            // columns new in x (all rows), then rows new in y over the columns kept
+            let cols = if nx > ox { ox + WIN..nx + WIN } else { nx..ox };
+            let kept = nx.max(ox)..nx.min(ox) + WIN;
+            let rows = if ny > oy { oy + WIN..ny + WIN } else { ny..oy };
+            self.fill(arena, cols, ny..ny + WIN);
+            self.fill(arena, kept, rows);
+        }
+        // the window moves with the hero tile, so the flow field is rebuilt exactly when the hero changes tile
+        self.reflow();
+    }
+
+    /// BFS over floor tiles from the hero tile (the window centre). Ring queue, no allocation.
+    fn reflow(&mut self) {
+        self.flow.fill(FAR);
+        let start = (WIN / 2 * WIN + WIN / 2) as usize;
+        if self.solid_rel(WIN / 2, WIN / 2) {
             return;
         }
-        // columns new in x (all rows), then rows new in y over the columns kept
-        let cols = if nx > ox { ox + WIN..nx + WIN } else { nx..ox };
-        let kept = nx.max(ox)..nx.min(ox) + WIN;
-        let rows = if ny > oy { oy + WIN..ny + WIN } else { ny..oy };
-        self.fill(arena, cols, ny..ny + WIN);
-        self.fill(arena, kept, rows);
+        self.flow[start] = 0;
+        self.queue[0] = start as u16;
+        let (mut head, mut tail) = (0usize, 1usize);
+        while head < tail {
+            let k = usize::from(self.queue[head]);
+            head += 1;
+            let (u, v) = ((k % WIN as usize) as i32, (k / WIN as usize) as i32);
+            let d = self.flow[k] + 1;
+            for (du, dv) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let (nu, nv) = (u + du, v + dv);
+                if (0..WIN).contains(&nu) && (0..WIN).contains(&nv) {
+                    let n = (nv * WIN + nu) as usize;
+                    if self.flow[n] == FAR && !self.solid_rel(nu, nv) {
+                        self.flow[n] = d;
+                        self.queue[tail] = n as u16;
+                        tail += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Window-relative tile (u, v) is solid.
+    fn solid_rel(&self, u: i32, v: i32) -> bool {
+        let (tx, ty) = (self.x0 + u, self.y0 + v);
+        self.rows[(ty & (WIN - 1)) as usize] >> (tx & (WIN - 1)) & 1 == 1
+    }
+
+    /// Walking steps from (tx, ty) to the hero tile, if the tile is in the window and reachable.
+    fn steps(&self, tx: i32, ty: i32) -> Option<u16> {
+        let (u, v) = (tx - self.x0, ty - self.y0);
+        ((0..WIN).contains(&u) && (0..WIN).contains(&v)).then(|| self.flow[(v * WIN + u) as usize]).filter(|&d| d != FAR)
+    }
+
+    /// Centre (mm) of the next tile one step closer to the hero around walls from the tile under (x, y), or
+    /// None (out of the window, unreachable, or already at the hero tile). Diagonals need both sides open.
+    /// Steering at the centre, not just the direction, also re-centres an actor brushing a wall corner.
+    pub fn flow_next(&self, x_mm: i32, y_mm: i32) -> Option<(i32, i32)> {
+        let (tx, ty) = (x_mm.div_euclid(TILE_MM), y_mm.div_euclid(TILE_MM));
+        let here = self.steps(tx, ty)?;
+        let open = |dx: i32, dy: i32| self.steps(tx + dx, ty + dy);
+        [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+            .into_iter()
+            .filter(|&(dx, dy)| dx == 0 || dy == 0 || (open(dx, 0).is_some() && open(0, dy).is_some()))
+            .filter_map(|(dx, dy)| open(dx, dy).map(|d| (d, (dx, dy))))
+            .filter(|&(d, _)| d < here)
+            .min_by_key(|&(d, (dx, dy))| (d, dx.abs() + dy.abs()))
+            .map(|(_, (dx, dy))| ((tx + dx) * TILE_MM + TILE_MM / 2, (ty + dy) * TILE_MM + TILE_MM / 2))
     }
 
     /// The 3x3 tiles around (tx, ty) are all in the window.

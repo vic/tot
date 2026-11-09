@@ -354,7 +354,22 @@ impl<'c> Sim<'c> {
                     }
                 }
             }
-            let (sx, sy) = if interior(x, y, e.rad[i] + sx.abs().max(sy.abs())) { (sx, sy) } else { solid::slide(&self.walls.near(&self.arena), x, y, e.rad[i], sx, sy) };
+            let (sx, sy) = if interior(x, y, e.rad[i] + sx.abs().max(sy.abs())) {
+                (sx, sy)
+            } else {
+                let near = self.walls.near(&self.arena);
+                let slid = solid::slide(&near, x, y, e.rad[i], sx, sy);
+                // a wall in the way: walk the flow field around it (toward the hero through the doorways)
+                match (chase && slid != (sx, sy)).then(|| self.walls.flow_next(x, y)).flatten() {
+                    Some((fx, fy)) => {
+                        let (ax, ay) = toward(fx - x, fy - y, dist(sx, sy).max(1));
+                        // off-screen coasters reuse this heading until the next re-aim: make it the way round
+                        (e.vx[i], e.vy[i]) = (ax, ay);
+                        solid::slide(&near, x, y, e.rad[i], ax, ay)
+                    }
+                    None => slid,
+                }
+            };
             e.nx.push(x + sx);
             e.ny.push(y + sy);
         }

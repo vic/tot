@@ -595,7 +595,8 @@ impl Frame {
         let pal = &c.pal;
         let e = &sim.e;
         let cols = usize::from(self.cols);
-        let view2 = i64::from(c.view.view_r * 2).pow(2);
+        // sight ends at the fog end: foes beyond it are not drawn (the spawn ring lies there, so none pops in)
+        let view2 = i64::from(c.view.fog_end).pow(2);
         for k in 0..e.len() {
             if e.tier[k] == Tier::Trash
                 && e.side[k] == Side::Hostile
@@ -2029,8 +2030,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: Doom face (moods, eyes tracking foes, barks) replaces the 3 static faces
-    const GOLDEN: u64 = 0xb6c7_ca0f_03a4_e314;
+    // re-pinned 2026-11-08: foes drawn only within sight (fog end); chasers route round walls
+    const GOLDEN: u64 = 0x8ad2_4a0d_9dbb_d780;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

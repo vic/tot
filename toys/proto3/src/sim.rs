@@ -1535,6 +1535,67 @@ mod tests {
         }
     }
 
+    /// A foe behind the room wall walks round through the doorway (flow field) instead of pressing the wall.
+    #[test]
+    fn walled_off_foe_finds_the_doorway() {
+        use crate::floorgen::{CENTRE, PITCH, TILE_MM};
+        let c = content();
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        let reach = |seed: u64| -> (i64, bool) {
+            let mut s = Sim::new(&c, seed, None);
+            // hero in the room centre, foe in the next room east, level with the hero: the wall is in between
+            let (fx, fy) = ((PITCH - CENTRE + 6) * TILE_MM + TILE_MM / 2, TILE_MM / 2);
+            s.push_enemy(fam, Tier::Trash, (fx, fy), 1_000_000, (false, false));
+            let start = dist2(s.e.x[0] - s.p.x, s.e.y[0] - s.p.y);
+            let line_blocked = (1..20).any(|k| solid::blocked(&s.walls.near(&s.arena), s.p.x + (s.e.x[0] - s.p.x) * k / 20, s.p.y, 300));
+            for _ in 0..1800 {
+                s.p.hp = s.p.max_hp;
+                s.step(&Input::default());
+            }
+            assert!(dist2(s.e.x[0] - s.p.x, s.e.y[0] - s.p.y) < start, "moved at all");
+            (isqrt(dist2(s.e.x[0] - s.p.x, s.e.y[0] - s.p.y)), line_blocked)
+        };
+        let mut walled = 0;
+        for seed in 0..6 {
+            let (d, blocked) = reach(seed);
+            if blocked {
+                walled += 1;
+                assert!(d < 4_000, "seed {seed}: walled-off foe got to {d} mm, not to the hero");
+            }
+        }
+        assert!(walled >= 2, "control: the wall stood between them in some seeds ({walled})");
+    }
+
+    /// No foe pops in or out: between two ticks a foe id moves at most a few metres when either end is in sight.
+    #[test]
+    fn foes_never_jump_in_sight() {
+        let c = content();
+        let sight2 = i64::from(c.view.fog_end).pow(2);
+        let mut moves = 0u64;
+        for seed in [1u64, 5, 9] {
+            let mut s = Sim::new(&c, seed, None);
+            let mut d = Director::new(seed);
+            let mut last: std::collections::HashMap<u32, (i32, i32)> = std::collections::HashMap::new();
+            for k in 0..1500u32 {
+                s.p.hp = s.p.max_hp;
+                d.tick(&mut s);
+                s.step(&script(k));
+                let hero = (s.p.x, s.p.y);
+                for i in 0..s.e.len() {
+                    let (id, now) = (s.e.id[i], (s.e.x[i], s.e.y[i]));
+                    if let Some(&was) = last.get(&id) {
+                        let near = |p: (i32, i32)| dist2(p.0 - hero.0, p.1 - hero.1) < sight2;
+                        let jump = dist2(now.0 - was.0, now.1 - was.1);
+                        assert!(jump <= 3_000i64.pow(2) || !(near(was) || near(now)), "seed {seed} tick {} foe id {id} jumped {} mm from {was:?} to {now:?} (hero {hero:?})", s.tick, isqrt(jump));
+                        moves += 1;
+                    }
+                    last.insert(id, now);
+                }
+            }
+        }
+        assert!(moves > 10_000, "control: moves checked ({moves})");
+    }
+
     /// No foe ever overlaps a wall or pillar: director-driven runs with the hero walking, every tick, every foe.
     #[test]
     fn foes_never_inside_walls() {
@@ -1555,7 +1616,7 @@ mod tests {
                 }
             }
         }
-        assert!(checked > 10_000 && pressing > 1000, "control: foes checked ({checked}) and pressed against walls ({pressing})");
+        assert!(checked > 10_000 && pressing > 400, "control: foes checked ({checked}) and pressed against walls ({pressing})");
     }
 
     #[test]
@@ -1603,10 +1664,11 @@ mod tests {
     /// Re-pinned 2026-11-08: foe tactics (surround/bait/flank) solid walls (player, foes, spawns) and status effects (freeze/burn/rage) and thief abilities change the run.
     /// Re-pinned 2026-11-08: integration: all lanes (wave 1): world NPCs, goblins, blasts via hurt_player, shop stock from Content.
     /// Re-pinned 2026-11-08: cave walls (72 m rooms, noisy rock bands) and bolts hold fire with auto-fire off.
+    /// Re-pinned 2026-11-08: blocked chasers walk the flow field round walls.
     #[test]
     fn iso_render_leaves_sim_hash_unchanged() {
         let h = run_hash(&content(), 7, 900);
-        assert_eq!(h, 0x4e2d_a56b_8c42_86d3, "sim hash {h:#x}");
+        assert_eq!(h, 0xdf6a_060b_54da_82a9, "sim hash {h:#x}");
     }
 
     #[test]

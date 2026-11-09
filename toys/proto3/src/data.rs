@@ -1722,10 +1722,15 @@ fn view(r: &Rec, hz: Hz, s: &SpawnDef) -> Result<ViewDef> {
     if view_r >= s.ring_min {
         return Err(r.err("view_m", "spawn ring must start outside view (design sec 8.4)"));
     }
+    // actors are drawn only within sight (fog end): a foe spawned or recycled inside it would pop in
+    let sight = mm(r.num("fog_end_m", 1.0, 200.0)?);
+    if sight > s.ring_min {
+        return Err(r.err("fog_end_m", "spawn ring must start at or beyond sight (fog end)"));
+    }
     let blink = r.num("tele_blink_hz", 0.5, 15.0)?;
     Ok(ViewDef {
         fog_start: mm(r.num("fog_start_m", 0.0, 100.0)?),
-        fog_end: mm(r.num("fog_end_m", 1.0, 200.0)?),
+        fog_end: sight,
         fog_max: permille(r.num("fog_max", 0.0, 1.0)?),
         fog_bands: r.int("fog_bands", 1, 256)? as u32,
         floor_cell: mm(r.num("floor_cell_m", 0.5, 20.0)?),
