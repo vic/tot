@@ -5,7 +5,7 @@ use crate::json::{Rec, records};
 use crate::text::{self, ARTS, ArtId, Font, GLYPHS, GlyphId, POOLS, Pool, Seg, TXTS, Txt};
 use crate::{Error, Result};
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU8};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // ---------- small typed values ----------
 
@@ -1700,15 +1700,97 @@ pub struct ProfileInfo {
     pub blurb: String,
 }
 
-/// Profiles installed under `dir/profiles`, sorted by id; each manifest is validated.
+/// Where adventures live: the shipped ones under `base/profiles` (with the base files they fall back to), then the
+/// player's own (written by agents) under `user`, a directory of `<id>/` folders. An id in both is the shipped one.
+pub struct Library {
+    pub base: PathBuf,
+    pub user: Option<PathBuf>,
+}
+
+impl Library {
+    /// The shipped adventures only.
+    pub fn shipped(base: &Path) -> Library {
+        Library { base: base.to_path_buf(), user: None }
+    }
+
+    /// The shipped adventures and the player's: `$XDG_DATA_HOME/tot/adventures`, else
+    /// `$HOME/.local/share/tot/adventures` (None when neither variable is set).
+    pub fn with_user(base: &Path) -> Library {
+        let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+        Library { base: base.to_path_buf(), user: data.map(|d| d.join("tot/adventures")) }
+    }
+
+    fn roots(&self) -> impl Iterator<Item = PathBuf> + '_ {
+        std::iter::once(self.base.join("profiles")).chain(self.user.clone())
+    }
+
+    /// Every adventure, shipped first then the player's, each list sorted by id; each manifest is validated. A
+    /// missing directory lists nothing.
+    pub fn profiles(&self) -> Result<Vec<ProfileInfo>> {
+        let mut out: Vec<ProfileInfo> = Vec::new();
+        for root in self.roots() {
+            let mut ids: Vec<String> = match std::fs::read_dir(&root) {
+                Ok(rd) => rd.filter_map(|e| e.ok()).filter(|e| e.path().join("profile.jsonl").exists()).filter_map(|e| e.file_name().into_string().ok()).collect(),
+                Err(_) => Vec::new(),
+            };
+            ids.sort();
+            ids.retain(|id| !out.iter().any(|p| &p.id == id));
+            for id in ids {
+                out.push(manifest(&root.join(&id), &id)?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Directory of an adventure; a name that is not one is a usage error that lists the real ones.
+    fn dir_of(&self, name: &str) -> Result<PathBuf> {
+        let plain = !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if let Some(p) = self.roots().map(|r| r.join(name)).find(|p| plain && p.join("profile.jsonl").exists()) {
+            manifest(&p, name)?;
+            return Ok(p);
+        }
+        let have = self.profiles().map(|v| v.into_iter().map(|i| i.id).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+        Err(Error::Usage(format!("--profile '{name}' is not installed; available: {have}")))
+    }
+
+    /// The files that make adventure `id`, as the game loads them: its profile.jsonl, then each content file it may
+    /// replace (its own copy, else the base one). (file name, text) in `PROFILE_FILES` order.
+    pub fn files(&self, id: &str) -> Result<Vec<(&'static str, String)>> {
+        let pdir = self.dir_of(id)?;
+        let read = |p: PathBuf| std::fs::read_to_string(&p).map_err(|e| scheme_err(&p.display().to_string(), 0, "", e.to_string()));
+        let mut out = vec![("profile.jsonl", read(pdir.join("profile.jsonl"))?)];
+        for f in PROFILE_FILES {
+            let own = pdir.join(f);
+            out.push((f, read(if own.exists() { own } else { self.base.join(f) })?));
+        }
+        Ok(out)
+    }
+
+    /// `profile` = an adventure: any content file it ships replaces the base file whole (same schema); the rest,
+    /// plus options and bindings always, come from the base.
+    pub fn load(&self, profile: Option<&str>) -> Result<Content> {
+        let dir = &self.base;
+        let pdir = profile.map(|name| self.dir_of(name)).transpose()?;
+        let mut texts = Vec::new();
+        for f in FILES {
+            let over = pdir.as_ref().filter(|_| PROFILE_FILES.contains(&f)).map(|p| p.join(f)).filter(|p| p.exists());
+            let path = over.unwrap_or_else(|| dir.join(f));
+            texts.push(std::fs::read_to_string(&path).map_err(|e| Error::Data { file: path.display().to_string(), line: 0, path: String::new(), msg: e.to_string() })?);
+        }
+        let mut c = Content::parse(&texts)?;
+        if let Some(id) = c.pal.scheme.clone() {
+            let file = format!("schemes/{}.yaml", id.as_str());
+            let text = std::fs::read_to_string(dir.join(&file)).map_err(|e| scheme_err(&file, 0, "", e.to_string()))?;
+            let world = WorldScheme::new(&file, Scheme::parse(&file, &text)?)?;
+            c.pal.roles = RoleTable::of(&world.0, &world);
+        }
+        Ok(c)
+    }
+}
+
+/// The shipped adventures under `dir/profiles`, sorted by id; each manifest is validated.
 pub fn profiles(dir: &Path) -> Result<Vec<ProfileInfo>> {
-    let root = dir.join("profiles");
-    let mut ids: Vec<String> = match std::fs::read_dir(&root) {
-        Ok(rd) => rd.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect(),
-        Err(_) => Vec::new(),
-    };
-    ids.sort();
-    ids.iter().map(|id| manifest(&root.join(id), id)).collect()
+    Library::shipped(dir).profiles()
 }
 
 fn manifest(pdir: &Path, id: &str) -> Result<ProfileInfo> {
@@ -1729,58 +1811,16 @@ fn manifest(pdir: &Path, id: &str) -> Result<ProfileInfo> {
     Ok(ProfileInfo { id: got, name: label(r, "name", SHOWN_FIELDS[0].3)?, blurb: label(r, "blurb", SHOWN_FIELDS[1].3)? })
 }
 
-/// The files that make adventure `id`, as the game loads them: its profile.jsonl, then each content file it may
-/// replace (its own copy, else the base one). (file name, text) in `PROFILE_FILES` order.
+/// The files of a shipped adventure (see `Library::files`).
 pub fn adventure_files(dir: &Path, id: &str) -> Result<Vec<(&'static str, String)>> {
-    let pdir = profile_dir(dir, id)?;
-    let read = |p: std::path::PathBuf| std::fs::read_to_string(&p).map_err(|e| scheme_err(&p.display().to_string(), 0, "", e.to_string()));
-    let mut out = vec![("profile.jsonl", read(pdir.join("profile.jsonl"))?)];
-    for f in PROFILE_FILES {
-        let own = pdir.join(f);
-        out.push((f, read(if own.exists() { own } else { dir.join(f) })?));
-    }
-    Ok(out)
-}
-
-/// Directory of an installed profile; a name that is not one is a usage error that lists the real ones.
-fn profile_dir(dir: &Path, name: &str) -> Result<std::path::PathBuf> {
-    let plain = !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-    let p = dir.join("profiles").join(name);
-    if plain && p.join("profile.jsonl").exists() {
-        manifest(&p, name)?;
-        return Ok(p);
-    }
-    let have = profiles(dir).map(|v| v.into_iter().map(|i| i.id).collect::<Vec<_>>().join(" ")).unwrap_or_default();
-    Err(Error::Usage(format!("--profile '{name}' is not installed; available: {have}")))
+    Library::shipped(dir).files(id)
 }
 
 impl Content {
-    /// `profile` = a theme under `dir/profiles/<name>/`: any content file it ships replaces the base
-    /// file whole (same schema); the rest, plus options and bindings always, come from `dir`.
+    /// A shipped adventure (see `Library::load`).
+    #[cfg(test)]
     pub fn load_profile(dir: &Path, profile: Option<&str>) -> Result<Content> {
-        let pdir = match profile {
-            None => None,
-            Some(name) => Some(profile_dir(dir, name)?),
-        };
-        let mut texts = Vec::new();
-        for f in FILES {
-            let over = pdir.as_ref().filter(|_| PROFILE_FILES.contains(&f)).map(|p| p.join(f)).filter(|p| p.exists());
-            let path = over.unwrap_or_else(|| dir.join(f));
-            texts.push(std::fs::read_to_string(&path).map_err(|e| Error::Data {
-                file: path.display().to_string(),
-                line: 0,
-                path: String::new(),
-                msg: e.to_string(),
-            })?);
-        }
-        let mut c = Content::parse(&texts)?;
-        if let Some(id) = c.pal.scheme.clone() {
-            let file = format!("schemes/{}.yaml", id.as_str());
-            let text = std::fs::read_to_string(dir.join(&file)).map_err(|e| scheme_err(&file, 0, "", e.to_string()))?;
-            let world = WorldScheme::new(&file, Scheme::parse(&file, &text)?)?;
-            c.pal.roles = RoleTable::of(&world.0, &world);
-        }
-        Ok(c)
+        Library::shipped(dir).load(profile)
     }
 
     /// Parse the 9 files given as texts in FILES order (tests feed edited copies).

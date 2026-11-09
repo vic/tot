@@ -1,6 +1,6 @@
 //! Human play loop + session telemetry (results/play-<unix>.jsonl).
 use crate::bot::{Autopilot, MoveBot, PickBot, cause_name};
-use crate::data::{ClassId, Content, ProfileInfo};
+use crate::data::{ClassId, Content, Library, ProfileInfo};
 use crate::director::Director;
 use crate::input::{Event, Mode, Start, Ui};
 use crate::render::{Frame, View};
@@ -68,10 +68,10 @@ pub fn entropy_seed() -> Result<u64> {
 /// then a hero class. None = the player quit. Keys are applied one at a time with the adventure loaded first, so a
 /// class key always reads the adventure it is shown for.
 /// shortcut: no resize while on this screen, upgrade if players resize before a run.
-fn start_screen(tty: &mut Tty, base: &Content, data: &Path, size: (u16, u16)) -> Result<Option<(Content, ClassId)>> {
+fn start_screen(tty: &mut Tty, base: &Content, lib: &Library, size: (u16, u16)) -> Result<Option<(Content, ClassId)>> {
     let mut ui = Ui::new(base.opt.autofire);
     ui.mode = Mode::Start;
-    let mut advs = crate::data::profiles(data)?;
+    let mut advs = lib.profiles()?;
     let mut adv: Option<(usize, Content)> = None;
     let mut frame = Frame::new(base, size.0, size.1);
     let dt = Duration::from_micros(1_000_000 / u64::from(base.view.fps));
@@ -89,7 +89,7 @@ fn start_screen(tty: &mut Tty, base: &Content, data: &Path, size: (u16, u16)) ->
         };
         if want != adv.as_ref().map(|a| a.0) {
             *adv = match want.and_then(|a| advs.get(a).map(|p| (a, p))) {
-                Some((a, p)) => Some((a, Content::load_profile(data, Some(&p.id))?)),
+                Some((a, p)) => Some((a, lib.load(Some(&p.id))?)),
                 None => None,
             };
             *frame = Frame::new(adv.as_ref().map_or(base, |a| &a.1), size.0, size.1);
@@ -118,7 +118,7 @@ fn start_screen(tty: &mut Tty, base: &Content, data: &Path, size: (u16, u16)) ->
             (Start::Asking { agent, adv: back }, Some((_, socks))) => {
                 if link.is_none() {
                     news = None;
-                    match agents.get(agent).cloned().map(|to| crate::agentic::Link::ask(data, socks, to, &ui.brief)) {
+                    match agents.get(agent).cloned().map(|to| crate::agentic::Link::ask(lib, socks, to, &ui.brief)) {
                         Some(Ok(l)) => link = Some(l),
                         Some(Err(e)) => {
                             news = Some(base.texts.fill(t::AGENT_FAILED, [&e.to_string()]));
@@ -127,11 +127,11 @@ fn start_screen(tty: &mut Tty, base: &Content, data: &Path, size: (u16, u16)) ->
                         None => ui.start = Start::Agent { adv: back, sel: 0 },
                     }
                 }
-                match link.as_mut().map(|l| l.poll(data)).transpose() {
+                match link.as_mut().map(|l| l.poll(lib)).transpose() {
                     Ok(Some(crate::agentic::Heard::Installed(id))) => {
                         // the new adventure joins the list and opens its class pick
                         link = None;
-                        advs = crate::data::profiles(data)?;
+                        advs = lib.profiles()?;
                         let at = advs.iter().position(|p| p.id == id).unwrap_or(0);
                         ui.start = Start::Class { adv: at, sel: 0 };
                     }
@@ -160,7 +160,7 @@ fn start_screen(tty: &mut Tty, base: &Content, data: &Path, size: (u16, u16)) ->
 }
 
 /// `--auto` (the demo) skips the start screen and plays `base`.
-pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveBot, PickBot)>) -> Result<()> {
+pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, auto: Option<(MoveBot, PickBot)>) -> Result<()> {
     let mut tty = Tty::open()?;
     if !tty.probe_kitty()? {
         return Err(Error::NoKitty);
@@ -172,7 +172,7 @@ pub fn play(base: &Content, data: &Path, seed0: Option<u64>, out_dir: &Path, aut
     }
     let picked = match auto {
         Some(_) => None,
-        None => match start_screen(&mut tty, base, data, size)? {
+        None => match start_screen(&mut tty, base, lib, size)? {
             Some(p) => Some(p),
             None => return Ok(()),
         },

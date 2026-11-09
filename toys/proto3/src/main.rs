@@ -92,7 +92,8 @@ impl Args {
 fn run() -> Result<()> {
     let args = Args(std::env::args().skip(1).collect());
     let dir = PathBuf::from(args.val("--data").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/data")));
-    let c = data::Content::load_profile(&dir, args.val("--profile"))?;
+    let lib = data::Library::with_user(&dir);
+    let c = lib.load(args.val("--profile"))?;
     match args.0.first().map(String::as_str) {
         Some("bot") => {
             let mv = bot::MoveBot::parse(args.val("--move").unwrap_or("kiter"))?;
@@ -129,9 +130,9 @@ fn run() -> Result<()> {
             } else {
                 None
             };
-            play::play(&c, &dir, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
+            play::play(&c, &lib, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
         }
-        Some("agentic") => agentic_cli(&dir, &args),
+        Some("agentic") => agentic_cli(&lib, &args),
         Some("skill") => {
             print!("{}", skill::skill(&dir)?);
             Ok(())
@@ -196,7 +197,7 @@ fn main() {
 
 /// `agentic`: list the live local Claude sessions, or ask one (`--to PID --brief TEXT --wait-s S`) for an
 /// adventure and wait for it, as the start screen does.
-fn agentic_cli(dir: &std::path::Path, args: &Args) -> Result<()> {
+fn agentic_cli(lib: &data::Library, args: &Args) -> Result<()> {
     let (reg, socks) = peer::default_dirs().ok_or_else(|| Error::Usage("HOME and XDG_RUNTIME_DIR must be set".into()))?;
     let live = peer::sessions(&reg, std::path::Path::new("/proc"));
     let Some(pid) = args.val("--to") else {
@@ -208,11 +209,11 @@ fn agentic_cli(dir: &std::path::Path, args: &Args) -> Result<()> {
     let to = live.into_iter().find(|s| s.pid.to_string() == pid).ok_or_else(|| Error::Usage(format!("no live Claude session with pid {pid}")))?;
     let brief = args.val("--brief").ok_or_else(|| Error::Usage("--brief TEXT".into()))?;
     let wait = std::time::Duration::from_secs(args.val("--wait-s").ok_or_else(|| Error::Usage("--wait-s S".into()))?.parse().map_err(|_| Error::Usage("--wait-s: not a number".into()))?);
-    let mut link = agentic::Link::ask(dir, &socks, to, brief)?;
+    let mut link = agentic::Link::ask(lib, &socks, to, brief)?;
     eprintln!("asked; accept the request in that Claude Code session");
     let start = std::time::Instant::now();
     while start.elapsed() < wait {
-        match link.poll(dir)? {
+        match link.poll(lib)? {
             agentic::Heard::Installed(id) => {
                 println!("{id}");
                 return Ok(());
