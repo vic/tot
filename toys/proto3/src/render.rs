@@ -1166,7 +1166,7 @@ impl Frame {
             let word = sim.c.texts.pick(loud.pool(), (id as usize).wrapping_mul(7));
             let lines: Vec<String> = match loud {
                 Roar::Uber => crate::bigtext::double(c.texts.art(a::ROAR_SIGN)),
-                _ => crate::bigtext::rows(word).to_vec(),
+                _ => c.texts.font().rows(word).to_vec(),
             };
             let shake = if loud >= Roar::Mini { if now.is_multiple_of(2) { -1 } else { 1 } } else { 0 };
             let w = lines[0].chars().count() as i32;
@@ -1200,7 +1200,7 @@ impl Frame {
     /// rippling out from the pal. Drawn last, like every shout.
     fn pal_calls(&mut self, sim: &Sim) {
         let pal = &sim.c.pal;
-        let big = crate::bigtext::rows(sim.c.texts.get(t::PAL_HELP));
+        let big = sim.c.texts.font().rows(sim.c.texts.get(t::PAL_HELP));
         let bw = big[0].chars().count() as i32;
         let (blink, wave) = ((sim.tick / PAL_BLINK).is_multiple_of(2), (sim.tick / PAL_WAVE % 3) as i32 + 1);
         let fg = if blink { pal.player } else { pal.xp };
@@ -1233,7 +1233,7 @@ impl Frame {
             Some((t, spot)) if t == at => spot,
             _ => self.shout_at.insert((at, here)).1,
         };
-        let big = crate::bigtext::rows(word);
+        let big = sim.c.texts.font().rows(word);
         let (bw, top) = (big[0].chars().count() as i32, row - i32::from(sim.c.view.actor_rows[0]) - 1 - big.len() as i32);
         for (r, l) in big.iter().enumerate() {
             for (i, ch) in l.chars().enumerate() {
@@ -1274,9 +1274,9 @@ impl Frame {
             }
             let fg = sky_fg(pal, bw);
             let text = sim.c.texts.get(t::BANNER[bw as usize]).to_string();
-            let left = (self.cols as usize / 2).saturating_sub(crate::bigtext::width(&text) / 2) as i32;
-            self.plate(left - 2, 1, crate::bigtext::width(&text) as i32 + 4, 5, mix(fg, pal.hud_bg, 850));
-            for (r, line) in crate::bigtext::rows(&text).iter().enumerate() {
+            let left = (self.cols as usize / 2).saturating_sub(sim.c.texts.font().width(&text) / 2) as i32;
+            self.plate(left - 2, 1, sim.c.texts.font().width(&text) as i32 + 4, 5, mix(fg, pal.hud_bg, 850));
+            for (r, line) in sim.c.texts.font().rows(&text).iter().enumerate() {
                 for (k, ch) in line.chars().enumerate() {
                     if ch != ' ' {
                         self.flash_cell(left + k as i32, 2 + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
@@ -2735,7 +2735,7 @@ mod tests {
         sim.world.goblins.clear();
         f.compose(&sim, &view);
         let base = arrows(&f);
-        let help = crate::bigtext::rows("HELP!");
+        let help = c.texts.font().rows(c.texts.get(t::PAL_HELP));
         assert!(!painted(&f, &help), "control: no pal, no call");
         sim.world.npcs = vec![Placed { npc: Npc::Pal { traitor: false }, x: sim.p.x + 3000, y: sim.p.y }];
         f.compose(&sim, &view);
@@ -2803,8 +2803,8 @@ mod tests {
         assert!(!out.contains('\u{1}'), "no continuation byte on the wire");
         let banner = |f: &Frame| {
             let text = "BLOOD MOON!";
-            let left = 60 - crate::bigtext::width(text) / 2;
-            crate::bigtext::rows(text).iter().enumerate().all(|(r, line)| line.chars().enumerate().all(|(k, ch)| ch == ' ' || f.cells[(2 + r) * 120 + left + k].ch.ch() == ch))
+            let left = 60 - c.texts.font().width(text) / 2;
+            c.texts.font().rows(text).iter().enumerate().all(|(r, line)| line.chars().enumerate().all(|(k, ch)| ch == ' ' || f.cells[(2 + r) * 120 + left + k].ch.ch() == ch))
         };
         assert!(banner(&f), "change banner\n{blood}");
         let tinted = f.cells.iter().zip(&clear_bg).filter(|(a, b)| a.bg != **b).count();
@@ -2998,7 +2998,7 @@ mod tests {
             let loud = Roar::of(&sim, 0).unwrap();
             let word = c.texts.pick(loud.pool(), (sim.e.id[0] as usize).wrapping_mul(7));
 
-            (loud, painted(&f, &crate::bigtext::rows(word)))
+            (loud, painted(&f, &c.texts.font().rows(word)))
         };
         assert_eq!(roared("scrapper", Tier::Champion), (Roar::Champion, true));
         assert_eq!(roared("kiosk", Tier::Boss), (Roar::Mini, true));
@@ -3016,12 +3016,12 @@ mod tests {
         f.compose(&sim, &View { ui: &ui, now_ms: 40, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let s = f.plain();
 
-        assert!(painted(&f, &crate::bigtext::rows("SHINY!")) && s.contains('╭') && s.contains('┬'), "big shout + bubble\n{s}");
+        assert!(painted(&f, &c.texts.font().rows(c.texts.shout(crate::data::Bark::Gold))) && s.contains('╭') && s.contains('┬'), "big shout + bubble\n{s}");
         // the bubble stands on the Doom face: its tail is right above the face centre
         let (fx, y0) = f.face_origin().unwrap();
         assert_eq!(f.cells[(usize::from(y0) - 1) * 120 + usize::from(fx + FACE_W / 2)].ch.ch(), '┬', "bubble on the face");
         // the shout holds its screen spot while the hero walks on (tot-7op)
-        let word = crate::bigtext::rows("SHINY!");
+        let word = c.texts.font().rows(c.texts.shout(crate::data::Bark::Gold));
         // first cell where the word's top row is painted
         let spot = |f: &Frame| {
             let w = usize::from(f.cols);

@@ -1073,6 +1073,7 @@ pub fn schema_doc() -> String {
     for g in &GLYPHS {
         s += &format!("- `{}`: {}\n", g.id, g.doc);
     }
+    s += &format!("\n## texts.jsonl `letter` records (the big block font: shouts, roars, banners)\n\nOne record per character A-Z ! ? . and space (`\"id\":\"A\"`): `rows` = 3 rows of one width 1..={} in width-1 cell glyphs. The game puts one blank column between letters. Keep the letters distinct.\n", crate::bigtext::LETTER_MAX_W);
     s += "\n## palette.jsonl colours\n\nThe `palette` record's own colour fields (bg, fog, floor, player, ring, alarm, text, dim, xp, chest, hud_bg, kin, therm, emp, code: \"#rrggbb\") paint the world. The UI roles (panel, rarity, danger, heal, info...) come from one of: `\"scheme\": \"<id>\"` = a tinted-theming base24 scheme file under data/schemes/ (must exist, must be dark); or `\"base24\": [24 \"#rrggbb\"]` = your own base24 palette, base00..base17 in order (dark: base00 is the background). Give one or the other, never both; with neither, the roles take the record's own colours.\n";
     s += &format!(
         "\n## trees.jsonl class art\n\nEach `class` record has `art`: the hero of that class drawn in the hero pane's gear tab, {HERO_ART_ROWS} rows of exactly {HERO_ART_COLS} cell glyphs (head on top, feet at the bottom); and `paint`: {HERO_ART_ROWS} rows of {HERO_ART_COLS} letters, one per art cell, naming what colours it: `a` armor, `r` ring, `j` jewel, `w` weapon, `c` charm (the worn item's rarity colour, dim when the slot is empty), `.` the body (text colour). Draw the gear where it is worn: armor on the torso, weapon in a hand, ring on a finger.\n"
@@ -1152,6 +1153,7 @@ pub struct Texts {
     pool: [Vec<String>; POOLS.len()],
     art: [Vec<String>; ARTS.len()],
     glyph: [Glyph; GLYPHS.len()],
+    font: crate::bigtext::Font,
     bark: [(String, Vec<String>); Bark::ALL.len()],
 }
 
@@ -1177,6 +1179,10 @@ impl Texts {
         &self.pool[p.0]
     }
     /// A sprite glyph.
+    /// The block font big shouts and banners are drawn in.
+    pub fn font(&self) -> &crate::bigtext::Font {
+        &self.font
+    }
     pub fn glyph(&self, g: GlyphId) -> Glyph {
         self.glyph[g.0]
     }
@@ -1212,6 +1218,7 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
     let mut pool: [Option<Vec<String>>; POOLS.len()] = std::array::from_fn(|_| None);
     let mut art: [Option<Vec<String>>; ARTS.len()] = std::array::from_fn(|_| None);
     let mut glyph: [Option<Glyph>; GLYPHS.len()] = [None; GLYPHS.len()];
+    let mut letter: [Option<[String; 3]>; crate::bigtext::CHARS.len()] = std::array::from_fn(|_| None);
     let mut bark: [Option<(String, Vec<String>)>; Bark::ALL.len()] = Default::default();
     // drawn in its font: the big font has fewer glyphs
     let drawn = |s: &str, f: Font| (1..=TEXT_MAX).contains(&s.chars().count()) && s.chars().all(|ch| match f {
@@ -1268,7 +1275,24 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
                 let k = GLYPHS.iter().position(|g| g.id == id).ok_or_else(|| r.err("id", format!("no glyph '{id}'")))?;
                 glyph[k].replace(self::glyph(r, "glyph")?).is_some()
             }
-            _ => return Err(r.err("t", "need \"text\", \"pool\", \"art\", \"glyph\" or \"bark\"")),
+            "letter" => {
+                r.allow(&["t", "id", "rows"])?;
+                let mut ch = id.chars();
+                let k = match (ch.next(), ch.next()) {
+                    (Some(c), None) => crate::bigtext::CHARS.iter().position(|&x| x == c),
+                    _ => None,
+                }
+                .ok_or_else(|| r.err("id", format!("no letter '{id}': one of A-Z ! ? . or space")))?;
+                let rows = r.strs("rows")?;
+                let w = rows.first().map_or(0, |s| s.chars().count());
+                let fits = rows.len() == 3 && (1..=crate::bigtext::LETTER_MAX_W).contains(&w) && rows.iter().all(|s| s.chars().count() == w && s.chars().all(|c| Glyph::of(c).is_some()));
+                let [a, b, c] = rows.as_slice() else { return Err(r.err("rows", "need 3 rows")) };
+                if !fits {
+                    return Err(r.err("rows", format!("need 3 rows of one width 1..={} in width-1 glyphs", crate::bigtext::LETTER_MAX_W)));
+                }
+                letter[k].replace([a.to_string(), b.to_string(), c.to_string()]).is_some()
+            }
+            _ => return Err(r.err("t", "need \"text\", \"pool\", \"art\", \"glyph\", \"letter\" or \"bark\"")),
         };
         if slot {
             return Err(r.err("id", format!("duplicate '{id}'")));
@@ -1280,7 +1304,10 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
     let art: [Result<Vec<String>>; ARTS.len()] = std::array::from_fn(|k| art[k].take().ok_or_else(|| missing("art", ARTS[k].id)));
     let bark = Bark::ALL.map(|b| bark[b as usize].take().ok_or_else(|| missing("bark", b.id())));
     let glyph: [Result<Glyph>; GLYPHS.len()] = std::array::from_fn(|k| glyph[k].ok_or_else(|| missing("glyph", GLYPHS[k].id)));
-    Ok(Texts { txt: all(txt)?, pool: all(pool)?, art: all(art)?, glyph: all(glyph)?, bark: all(bark)? })
+    let letter: [Result<[String; 3]>; crate::bigtext::CHARS.len()] = std::array::from_fn(|k| letter[k].take().ok_or_else(|| missing("letter", &crate::bigtext::CHARS[k].to_string())));
+    // every letter was checked one by one above, so the font always builds
+    let font = crate::bigtext::Font::new(all(letter)?).ok_or_else(|| scheme_err("texts.jsonl", 0, "", "letter rows"))?;
+    Ok(Texts { txt: all(txt)?, pool: all(pool)?, art: all(art)?, glyph: all(glyph)?, font, bark: all(bark)? })
 }
 
 /// Every slot or the first error.
@@ -2866,6 +2893,8 @@ pub mod tests {
         assert!(with(drop("death_taunt")).contains("missing pool 'death_taunt'"));
         assert!(with(drop("face_pain")).contains("missing art 'face_pain'"));
         assert!(with(drop("map_hero")).contains("missing glyph 'map_hero'"));
+        assert!(with(base.lines().filter(|l| !l.starts_with("{\"t\":\"letter\",\"id\":\"Q\"")).collect::<Vec<_>>().join("\n")).contains("missing letter 'Q'"));
+        assert!(with(base.replace("{\"t\":\"letter\",\"id\":\"A\",\"rows\":[\"▄▀▄\"", "{\"t\":\"letter\",\"id\":\"A\",\"rows\":[\"▄▀\"")).contains("one width"), "a ragged letter");
         assert!(with(base.replace("\"id\":\"ore\",\"glyph\":\"▪\"", "\"id\":\"ore\",\"glyph\":\"▪▪\"")).contains("exactly one width-1 glyph"), "one glyph per sprite");
         assert!(with(base.replace("\" [> <] \"", "\" [><] \"")).contains("exactly 7"), "a face row of the wrong width");
         assert!(with(base.replace("\"<#>\",\" # \",\" . \"", "\"<#>\",\" # \"")).contains("3..=3 rows"), "a burst with a missing frame");
@@ -2944,6 +2973,7 @@ pub mod tests {
             assert!(art(&c).iter().all(|x| !art(&base).contains(x)), "{}: its own hero art per class", p.id);
             assert!(Bark::ALL.iter().all(|&b| c.texts.lines(b) != base.texts.lines(b)), "{}: its own voice for every bark", p.id);
             assert_ne!(c.pal.face, base.pal.face, "{}: its own walls", p.id);
+            assert!(c.texts.font().distinct() && c.texts.font().rows("A") != base.texts.font().rows("A"), "{}: its own readable lettering", p.id);
             let same = GLYPHS.iter().enumerate().filter(|(k, _)| c.texts.glyph(GlyphId(*k)) == base.texts.glyph(GlyphId(*k))).count();
             assert!(same * 2 < GLYPHS.len(), "{}: most sprite glyphs its own ({same} of {} same)", p.id, GLYPHS.len());
         }

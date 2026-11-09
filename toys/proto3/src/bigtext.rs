@@ -1,59 +1,62 @@
-//! Block lettering, 3 rows tall (half-block glyphs), for shouts that must be noticed: weather changes, barks.
-//! Same family as the boss ROAR, smaller. Unknown characters become a space.
+//! Block lettering, 3 rows tall, for shouts that must be noticed: weather changes, barks, roars. The letters
+//! are adventure data (`letter` records in texts.jsonl), so each adventure has its own lettering.
 
-/// Rows of one character; letters are 3 wide except M, N, W.
-fn glyph(c: char) -> [&'static str; 3] {
-    match c.to_ascii_uppercase() {
-        'A' => ["▄▀▄", "█▀█", "▀ ▀"],
-        'B' => ["█▀▄", "█▀▄", "▀▀ "],
-        'C' => ["█▀▀", "█  ", "▀▀▀"],
-        'D' => ["█▀▄", "█ █", "▀▀ "],
-        'E' => ["█▀▀", "█▀ ", "▀▀▀"],
-        'F' => ["█▀▀", "█▀ ", "▀  "],
-        'G' => ["█▀▀", "█ ▄", "▀▀▀"],
-        'H' => ["█ █", "█▀█", "▀ ▀"],
-        'I' => ["▀█▀", " █ ", "▀▀▀"],
-        'J' => ["  █", "  █", "▀▀ "],
-        'K' => ["█ █", "█▀▄", "▀ ▀"],
-        'L' => ["█  ", "█  ", "▀▀▀"],
-        'M' => ["█▄ ▄█", "█ ▀ █", "▀   ▀"],
-        'N' => ["█▄  █", "█ ▀▄█", "▀   ▀"],
-        'O' => ["█▀█", "█ █", "▀▀▀"],
-        'P' => ["█▀█", "█▀▀", "▀  "],
-        'Q' => ["█▀█", "█ █", "▀▀█"],
-        'R' => ["█▀█", "█▀▄", "▀ ▀"],
-        'S' => ["█▀▀", "▀▀█", "▀▀▀"],
-        'T' => ["▀█▀", " █ ", " ▀ "],
-        'U' => ["█ █", "█ █", "▀▀▀"],
-        'V' => ["█ █", "█ █", " ▀ "],
-        'W' => ["█ █ █", "█ █ █", " ▀ ▀ "],
-        'X' => ["█ █", "▄▀▄", "▀ ▀"],
-        'Y' => ["█ █", "▀█▀", " ▀ "],
-        'Z' => ["▀▀█", "▄▀ ", "▀▀▀"],
-        '!' => ["█", "█", "▄"],
-        '?' => ["▀▀█", " █▀", " ▄ "],
-        '.' => [" ", " ", "▄"],
-        _ => ["  ", "  ", "  "],
-    }
-}
+/// Every character the block font has, in `Font` order (lower case draws as upper case).
+pub const CHARS: [char; 30] = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '!', '?',
+    '.', ' ',
+];
 
-/// The block font draws `c`: letters (either case), `!`, `?`, `.` and the space.
+/// Most columns of one letter.
+pub const LETTER_MAX_W: usize = 6;
+
+/// The block font draws `c`.
 pub fn draws(c: char) -> bool {
-    c.is_ascii_alphabetic() || matches!(c, '!' | '?' | '.' | ' ')
+    CHARS.contains(&c.to_ascii_uppercase())
 }
 
-/// The 3 rows of `text` in block letters, one blank column between characters.
-pub fn rows(text: &str) -> [String; 3] {
-    let mut out = [String::new(), String::new(), String::new()];
-    for (k, c) in text.chars().enumerate() {
-        for (r, part) in glyph(c).iter().enumerate() {
-            if k > 0 {
-                out[r].push(' ');
-            }
-            out[r].push_str(part);
-        }
+/// One letter per `CHARS` entry: 3 rows of equal width. Built only by `Font::new`, which checks that.
+pub struct Font([[String; 3]; CHARS.len()]);
+
+impl Font {
+    /// None unless every letter's 3 rows share one width in 1..=LETTER_MAX_W.
+    pub fn new(letters: [[String; 3]; CHARS.len()]) -> Option<Font> {
+        let even = |l: &[String; 3]| {
+            let w = l[0].chars().count();
+            (1..=LETTER_MAX_W).contains(&w) && l.iter().all(|r| r.chars().count() == w)
+        };
+        letters.iter().all(even).then_some(Font(letters))
     }
-    out
+
+    fn letter(&self, c: char) -> Option<&[String; 3]> {
+        CHARS.iter().position(|&k| k == c.to_ascii_uppercase()).map(|k| &self.0[k])
+    }
+
+    /// The 3 rows of `text` in block letters, one blank column between characters (a char the font lacks is
+    /// skipped; the loader refuses shown big text with one).
+    pub fn rows(&self, text: &str) -> [String; 3] {
+        let mut out = [String::new(), String::new(), String::new()];
+        for (k, l) in text.chars().filter_map(|c| self.letter(c)).enumerate() {
+            for (r, part) in l.iter().enumerate() {
+                if k > 0 {
+                    out[r].push(' ');
+                }
+                out[r].push_str(part);
+            }
+        }
+        out
+    }
+
+    /// Width in cells of `text` in block letters.
+    pub fn width(&self, text: &str) -> usize {
+        self.rows(text)[0].chars().count()
+    }
+
+    /// True when no two letters look the same (a font where they do cannot be read).
+    #[cfg(test)]
+    pub fn distinct(&self) -> bool {
+        self.0.iter().enumerate().all(|(i, a)| self.0[i + 1..].iter().all(|b| b != a))
+    }
 }
 
 /// Twice as big: every cell doubled across and every row doubled down (the uber boss's voice).
@@ -64,24 +67,15 @@ pub fn double(rows: &[String]) -> Vec<String> {
     }).collect()
 }
 
-/// Width in cells of `text` in block letters.
-pub fn width(text: &str) -> usize {
-    rows(text)[0].chars().count()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn rows_are_aligned_and_letters_distinct() {
-        let r = rows("ACID RAIN!");
-        assert!(r.iter().all(|l| l.chars().count() == width("ACID RAIN!")), "{r:?}");
-        let all: Vec<_> = ('A'..='Z').map(glyph).collect();
-        for (i, a) in all.iter().enumerate() {
-            assert!(a.iter().all(|l| l.chars().count() == a[0].chars().count()), "letter {i} ragged");
-            assert!(all[i + 1..].iter().all(|b| b != a), "letter {} looks like a later one", (b'A' + i as u8) as char);
-        }
-        assert_eq!(rows("a"), rows("A"), "lower case is upper case");
+    fn rows_are_aligned_and_lower_case_is_upper_case() {
+        let c = crate::data::tests::content();
+        let f = c.texts.font();
+        let r = f.rows("ACID RAIN!");
+        assert!(r.iter().all(|l| l.chars().count() == f.width("ACID RAIN!")), "{r:?}");
+        assert_eq!(f.rows("a"), f.rows("A"), "lower case is upper case");
+        assert!(f.distinct(), "the shipped letters are distinct");
     }
 }
