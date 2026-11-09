@@ -1062,6 +1062,12 @@ pub fn schema_doc() -> String {
     for a in Art::ALL {
         s += &format!("- `{}`: {}\n", a.id(), a.doc());
     }
+    s += &format!(
+        "\n## texts.jsonl `bark` records (each id required once): `shout` = 1..={SHOUT_MAX} chars in the big block font (letters ! ? . space) drawn over the hero's head where it stood when it spoke; `lines` = one or more lines of 1..={BARK_LINE_MAX} drawable chars, one picked per bark, shown in the speech bubble on the hero's face in the bottom bar\n\n"
+    );
+    for b in Bark::ALL {
+        s += &format!("- `{}`: when {}\n", b.id(), b.doc());
+    }
     s += "\n## shown fields of other records\n\n";
     for (file, field, doc, max, kind) in SHOWN_FIELDS {
         s += &format!("- {file} `{field}` (1..={max} {kind}): {doc}\n");
@@ -1069,10 +1075,73 @@ pub fn schema_doc() -> String {
     s
 }
 
-/// One text per `Msg` and rows per `Art`; built only by `texts`, so every slot is filled.
+/// What a hero bark answers (`bark` records: one big shout word and a pool of lines). Order = priority: a later
+/// event never talks over an earlier one still showing.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Bark {
+    LowHp,
+    Hurt,
+    Reloading,
+    Passive,
+    NoTarget,
+    Empty,
+    Level,
+    Streak,
+    Special,
+    Frozen,
+    Hungry,
+    Gold,
+}
+
+impl Bark {
+    pub const ALL: [Bark; 12] =
+        [Bark::LowHp, Bark::Hurt, Bark::Reloading, Bark::Passive, Bark::NoTarget, Bark::Empty, Bark::Level, Bark::Streak, Bark::Special, Bark::Frozen, Bark::Hungry, Bark::Gold];
+    fn id(self) -> &'static str {
+        match self {
+            Bark::LowHp => "low_hp",
+            Bark::Hurt => "hurt",
+            Bark::Reloading => "reloading",
+            Bark::Passive => "passive",
+            Bark::NoTarget => "no_target",
+            Bark::Empty => "empty",
+            Bark::Level => "level",
+            Bark::Streak => "streak",
+            Bark::Special => "special",
+            Bark::Frozen => "frozen",
+            Bark::Hungry => "hungry",
+            Bark::Gold => "gold",
+        }
+    }
+    /// When the hero says it (the schema doc an adventure author reads).
+    pub fn doc(self) -> &'static str {
+        match self {
+            Bark::LowHp => "the hero drops to low HP",
+            Bark::Hurt => "a big hit lands on the hero",
+            Bark::Reloading => "a special key is pressed while that special reloads",
+            Bark::Passive => "a special key is pressed for a passive skill (no cast)",
+            Bark::NoTarget => "a special key is pressed with no foe in reach",
+            Bark::Empty => "a special key is pressed for an empty slot",
+            Bark::Level => "the hero levels up",
+            Bark::Streak => "a fast kill streak",
+            Bark::Special => "a special is cast",
+            Bark::Frozen => "the hero is frozen",
+            Bark::Hungry => "the hero gets hungry",
+            Bark::Gold => "the hero picks up gold",
+        }
+    }
+}
+
+/// Bark shout: most chars (drawn in the big block font, about 4 cols per char, over the hero's head).
+const SHOUT_MAX: usize = 12;
+/// Bark line: most chars (one line in the speech bubble on the face in the bottom bar).
+const BARK_LINE_MAX: usize = 48;
+
+/// One text per `Msg`, rows per `Art`, a shout and lines per `Bark`; built only by `shown_texts`, so every slot is
+/// filled.
 pub struct Texts {
     msg: [String; Msg::ALL.len()],
     art: [Vec<String>; Art::ALL.len()],
+    bark: [(String, Vec<String>); Bark::ALL.len()],
 }
 
 impl Texts {
@@ -1081,6 +1150,14 @@ impl Texts {
     }
     pub fn art(&self, a: Art) -> &[String] {
         &self.art[a as usize]
+    }
+    /// The big word the hero yells for `b`.
+    pub fn shout(&self, b: Bark) -> &str {
+        &self.bark[b as usize].0
+    }
+    /// The lines the hero may say for `b` (never empty).
+    pub fn lines(&self, b: Bark) -> &[String] {
+        &self.bark[b as usize].1
     }
 }
 
@@ -1101,6 +1178,7 @@ const TEXT_MAX: usize = 120;
 fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
     let mut msg: [Option<String>; Msg::ALL.len()] = Default::default();
     let mut art: [Option<Vec<String>>; Art::ALL.len()] = Default::default();
+    let mut bark: [Option<(String, Vec<String>)>; Bark::ALL.len()] = Default::default();
     for (t, r) in recs {
         let id = r.text("id")?;
         let slot = match t.as_str() {
@@ -1118,7 +1196,20 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
                 }
                 art[a as usize].replace(rows).is_some()
             }
-            _ => return Err(r.err("t", "need \"text\" or \"art\"")),
+            "bark" => {
+                r.allow(&["t", "id", "shout", "lines"])?;
+                let b = Bark::ALL.into_iter().find(|b| b.id() == id).ok_or_else(|| r.err("id", format!("no bark '{id}'")))?;
+                let shout = r.text("shout")?;
+                if !(1..=SHOUT_MAX).contains(&shout.chars().count()) || !shout.chars().all(crate::bigtext::draws) {
+                    return Err(r.err("shout", format!("need 1..={SHOUT_MAX} chars of the block font (letters ! ? . space)")));
+                }
+                let lines = r.list("lines")?.iter().map(|v| v.as_str().filter(|s| (1..=BARK_LINE_MAX).contains(&s.chars().count()) && s.chars().all(|ch| Glyph::of(ch).or_else(|| Glyph::wide(ch)).is_some())).map(String::from).ok_or_else(|| r.err("lines", format!("need lines of 1..={BARK_LINE_MAX} drawable chars")))).collect::<Result<Vec<_>>>()?;
+                if lines.is_empty() {
+                    return Err(r.err("lines", "need at least one line"));
+                }
+                bark[b as usize].replace((shout.to_string(), lines)).is_some()
+            }
+            _ => return Err(r.err("t", "need \"text\", \"art\" or \"bark\"")),
         };
         if slot {
             return Err(r.err("id", format!("duplicate '{id}'")));
@@ -1127,7 +1218,8 @@ fn shown_texts(recs: &[(String, Rec)]) -> Result<Texts> {
     let missing = |what: &str, id: &str| scheme_err("texts.jsonl", 0, "", format!("missing {what} '{id}'"));
     let msg = Msg::ALL.map(|m| msg[m as usize].take().ok_or_else(|| missing("text", m.id())));
     let art = Art::ALL.map(|a| art[a as usize].take().ok_or_else(|| missing("art", a.id())));
-    Ok(Texts { msg: all(msg)?, art: all(art)? })
+    let bark = Bark::ALL.map(|b| bark[b as usize].take().ok_or_else(|| missing("bark", b.id())));
+    Ok(Texts { msg: all(msg)?, art: all(art)?, bark: all(bark)? })
 }
 
 /// Every slot or the first error.
@@ -2642,6 +2734,9 @@ pub mod tests {
         let drop = |id: &str| base.lines().filter(|l| !l.contains(&format!("\"id\":\"{id}\""))).collect::<Vec<_>>().join("\n");
         assert!(with(drop("pick_class")).contains("missing text 'pick_class'"));
         assert!(with(drop("title")).contains("missing art 'title'"));
+        assert!(with(drop("gold")).contains("missing bark 'gold'"));
+        assert!(with(base.replace("\"shout\":\"SHINY!\"", "\"shout\":\"$$$\"")).contains("block font"), "a shout the big font cannot draw");
+        assert!(with(base.replace("\"shout\":\"BRR!\",\"lines\":[\"B-b-brr!\",\"Who left the door open?\",\"C-can't feel my t-toes.\"]", "\"shout\":\"BRR!\",\"lines\":[]")).contains("at least one line"));
         assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"nope\",\"text\":\"x\"}}\n")).contains("no message 'nope'"));
         assert!(with(format!("{base}{{\"t\":\"text\",\"id\":\"pick_class\",\"text\":\"x\"}}\n")).contains("duplicate 'pick_class'"));
         assert!(with(base.replace("CHOOSE YOUR HERO", "CHOOSE €")).contains("drawable"), "a char the terminal cannot draw");

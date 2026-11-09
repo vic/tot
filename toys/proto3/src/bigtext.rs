@@ -37,6 +37,11 @@ fn glyph(c: char) -> [&'static str; 3] {
     }
 }
 
+/// The block font draws `c`: letters (either case), `!`, `?`, `.` and the space.
+pub fn draws(c: char) -> bool {
+    c.is_ascii_alphabetic() || matches!(c, '!' | '?' | '.' | ' ')
+}
+
 /// The 3 rows of `text` in block letters, one blank column between characters.
 pub fn rows(text: &str) -> [String; 3] {
     let mut out = [String::new(), String::new(), String::new()];

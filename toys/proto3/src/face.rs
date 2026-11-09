@@ -1,6 +1,7 @@
 //! Doom-style hero face for the bottom bar: a mood from what just happened, eyes that track the nearest foe
 //! or glance around, and short barks on events. Pure over sim state plus its own tick-stamped memory, so
 //! frames stay deterministic.
+use crate::data::Bark as Event;
 use crate::sim::{Outcome, Sim, SpecialTry, Status};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -14,56 +15,6 @@ pub enum Mood {
     Dead,
 }
 
-/// What a bark answers. Order = priority: a later event never talks over an earlier one still showing.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum Event {
-    LowHp,
-    Hurt,
-    Reloading,
-    Passive,
-    NoTarget,
-    Empty,
-    Level,
-    Streak,
-    Special,
-    Frozen,
-    Hungry,
-    Gold,
-}
-
-impl Event {
-    /// The one word the hero yells big over its head with the line.
-    fn shout(self) -> &'static str {
-        match self {
-            Event::LowHp => "HELP!",
-            Event::Hurt => "OW!",
-            Event::Reloading | Event::Passive | Event::NoTarget | Event::Empty => "HUH?",
-            Event::Level => "LEVEL UP!",
-            Event::Streak => "HA HA!",
-            Event::Special => "BOOM!",
-            Event::Frozen => "BRR!",
-            Event::Hungry => "FOOD!",
-            Event::Gold => "SHINY!",
-        }
-    }
-
-    fn lines(self) -> &'static [&'static str] {
-        match self {
-            Event::Level => &["I feel... SPICY.", "Patch notes: me, buffed.", "Level up! Mom would be proud.", "More power. Less sense.", "New level, same bad decisions.", "I can feel my build coming together!", "Ding! Somebody call the bard."],
-            Event::Streak => &["Combo! Do I get a sticker?", "Bits everywhere. Not cleaning that.", "Ha! Next!", "Is that all you have got?", "Five! Count them! Five!", "Someone call their manager.", "I am the horde now."],
-            Event::Hurt => &["Ow. Rude.", "That is coming out of your pay!", "My good tunic!", "Hey! I was walking here!", "That one I felt in my soul.", "Not the face!", "I bruise like a peach!"],
-            Event::LowHp => &["Medic! ...anyone?", "I am fine. Totally fine.", "Is that my blood? It is.", "Tell my cat I tried.", "I see a light. Is it loot?", "Running is a strategy, right?"],
-            Event::Gold => &["Shiny!", "Cha-ching.", "Retirement fund +1.", "Mine. All mine.", "Coin! My one true love.", "The merchant will hear about this."],
-            Event::Special => &["Special delivery!", "Ka-BOOM.", "Say hello to my reload timer!", "Behold! ...ok, behold faster."],
-            Event::Frozen => &["B-b-brr!", "Who left the door open?", "C-can't feel my t-toes."],
-            Event::Hungry => &["My stomach is louder than the boss.", "Is that a sandwich? Please be a sandwich.", "Hero needs food, badly.", "I could eat a mimic."],
-            Event::Reloading => &["Still reloading!", "Patience, I am not a vending machine.", "Give it a second!"],
-            Event::Passive => &["That one works on its own.", "Passive. Like me on Mondays.", "No button for that, friend."],
-            Event::NoTarget => &["Nothing to hit!", "Save it for a crowd.", "Who am I aiming at, the air?"],
-            Event::Empty => &["Nothing in that pocket.", "Empty slot. Go find loot!", "That hand is empty."],
-        }
-    }
-}
 
 /// Seconds a bark shows, a kill streak window and its size, the big-hit share of max HP (permille), low HP.
 const BARK_S: u32 = 3;
@@ -192,19 +143,17 @@ impl Face {
     }
 
     /// The shout (big word), the bark (line) showing now, and the sim tick it began, if any.
-    pub fn shout(&self, sim: &Sim) -> Option<(&'static str, &'static str, u32)> {
+    pub fn shout<'c>(&self, sim: &Sim<'c>) -> Option<(&'c str, &'c str, u32)> {
         let (e, at) = self.bark?;
-        self.bark(sim).map(|line| (e.shout(), line, at))
+        self.bark(sim).map(|line| (sim.c.texts.shout(e), line, at))
     }
 
-    /// The bark showing now, if any.
-    pub fn bark(&self, sim: &Sim) -> Option<&'static str> {
+    /// The bark showing now, if any: a line of the adventure's pool for the event.
+    pub fn bark<'c>(&self, sim: &Sim<'c>) -> Option<&'c str> {
         let (e, at) = self.bark?;
         let hz = sim.c.hz().get();
-        (sim.tick.saturating_sub(at) < BARK_S * hz).then(|| {
-            let lines = e.lines();
-            lines[(at as usize).wrapping_mul(7919) % lines.len()]
-        })
+        let lines = sim.c.texts.lines(e);
+        (sim.tick.saturating_sub(at) < BARK_S * hz).then(|| lines.get((at as usize).wrapping_mul(7919) % lines.len().max(1)).map(String::as_str)).flatten()
     }
 
     /// Eyes: -1 left, 0 ahead, 1 right. Toward the nearest foe (`toward`, from the screen) or an idle glance.
@@ -266,12 +215,12 @@ mod tests {
         s.p.gold += 10;
         s.tick += 1;
         f.observe(&s);
-        assert!(Event::Gold.lines().contains(&f.bark(&s).unwrap()), "gold bark");
+        assert!(c.texts.lines(Event::Gold).iter().any(|l| l == f.bark(&s).unwrap()), "gold bark");
         // a bigger event talks over a smaller one
         s.p.level += 1;
         s.tick += 1;
         f.observe(&s);
-        assert!(Event::Level.lines().contains(&f.bark(&s).unwrap()), "level bark wins");
+        assert!(c.texts.lines(Event::Level).iter().any(|l| l == f.bark(&s).unwrap()), "level bark wins");
         // kill streak: laugh
         s.stats.kills += STREAK_KILLS;
         s.tick += 1;
@@ -283,7 +232,7 @@ mod tests {
         s.p.unhurt = 0;
         f.observe(&s);
         assert_eq!(f.mood(&s, false), Mood::Pain);
-        assert!(Event::Hurt.lines().contains(&f.bark(&s).unwrap()));
+        assert!(c.texts.lines(Event::Hurt).iter().any(|l| l == f.bark(&s).unwrap()));
         // barks fade
         s.tick += BARK_S * c.hz().get();
         s.p.unhurt = 1000;
@@ -315,17 +264,17 @@ mod tests {
         let press = |s: &mut Sim, f: &mut Face, k: u8| {
             s.step(&Input { special: Some(k), ..Input::default() });
             f.observe(s);
-            f.bark(s)
+            f.bark(s).map(String::from)
         };
         let first = press(&mut s, &mut f, bolt);
-        assert!(first.is_some_and(|l| Event::Special.lines().contains(&l)), "cast: special bark {first:?}");
+        assert!(first.as_ref().is_some_and(|l| c.texts.lines(Event::Special).contains(l)), "cast: special bark {first:?}");
         let again = press(&mut s, &mut f, bolt);
-        assert!(again.is_some_and(|l| Event::Reloading.lines().contains(&l)), "reloading: {again:?}");
+        assert!(again.as_ref().is_some_and(|l| c.texts.lines(Event::Reloading).contains(l)), "reloading: {again:?}");
         let empty = press(&mut s, &mut f, 7);
         // reloading (higher priority) still shows; after it fades the empty slot answers
-        assert!(empty.is_some_and(|l| Event::Reloading.lines().contains(&l)), "{empty:?}");
+        assert!(empty.as_ref().is_some_and(|l| c.texts.lines(Event::Reloading).contains(l)), "{empty:?}");
         s.tick += BARK_S * c.hz().get();
         let empty = press(&mut s, &mut f, 7);
-        assert!(empty.is_some_and(|l| Event::Empty.lines().contains(&l)), "empty slot: {empty:?}");
+        assert!(empty.as_ref().is_some_and(|l| c.texts.lines(Event::Empty).contains(l)), "empty slot: {empty:?}");
     }
 }
