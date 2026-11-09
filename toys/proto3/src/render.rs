@@ -87,6 +87,7 @@ enum Prio {
 }
 
 /// Bottom strip rows, always reserved (design sec 5.9).
+/// Key rows at most (fewer when every key fits on one row, see `Frame::strip`).
 pub const STRIP: u16 = 2;
 const LUT_STEP: i32 = 250;
 
@@ -127,6 +128,8 @@ pub struct Frame {
     roars: Vec<(u32, u32)>,
     /// Doom face memory (moods, barks) for the bottom bar
     face: Face,
+    /// key rows at the bottom: 1 when every play key, the mode tag and the sponsor button fit on one row, else 2
+    strip: u16,
     /// frame clock (ms) when the death show began; None while alive
     died_ms: Option<u64>,
     /// weather last frame, and the change banner (weather, frame clock ms it turned)
@@ -209,6 +212,7 @@ impl Frame {
             level: None,
             level_flash: None,
             face: Face::default(),
+            strip: strip_rows(c, cols),
             died_ms: None,
             sky: None,
             sky_banner: None,
@@ -276,7 +280,7 @@ impl Frame {
     }
 
     fn play_rows(&self) -> u16 {
-        self.rows.saturating_sub(STRIP)
+        self.rows.saturating_sub(self.strip)
     }
 
     fn centre(&self) -> (i32, i32) {
@@ -1720,7 +1724,7 @@ impl Frame {
         let c = sim.c;
         let pal = &c.pal;
         let ui = v.ui;
-        let (rb, rcm) = (self.rows - 2, self.rows - 1);
+        let (rb, rcm) = (self.rows - self.strip, self.rows - 1);
         let ended = sim.outcome.is_some();
         let cols = usize::from(self.cols);
         for r in [rb, rcm] {
@@ -1755,21 +1759,25 @@ impl Frame {
         let limit = [self.cols, sx.saturating_sub(1)];
         let mut ends = [1u16, if ui.mode == Mode::Cmd { self.cols } else { tag_end + 2 }];
         for h in &entries {
-            // a toggle carries its state: [ON] in the heal colour, [OFF] in the danger colour (width reserved
-            // for OFF, so flipping never moves the layout)
-            let tag = h.on.map(|on| if on { ("[ON] ", pal.role(Role::Heal)) } else { ("[OFF]", pal.role(Role::Danger)) });
-            let tw = if tag.is_some() { 6 } else { 0 };
-            let w = (h.keys.chars().count() + 1 + h.label.chars().count() + tw + 2) as u16;
-            let Some(slot) = (0..2).find(|&s| ends[s] + w <= limit[s]) else { continue };
+            let w = hint_w(h) as u16;
+            // one key row: everything after the mode tag; two: row B from the left, then row C
+            let slots: &[usize] = if self.strip == 1 { &[1] } else { &[0, 1] };
+            let Some(&slot) = slots.iter().find(|&&s| ends[s] + w <= limit[s]) else { continue };
             let (row, x) = ([rb, rcm][slot], ends[slot]);
             ends[slot] += w;
             for (k, ch) in h.keys.chars().enumerate() {
                 let i = usize::from(row) * cols + usize::from(x) + k;
                 self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: key, bg: pal.bg };
             }
-            let lx = self.text(row, x + h.keys.chars().count() as u16 + 1, &h.label, pal.text);
-            if let Some((t, fg)) = tag {
-                self.text(row, lx + 1, t, fg);
+            // a toggle shows its state as the label's background: green on, red off (no extra text)
+            let lx = x + h.keys.chars().count() as u16 + 1;
+            let end = self.text(row, lx, &h.label, pal.text);
+            if let Some(on) = h.on {
+                let bg = mix(pal.role(if on { Role::Heal } else { Role::Danger }), pal.bg, TOGGLE_BG);
+                let i = usize::from(row) * cols;
+                for cell in &mut self.cells[i + usize::from(lx)..i + usize::from(end)] {
+                    cell.bg = bg;
+                }
             }
         }
     }
@@ -1782,7 +1790,7 @@ impl Frame {
         let per_row = (inner / cell_w.max(1)).max(1);
         let rows = items.len().div_ceil(per_row);
         let (w, h) = ((per_row * cell_w + 3).min(inner + 2) as i32, rows as i32 + 2);
-        let (left, top) = (1, i32::from(self.rows) - 2 - h);
+        let (left, top) = (1, i32::from(self.play_rows()) - h);
         let bg = pal.hud_bg;
         self.plate(left, top, w, h, bg);
         let edge = pal.of(Hue::Kin);
@@ -2066,9 +2074,11 @@ impl Roar {
 /// Death: the banner (3 rows), its width, how long it shakes, the crowd hop period, cheers and taunts.
 const YOU_DIED: [&str; 3] = ["█ █ █▀█ █ █   █▀▄ ▀█▀ █▀▀ █▀▄", "▀█▀ █ █ █ █   █ █  █  █▀  █ █", " █  ▀▀▀ ▀▀▀   ▀▀  ▀▀▀ ▀▀▀ ▀▀ "];
 const YOU_DIED_W: i32 = 29;
-/// Sponsor link: always at the bottom right, and pleaded on the death screen.
 /// Which-key popup: widest inner width.
 const WK_MAX_W: usize = 72;
+/// Toggle label background: state colour mixed this far (permille) toward the background.
+const TOGGLE_BG: u32 = 450;
+/// Sponsor link: always at the bottom right, and pleaded on the death screen.
 const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
 const SUPPORT_LABEL: &str = "support tot <3";
 const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and sponsor me";
@@ -2191,6 +2201,17 @@ struct Hint {
 
 /// Every binding of the current mode as hints, read from the binding data (nothing to keep in sync by hand).
 /// Movement, specials, cards and shop offers fold into one hint each; digit runs read "1-8". In a shop the play
+/// One key row when the widest mode (play) fits whole with the mode tag and the sponsor button, else two.
+fn strip_rows(c: &Content, cols: u16) -> u16 {
+    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + SUPPORT_LABEL.chars().count() + 6;
+    if need <= usize::from(cols) { 1 } else { STRIP }
+}
+
+/// Cells one hint takes on the key rows: keys, a space, the label, two spaces.
+fn hint_w(h: &Hint) -> usize {
+    h.keys.chars().count() + 1 + h.label.chars().count() + 2
+}
+
 /// keys the shop does not bind still work, so they are listed too.
 fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
     use crate::input::Action;
@@ -2226,7 +2247,7 @@ fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
         .map(|(label, keys, on)| {
             let digits = keys.iter().all(|k| k.len() == 1 && k.as_bytes()[0].is_ascii_digit());
             let keys = if label == "move" {
-                "wasd/hjkl/arrows".to_string()
+                "wasd/hjkl".to_string()
             } else if digits && keys.len() > 2 {
                 format!("{}-{}", keys[0], keys[keys.len() - 1])
             } else {
@@ -2638,6 +2659,23 @@ mod tests {
     }
 
     #[test]
+    fn one_key_row_when_everything_fits() {
+        let c = Content::parse(&texts()).unwrap();
+        let (narrow, wide) = (Frame::new(&c, 120, 40), Frame::new(&c, 260, 40));
+        assert_eq!((narrow.strip, wide.strip), (2, 1), "two rows only when the keys do not fit on one");
+        assert_eq!(wide.play_rows(), narrow.play_rows() + 1, "the play area gains the row");
+        let mut f = wide;
+        let sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let last = f.plain().lines().nth(39).unwrap().to_string();
+        for h in hints(&c, &ui) {
+            assert!(last.contains(&format!("{} {}", h.keys, h.label)), "{} missing: {last}", h.label);
+        }
+        assert!(last.contains("-- PLAY --") && last.contains(SUPPORT_LABEL));
+    }
+
+    #[test]
     fn bottom_rows_list_every_key_fixed_and_highlighted() {
         let c = Content::parse(&texts()).unwrap();
         let mut sim = Sim::new(&c, 7, None);
@@ -2661,15 +2699,15 @@ mod tests {
         let at = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("spc fire").map(|x| (38 + r, l[..x].chars().count()))).unwrap();
         let cell = |f: &Frame, dx: usize| f.cells[at.0 * 120 + at.1 + dx];
         assert!(cell(&f, 0).fg == key_fg(&c.pal) && cell(&f, 0).bg == cell(&f, 5).bg && cell(&f, 5).fg != key_fg(&c.pal), "key in accent, no block");
-        // a toggle is evident: [ON] green, [OFF] red; the layout does not move
-        assert!(a.contains("auto-fire [ON]"), "{a}");
-        let tag_at = |f: &Frame| f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("auto-fire [").map(|x| (38 + r, l[..x].chars().count() + 10))).unwrap();
-        let on = tag_at(&f);
-        let on_fg = f.cells[on.0 * 120 + on.1 + 1].fg;
+        // a toggle shows its state as the label background only: text never changes
+        let lab = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("F autofire").map(|x| (38 + r, l[..x].chars().count() + 2))).unwrap();
+        let bg_at = |f: &Frame| f.cells[lab.0 * 120 + lab.1].bg;
+        let on_bg = bg_at(&f);
+        assert!(on_bg != c.pal.bg, "ON has a coloured background");
         ui.autofire = false;
         f.compose(&sim, &View { ui: &ui, now_ms: 9_999, alpha: 1.0, phase: "SWARM", last_bytes: 0 });
-        assert!(rows(&f).contains("auto-fire [OFF]") && tag_at(&f) == on, "same place");
-        assert!(f.cells[on.0 * 120 + on.1 + 1].fg != on_fg, "ON and OFF differ in colour");
+        assert_eq!(rows(&f), a, "same text with auto-fire off");
+        assert!(bg_at(&f) != on_bg && bg_at(&f) != c.pal.bg, "OFF: another colour");
         assert_eq!(rows(&f).replace("auto-fire [OFF]", "auto-fire [ON] "), a, "only the tag changed");
     }
 
@@ -2690,8 +2728,8 @@ mod tests {
     use crate::sim::{Input, PickChoice};
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
-    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button
-    const GOLDEN: u64 = 0x4d91_51d2_7f78_f86c;
+    // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels
+    const GOLDEN: u64 = 0x1eb1_5c0b_2645_26e3;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -2838,9 +2876,10 @@ mod tests {
         let n = usize::from(c.view.actor_rows[0]);
         let pi = (rc as usize - n) * 120 + cc as usize;
         assert_eq!(f.cells[pi].ch.ch(), '@');
-        // the strip is plain except the sponsor button (a link span)
+        // the strip is plain except the sponsor button (a link span) and toggle labels (state colours)
         let in_link = |i: usize| f.links.iter().any(|(lo, hi, _)| (*lo..*hi).contains(&i));
-        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg || in_link(i)));
+        let toggles = [Role::Heal, Role::Danger].map(|r| mix(c.pal.role(r), c.pal.bg, TOGGLE_BG));
+        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg || in_link(i) || toggles.contains(&cell.bg)));
     }
 
     fn headings() -> [Heading; 4] {

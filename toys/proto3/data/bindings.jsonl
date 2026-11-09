@@ -19,14 +19,14 @@
 {"t":"bind","mode":"play","keys":["d"],"action":"right","label":"right"}
 {"t":"bind","mode":"play","keys":["l"],"action":"right","label":"right"}
 {"t":"bind","mode":"play","keys":["right"],"action":"right","label":"right"}
-{"t":"bind","mode":"play","keys":["shift"],"action":"dodge","label":"dodge (tap)"}
+{"t":"bind","mode":"play","keys":["shift"],"action":"dodge","label":"dodge"}
 {"t":"bind","mode":"play","keys":["x"],"action":"hack","label":"hack"}
 {"t":"bind","mode":"play","keys":["q"],"action":"rot_left","label":"rotate left"}
 {"t":"bind","mode":"play","keys":["e"],"action":"rot_right","label":"rotate right"}
-{"t":"bind","mode":"play","keys":[":"],"action":"cmd","label":"command"}
-{"t":"bind","mode":"play","keys":["space"],"action":"fire","label":"fire (hold)"}
-{"t":"bind","mode":"play","keys":["F"],"action":"autofire","label":"auto-fire"}
-{"t":"bind","mode":"play","keys":["W"],"action":"autowalk","label":"auto-walk"}
+{"t":"bind","mode":"play","keys":[":"],"action":"cmd","label":"cmd"}
+{"t":"bind","mode":"play","keys":["space"],"action":"fire","label":"fire"}
+{"t":"bind","mode":"play","keys":["F"],"action":"autofire","label":"autofire"}
+{"t":"bind","mode":"play","keys":["W"],"action":"autowalk","label":"autowalk"}
 {"t":"bind","mode":"play","keys":["v"],"action":"look","label":"look"}
 {"t":"group","mode":"play","keys":["c"],"label":"camera"}
 {"t":"bind","mode":"play","keys":["c","q"],"action":"rot_left","label":"turn left"}
@@ -55,11 +55,11 @@
 {"t":"bind","mode":"pick","keys":["right"],"action":"next","label":"next"}
 {"t":"bind","mode":"pick","keys":["down"],"action":"next","label":"next"}
 {"t":"bind","mode":"pick","keys":["backspace"],"action":"skip","label":"skip"}
-{"t":"bind","mode":"play","keys":["t"],"action":"tree","label":"skill tree"}
+{"t":"bind","mode":"play","keys":["t"],"action":"tree","label":"tree"}
 {"t":"bind","mode":"tree","keys":["esc"],"action":"back","label":"back"}
 {"t":"bind","mode":"tree","keys":["t"],"action":"back","label":"back"}
 {"t":"bind","mode":"tree","keys":["enter"],"action":"tree_spend","label":"spend point"}
-{"t":"bind","mode":"play","keys":["i"],"action":"gear","label":"worn items"}
+{"t":"bind","mode":"play","keys":["i"],"action":"gear","label":"gear"}
 {"t":"bind","mode":"gear","keys":["esc"],"action":"back","label":"back"}
 {"t":"bind","mode":"gear","keys":["i"],"action":"back","label":"back"}
 {"t":"bind","mode":"gear","keys":["x"],"action":"gear_drop","label":"drop item"}
