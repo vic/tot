@@ -236,6 +236,8 @@ pub enum Drop {
     Chest,
     /// a real item (armour, ring...) on the floor; walking over it wears it
     Item(ItemId),
+    /// XP magnet: picking it up pulls every XP orb on the floor (and a stream from beyond sight) to the hero
+    Magnet,
 }
 
 /// How a melee foe closes on the hero, fixed by its id (O(1), no state): a crowd mixes all four.
@@ -378,6 +380,12 @@ const SPECIAL_DMG: i32 = 3;
 /// Item drops: elites drop one in ELITE_ITEM_1_IN (by id), champions and bosses always; salt for the id hash.
 const ELITE_ITEM_1_IN: u64 = 4;
 const ITEM_SALT: u64 = 0x17E5_D80B;
+/// XP magnet: elites drop one in MAGNET_1_IN (by id); on pickup MAGNET_FAR orbs stream in from a ring
+/// MAGNET_RING_MIN..+MAGNET_RING_SPAN mm beyond sight.
+const MAGNET_1_IN: u64 = 10;
+const MAGNET_FAR: u32 = 24;
+const MAGNET_RING_MIN: i32 = 4_000;
+const MAGNET_RING_SPAN: i32 = 20_000;
 
 impl Status {
     fn ticks(ms: u32, hz: u32) -> u16 {
@@ -1741,6 +1749,41 @@ mod tests {
 
     /// Number key = special: a 36-bolt ring at 3x damage, then a reload; rank shortens it; passive slots never cast.
     /// Champions always drop a real item, elites one in ELITE_ITEM_1_IN; walking over it wears it.
+    /// XP magnet: far orbs stay put without it; with it every orb (and a stream from beyond sight) flies in.
+    #[test]
+    fn xp_magnet_pulls_every_orb_and_a_stream_from_beyond_sight() {
+        let c = content();
+        let put = |s: &mut Sim, x: i32, y: i32, kind: Drop| {
+            s.drops.x.push(x);
+            s.drops.y.push(y);
+            s.drops.kind.push(kind);
+            s.drops.pulled.push(false);
+        };
+        let mut s = Sim::new(&c, 7, None);
+        s.world.npcs.clear();
+        let (hx, hy) = (s.p.x, s.p.y);
+        put(&mut s, hx + 15_000, hy, Drop::Xp(5));
+        put(&mut s, hx, hy - 18_000, Drop::Xp(5));
+        for _ in 0..30 {
+            s.p.hp = s.p.max_hp;
+            s.step(&Input::default());
+        }
+        assert_eq!(s.drops.x.len(), 2, "control: far orbs stay without a magnet");
+        let xp0 = (s.p.level, s.p.xp);
+        let (px, py) = (s.p.x, s.p.y);
+        put(&mut s, px, py, Drop::Magnet);
+        s.p.hp = s.p.max_hp;
+        s.step(&Input::default());
+        let far = (0..s.drops.x.len()).filter(|&k| dist2(s.drops.x[k] - s.p.x, s.drops.y[k] - s.p.y) > i64::from(c.view.fog_end).pow(2)).count();
+        assert!(s.drops.pulled.iter().all(|&p| p) && far >= MAGNET_FAR as usize, "all pulled, a stream from beyond sight ({far})");
+        for _ in 0..900 {
+            s.p.hp = s.p.max_hp;
+            s.step(&Input::default());
+        }
+        assert!(s.drops.x.is_empty(), "every orb arrived");
+        assert!((s.p.level, s.p.xp) > xp0, "the bar grew (or levelled up)");
+    }
+
     #[test]
     fn kills_drop_items_and_pickup_wears_them() {
         let c = content();

@@ -399,6 +399,13 @@ impl Frame {
                 self.chest(sim, x, y);
                 continue;
             }
+            if let crate::sim::Drop::Magnet = sim.drops.kind[k]
+                && let Some(i) = self.cell_of(x, y)
+            {
+                let glow = if (sim.tick / LOOT_PULSE).is_multiple_of(2) { mix(pal.xp, pal.bg, 400) } else { mix(pal.xp, pal.bg, 700) };
+                self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: Glyph::of('U').unwrap_or(Glyph::SPACE), fg: pal.xp, bg: Some(glow) });
+                continue;
+            }
             if let crate::sim::Drop::Item(id) = sim.drops.kind[k] {
                 self.loot(sim, x, y, id);
                 continue;

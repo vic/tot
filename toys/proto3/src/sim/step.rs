@@ -276,7 +276,7 @@ impl<'c> Sim<'c> {
                         (tx, ty, td2) = (x + (x - px), y + (y - py), dp2);
                     } else if let Some(k) = (0..self.drops.x.len()).max_by_key(|&k| {
                         // best loot first: value squared over distance squared (a chest is worth a detour)
-                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
+                        let v = i64::from(match self.drops.kind[k] { Drop::Xp(_) | Drop::Magnet => LOOT_XP, Drop::Chest | Drop::Item(_) => LOOT_CHEST });
                         v * v * 1_000_000_000 / (dist2(self.drops.x[k] - x, self.drops.y[k] - y) + 1)
                     }) {
                         (tx, ty) = (self.drops.x[k], self.drops.y[k]);
@@ -1106,6 +1106,7 @@ impl<'c> Sim<'c> {
                 Drop::Item(id) => {
                     self.gear.wear(self.c, id);
                 }
+                Drop::Magnet => self.magnet_pull(),
             }
             return;
         }
@@ -1157,6 +1158,9 @@ impl<'c> Sim<'c> {
                 Tier::Trash => self.drop_at(x, y, Drop::Xp(sp.xp_trash)),
                 Tier::Elite => {
                     self.drop_at(x, y, Drop::Xp(sp.xp_elite));
+                    if mix(u64::from(self.e.id[i]) ^ ITEM_SALT.rotate_left(7)).is_multiple_of(MAGNET_1_IN) {
+                        self.drop_at(x + 600, y, Drop::Magnet);
+                    }
                     if mix(u64::from(self.e.id[i]) ^ ITEM_SALT).is_multiple_of(ELITE_ITEM_1_IN) {
                         self.drop_item(x - 600, y, self.e.id[i]);
                     }
@@ -1204,6 +1208,7 @@ impl<'c> Sim<'c> {
             let bite = match self.drops.kind[k] {
                 Drop::Xp(_) => LOOT_XP,
                 Drop::Chest | Drop::Item(_) => LOOT_CHEST,
+                Drop::Magnet => LOOT_XP,
             };
             let before = self.e.loot[j];
             self.e.loot[j] = before.saturating_add(bite);
@@ -1269,7 +1274,7 @@ impl<'c> Sim<'c> {
         self.treasure_step();
         let r = scale(self.c.player.pickup + self.gear.sum(self.c, Stat::Pickup) as i32, 1000 + self.trait_val(SkillKind::Magnet));
         let v = self.c.player.speed * 2;
-        let mut i = 0;
+        let (mut i, mut magnet) = (0, false);
         while i < self.drops.x.len() {
             let (dx, dy) = (self.p.x - self.drops.x[i], self.p.y - self.drops.y[i]);
             let d2 = dist2(dx, dy);
@@ -1283,6 +1288,7 @@ impl<'c> Sim<'c> {
                     Drop::Item(id) => {
                         self.gear.wear(self.c, id);
                     }
+                    Drop::Magnet => magnet = true,
                 }
                 let d = &mut self.drops;
                 d.x.swap_remove(i);
@@ -1297,6 +1303,31 @@ impl<'c> Sim<'c> {
                 self.drops.y[i] += my;
             }
             i += 1;
+        }
+        if magnet {
+            self.magnet_pull();
+        }
+    }
+
+    /// XP magnet: every XP orb on the floor flies to the hero, and MAGNET_FAR more stream in from a ring beyond
+    /// sight (the orbs of fights the hero never saw). Positions come from the tick, no RNG stream consumed.
+    fn magnet_pull(&mut self) {
+        for k in 0..self.drops.x.len() {
+            if matches!(self.drops.kind[k], Drop::Xp(_)) {
+                self.drops.pulled[k] = true;
+            }
+        }
+        let r0 = self.c.view.fog_end + MAGNET_RING_MIN;
+        for k in 0..MAGNET_FAR {
+            let h = mix(u64::from(self.tick) ^ u64::from(k).rotate_left(29) ^ ITEM_SALT);
+            let (cx, cy) = self.trig[(h % u64::from(TRIG_N)) as usize];
+            let r = r0 + ((h >> 20) % MAGNET_RING_SPAN as u64) as i32;
+            let (x, y) = (self.p.x + scale(cx, i64::from(r)), self.p.y + scale(cy, i64::from(r)));
+            let n = self.drops.x.len();
+            self.drop_at(x, y, Drop::Xp(self.c.spawn.xp_trash));
+            if self.drops.x.len() > n {
+                self.drops.pulled[n] = true;
+            }
         }
     }
 
