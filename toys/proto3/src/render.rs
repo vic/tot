@@ -1038,9 +1038,14 @@ impl Frame {
             Weather::Clear => (None, None),
         };
         let step = i64::from(sim.tick / SKY_FALL_TICKS / if w == Weather::Snow { 3 } else { 1 });
+        let night = sim.night();
         for r in 0..rows {
             for col in 0..cols {
                 let i = r * cols + col;
+                if night {
+                    self.cells[i].bg = mix(self.cells[i].bg, Rgb(0, 0, 0), NIGHT_DARK);
+                    self.cells[i].fg = mix(self.cells[i].fg, Rgb(0, 0, 0), NIGHT_DARK / 2);
+                }
                 if let Some((tint, f)) = cast {
                     self.cells[i].bg = mix(self.cells[i].bg, tint, f);
                 }
@@ -1615,7 +1620,8 @@ impl Frame {
         }
         let hz = u64::from(c.hz().get());
         let mut r = y0;
-        let mut x = self.text(r, x0 + 1, "TIME ", pal.dim);
+        // the clock wears the time of day: sun by day, moon by night
+        let mut x = self.text(r, x0 + 1, if sim.night() { "🌙 " } else { "🌞 " }, pal.text);
         x = self.clock(r, x, sim.secs(), pal.text);
         // next boss: first scheduled boss event after now
         let next = c.waves.iter().filter_map(|w| match w {
@@ -2226,6 +2232,8 @@ const SKY_BLOOD_CAST: u32 = 160;
 const SKY_FULL_CAST: u32 = 70;
 const SKY_SNOW_CAST: u32 = 60;
 const SKY_HEAT_CAST: u32 = 110;
+/// Night darkens the arena this far toward black (permille; text half as much).
+const NIGHT_DARK: u32 = 450;
 const SKY_STREAK_1_IN: u64 = 45;
 const SKY_FALL_TICKS: u32 = 2;
 const SKY_BANNER_MS: u64 = 2500;
@@ -2606,6 +2614,29 @@ mod tests {
     }
 
     #[test]
+    fn night_darkens_and_shows_the_moon() {
+        use crate::sim::DAY_S;
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let hz = c.hz().get();
+        let at = |f: &mut Frame, sim: &Sim| {
+            f.compose(sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let bright: u32 = f.cells[..120 * 30].iter().map(|c| u32::from(c.bg.0) + u32::from(c.bg.1) + u32::from(c.bg.2)).sum();
+            (f.plain(), bright)
+        };
+        sim.tick = 10 * hz;
+        assert!(!sim.night());
+        let (day, day_light) = at(&mut f, &sim);
+        sim.tick = (DAY_S * 2 / 3 + 10) * hz;
+        assert!(sim.night(), "night is the last third of the cycle");
+        let (night, night_light) = at(&mut f, &sim);
+        assert!(day.contains("🌞 ") && night.contains("🌙 "), "sun by day, moon by night");
+        assert!(night_light < day_light, "the arena darkens at night");
+    }
+
+    #[test]
     fn weather_shows_in_sky_panel_and_banner() {
         let c = Content::parse(&texts()).unwrap();
         let mut sim = Sim::new(&c, 7, None);
@@ -2965,7 +2996,7 @@ mod tests {
 
     // re-pinned 2026-11-08 (tot-ecr.11 status line: coloured mode tag + contextual keys; tot-sul.2 map compass + camera-turned map; tot-sul.1 explored map texture; tot-2f4.3 map chest glow; tot-z6a.2 kill bursts + ROAR; tot-ecr.6 stats pane bars + CAST rows; fix batch: bar() rounds up, status row hint last; solid() via tile_mm): arrows with distance + glow, chest sprite, boss bar, strip row A removed, panel XP/powers/foe tiers/morale bars, bottom bar (reviewed in snapshot)
     // re-pinned 2026-11-08: key rows, message line, phase+NET in panel, hotkey digits, sponsor button bottom right, keys in accent (no block) and [ON]/[OFF] toggle tags, sponsor pill button, toggles by label background, short labels, NPCs+goblins on the map
-    const GOLDEN: u64 = 0x2099_41b9_080a_7b36;
+    const GOLDEN: u64 = 0x7fd5_acb5_3250_b0ec;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

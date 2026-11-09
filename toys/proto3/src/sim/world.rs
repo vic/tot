@@ -561,6 +561,21 @@ mod tests {
         assert!(s.p.hp < 100_000, "heat burns the exposed hero");
     }
 
+    /// The horde runs faster at night (same clear sky, same spot).
+    #[test]
+    fn foes_run_faster_at_night() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let hz = c.hz().get();
+        let clear = |s: &Sim, t: u32| s.world.forecast(t).now == Weather::Clear;
+        let day = (0..2000u32).map(|k| k * hz).find(|&t| clear(&s, t) && t / hz % crate::sim::DAY_S < crate::sim::DAY_S * 2 / 3).unwrap();
+        let night = (0..2000u32).map(|k| k * hz).find(|&t| clear(&s, t) && t / hz % crate::sim::DAY_S >= crate::sim::DAY_S * 2 / 3).unwrap();
+        s.tick = day;
+        assert_eq!(s.foe_pace().0, 1000, "control: a clear day is the base pace");
+        s.tick = night;
+        assert_eq!(s.foe_pace().0, crate::sim::NIGHT_PACE, "a clear night runs at night pace");
+    }
+
     #[test]
     fn full_moon_frenzies_foes() {
         let c = content();

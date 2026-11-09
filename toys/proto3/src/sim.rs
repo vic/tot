@@ -385,6 +385,9 @@ const ITEM_SALT: u64 = 0x17E5_D80B;
 const MAGNET_1_IN: u64 = 10;
 /// Foes run this much faster (permille) toward a hero sheltering from rain or acid.
 const SHELTER_DRAW: u32 = 1200;
+/// Day and night: one cycle every DAY_S seconds (night is its last third); foes run NIGHT_PACE (permille).
+pub const DAY_S: u32 = 360;
+pub(crate) const NIGHT_PACE: u32 = 1100;
 const MAGNET_FAR: u32 = 24;
 const MAGNET_RING_MIN: i32 = 4_000;
 const MAGNET_RING_SPAN: i32 = 20_000;
@@ -1019,6 +1022,12 @@ impl<'c> Sim<'c> {
     }
 
     /// Upgrade picker time limit: 15 s at level 1, 0.5 s less per level, capped near a boss, never under 5 s.
+    /// Night: the last third of every DAY_S cycle. Darker, and the horde runs faster.
+    pub fn night(&self) -> bool {
+        let s = self.tick / self.c.hz().get() % DAY_S;
+        s >= DAY_S * 2 / 3
+    }
+
     /// Power-up offers waiting for the player: the open one and those queued behind it.
     pub fn offers_waiting(&self) -> u16 {
         u16::from(self.offer.is_some()) + self.pending

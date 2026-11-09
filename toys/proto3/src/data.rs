@@ -51,7 +51,7 @@ impl Glyph {
     /// The hidden right half of a wide glyph: never drawn (the terminal paints the wide glyph over two cells).
     pub const CONT: Glyph = Glyph('\u{1}');
     /// Always-wide emoji the frame may draw (two cells each); used sparingly, where no ASCII art fits.
-    const WIDE: [char; 8] = ['🌞', '☔', '🧪', '⛄', '🔥', '💨', '🌕', '🩸'];
+    const WIDE: [char; 9] = ['🌞', '☔', '🧪', '⛄', '🔥', '💨', '🌕', '🩸', '🌙'];
     pub fn wide(c: char) -> Option<Glyph> {
         Self::WIDE.contains(&c).then_some(Glyph(c))
     }

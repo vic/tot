@@ -232,10 +232,7 @@ impl<'c> Sim<'c> {
         let view_r2 = i64::from(c.view.view_r).pow(2);
         let sep_r2 = i64::from(c.view.view_r + SEP_MARGIN).pow(2);
         let sec = self.sec_ix();
-        // weather pace: the sky sets it, and a hero sheltering from rain or acid draws the horde (they come faster)
-        let sky = self.world.forecast(self.tick).now;
-        let drawn = matches!(sky, Weather::Rain | Weather::AcidRain) && super::weather::sheltered(&self.arena, self.p.x, self.p.y);
-        let pace = if drawn { Permille(sky.foe_speed().0 * SHELTER_DRAW / 1000) } else { sky.foe_speed() };
+        let pace = self.foe_pace();
         let (wx, wy) = self.world.wind(self.tick, c.hz().get());
         let mut near = std::mem::take(&mut self.near);
         let e = &mut self.e;
@@ -554,6 +551,15 @@ impl<'c> Sim<'c> {
                 self.owned[k].cd = f.cd;
             }
         }
+    }
+
+    /// How fast the horde runs this tick (permille): the sky sets it, a hero sheltering from rain or acid draws
+    /// them faster, and night speeds them up.
+    pub(super) fn foe_pace(&self) -> Permille {
+        let sky = self.world.forecast(self.tick).now;
+        let drawn = matches!(sky, Weather::Rain | Weather::AcidRain) && super::weather::sheltered(&self.arena, self.p.x, self.p.y);
+        let pace = if drawn { sky.foe_speed().0 * SHELTER_DRAW / 1000 } else { sky.foe_speed().0 };
+        Permille(if self.night() { pace * NIGHT_PACE / 1000 } else { pace })
     }
 
     /// Ticks a special of rank `rank` takes to reload: SPECIAL_RELOAD_S, shorter by a quarter per rank above 1.
