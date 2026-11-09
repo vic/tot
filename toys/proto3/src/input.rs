@@ -459,7 +459,13 @@ impl Ui {
         if self.mode == Mode::Cmd && self.edit(ev, c) {
             return;
         }
-        self.seq.push(ev.key);
+        // a shifted letter arrives as its base key + uppercase text (so its release matches the press): look it up
+        // as the uppercase key, which is how shift bindings (Q, W, F) are written
+        let key = match (ev.key, ev.text) {
+            (Key::Char(c), Some(t)) if c.is_ascii_lowercase() && t == c.to_ascii_uppercase() => Key::Char(t),
+            (k, _) => k,
+        };
+        self.seq.push(key);
         let exact = self.bound(c, &self.seq.clone());
         let longer = c.binds.iter().any(|b| b.mode == self.mode && b.keys.len() > self.seq.len() && b.keys.starts_with(&self.seq));
         match (exact, longer) {
@@ -707,6 +713,51 @@ mod tests {
 
     fn press(c: char) -> KeyEv {
         KeyEv { key: Key::Char(c), kind: Kind::Press, text: Some(c) }
+    }
+
+    /// Real terminal bytes end to end: kitty shift+w and legacy W toggle auto-walk (and do not walk); space held
+    /// keeps the hero firing volley after volley with auto-fire off, and the release stops it.
+    #[test]
+    fn shift_letters_and_space_hold_from_real_bytes() {
+        use crate::sim::{Sim, Tier};
+        let c = content();
+        let feed = |ui: &mut Ui, bytes: &[u8]| {
+            for e in Parser::default().feed(bytes) {
+                if let Event::Key(k) = e {
+                    ui.key(k, &c, 0);
+                }
+            }
+        };
+        let mut ui = Ui::new(false);
+        feed(&mut ui, b"\x1b[119:87;2u");
+        assert!(ui.autowalk, "kitty shift+w toggles auto-walk");
+        assert_eq!(ui.input(false).mv, (0, 0), "and does not walk");
+        feed(&mut ui, b"\x1b[119:87;2:3u");
+        feed(&mut ui, b"W");
+        assert!(!ui.autowalk, "legacy W toggles back");
+        feed(&mut ui, b"\x1b[119u");
+        assert_eq!(ui.input(false).mv.1, -1, "control: plain w walks");
+        feed(&mut ui, b"\x1b[119;1:3u");
+        // space hold: auto-fire off, a foe in range
+        let mut sim = Sim::new(&c, 7, None);
+        let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
+        sim.push_enemy(fam, Tier::Trash, (sim.p.x + 5_000, sim.p.y), 100_000_000, (false, false));
+        let volleys = |ui: &mut Ui, sim: &mut Sim, ticks: u32| {
+            let mut n = 0;
+            for _ in 0..ticks {
+                let before = sim.bolts().count();
+                sim.p.hp = sim.p.max_hp;
+                sim.step(&ui.input(false));
+                n += u32::from(sim.bolts().count() > before);
+            }
+            n
+        };
+        assert_eq!(volleys(&mut ui, &mut sim, 60), 0, "control: nothing pressed, no fire");
+        feed(&mut ui, b"\x1b[32u");
+        assert!(volleys(&mut ui, &mut sim, 120) >= 3, "held space fires again and again");
+        feed(&mut ui, b"\x1b[32;1:3u");
+        let _ = volleys(&mut ui, &mut sim, 30);
+        assert_eq!(volleys(&mut ui, &mut sim, 60), 0, "released: stops");
     }
 
     #[test]
