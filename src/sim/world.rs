@@ -363,7 +363,7 @@ impl Sim<'_> {
     fn goblins_step(&mut self) {
         let hero = (self.p.x, self.p.y);
         let hz = self.c.hz().get();
-        if self.tick > 0 && self.tick.is_multiple_of(hz * GOBLIN_EVERY_S) && self.world.goblins.len() < GOBLIN_MAX {
+        if self.tick > 0 && !self.safe(self.level) && self.tick.is_multiple_of(hz * GOBLIN_EVERY_S) && self.world.goblins.len() < GOBLIN_MAX {
             let n = self.world.goblins_spawned;
             self.world.goblins_spawned += 1;
             let ang = mix(self.world.foe_key ^ GOBLIN_SALT ^ u64::from(n)) % self.trig.len().max(1) as u64;

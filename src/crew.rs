@@ -358,6 +358,7 @@ pub fn snapshot(sim: &Sim) -> String {
         "hero": {"hp": sim.p.hp / 1000, "max": sim.p.max_hp / 1000, "level": sim.p.level, "gold": sim.p.gold},
         "foes_in_view": near, "foes_alive": sim.e.len(), "crew": crew,
         "families": sim.c.fam_ids().map(|f| { let fam = sim.c.fam(f); serde_json::json!({"id": fam.key, "boss": matches!(fam.kind, crate::data::FamKind::Boss { .. })}) }).collect::<Vec<_>>(),
+        "stairs": sim.stairs.iter().map(|st| serde_json::json!({"to": crate::render::level_name(sim, st.to), "dx": (st.x - sim.p.x).div_euclid(t), "dy": (st.y - sim.p.y).div_euclid(t)})).collect::<Vec<_>>(),
         "quests": sim.quests.iter().filter(|q| !q.done).map(|q| { let (n, of) = q.progress(sim); serde_json::json!({"id": q.key.as_str(), "title": q.title.as_str(), "now": n, "of": of}) }).collect::<Vec<_>>(),
     })
     .to_string()
