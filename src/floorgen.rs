@@ -144,7 +144,7 @@ pub fn arena(seed: u64, floor: u8, c: &Content) -> Arena {
     let a: &ArenaDef = &c.arena;
     let mut rng = Xo::stream(seed ^ u64::from(floor).rotate_left(56), Stream::Gen);
     let template = [Template::Open, Template::Pillars, Template::Rubble][rng.below(NonZeroU32::MIN.saturating_add(2)) as usize];
-    let pool = &c.pal.floor_glyphs;
+    let pool = &c.pal().floor_glyphs;
     let n = (range(&mut rng, a.glyphs) as usize).clamp(1, pool.len());
     let mut idx: Vec<usize> = (0..pool.len()).collect();
     // partial Fisher-Yates with own below(): first n entries = the run's glyph subset

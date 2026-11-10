@@ -395,6 +395,27 @@ pub struct Bars {
     pub meter_ratio_min: f64,
 }
 
+/// The palette a `Content` shows, swappable while the run goes on (a theme picked live). Readers get an `Arc` to the
+/// palette of that moment; a swap never changes a palette a reader holds.
+pub struct PalCell(std::sync::RwLock<std::sync::Arc<Palette>>);
+
+impl PalCell {
+    fn new(p: Palette) -> PalCell {
+        PalCell(std::sync::RwLock::new(std::sync::Arc::new(p)))
+    }
+    fn get(&self) -> std::sync::Arc<Palette> {
+        // a poisoned lock still holds a whole palette (writers only swap the Arc)
+        self.0.read().map_or_else(|e| e.into_inner().clone(), |g| g.clone())
+    }
+    fn set(&self, p: Palette) {
+        match self.0.write() {
+            Ok(mut g) => *g = std::sync::Arc::new(p),
+            Err(e) => *e.into_inner() = std::sync::Arc::new(p),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Palette {
     pub bg: Rgb,
     pub fog: Rgb,
@@ -1656,7 +1677,8 @@ pub struct Content {
     pub bars: Bars,
     pub arena: ArenaDef,
     pub world: WorldDef,
-    pub pal: Palette,
+    /// the colours: read with `pal()`; `set_pal` swaps them live (a theme picked mid-run), the sim never sees colour
+    palette: PalCell,
     pub fams: Vec<Fam>,
     pub skills: Vec<Skill>,
     pub bosses: Vec<BossDef>,
@@ -1780,12 +1802,12 @@ impl Library {
             let path = over.unwrap_or_else(|| dir.join(f));
             texts.push(std::fs::read_to_string(&path).map_err(|e| Error::Data { file: path.display().to_string(), line: 0, path: String::new(), msg: e.to_string() })?);
         }
-        let mut c = Content::parse(&texts)?;
-        if let Some(id) = c.pal.scheme.clone() {
+        let c = Content::parse(&texts)?;
+        if let Some(id) = c.pal().scheme.clone() {
             let file = format!("schemes/{}.yaml", id.as_str());
             let text = std::fs::read_to_string(dir.join(&file)).map_err(|e| scheme_err(&file, 0, "", e.to_string()))?;
             let world = WorldScheme::new(&file, Scheme::parse(&file, &text)?)?;
-            c.pal.roles = RoleTable::of(&world.0, &world);
+            c.set_pal(|p| p.roles = RoleTable::of(&world.0, &world));
         }
         Ok(c)
     }
@@ -1820,6 +1842,18 @@ pub fn adventure_files(dir: &Path, id: &str) -> Result<Vec<(&'static str, String
 }
 
 impl Content {
+    /// The colours to draw with now.
+    pub fn pal(&self) -> std::sync::Arc<Palette> {
+        self.palette.get()
+    }
+
+    /// Change the colours (a copy of the current palette, edited by `f`), live.
+    pub fn set_pal(&self, f: impl FnOnce(&mut Palette)) {
+        let mut p = (*self.pal()).clone();
+        f(&mut p);
+        self.palette.set(p);
+    }
+
     /// A shipped adventure (see `Library::load`).
     #[cfg(test)]
     pub fn load_profile(dir: &Path, profile: Option<&str>) -> Result<Content> {
@@ -1887,7 +1921,7 @@ impl Content {
             bars: bars(only(&tu, "bars", "tuning.jsonl")?)?,
             arena: arena_def(only(&tu, "arena", "tuning.jsonl")?)?,
             world: world_def(only(&tu, "world", "tuning.jsonl")?)?,
-            pal: palette(only(&pa, "palette", "palette.jsonl")?)?,
+            palette: PalCell::new(palette(only(&pa, "palette", "palette.jsonl")?)?),
             opt,
             player,
             spawn,
@@ -2848,38 +2882,38 @@ pub mod tests {
         // walls with bright blood motifs
         for p in ["cyberpunk", "kawai", "dnd", "moriah"] {
             let o = load(p);
-            assert!(luma(hell.pal.bg) < luma(o.pal.bg) && luma(hell.pal.wall) < luma(o.pal.wall), "hellish darker than {p}");
+            assert!(luma(hell.pal().bg) < luma(o.pal().bg) && luma(hell.pal().wall) < luma(o.pal().wall), "hellish darker than {p}");
         }
         let red = |c: Rgb| c.0 > c.1.saturating_mul(2) && c.0 > c.2.saturating_mul(2);
         let grey = |c: Rgb| c.0.max(c.1).max(c.2) - c.0.min(c.1).min(c.2) <= 0x18 && c.0.max(c.1).max(c.2) >= 0x50;
-        assert!(grey(hell.pal.floor) && red(hell.pal.floor_motif.0) && hell.pal.floor_motif.1 > 0, "grey floor, blood motifs on it");
-        assert!(red(hell.pal.wall) && luma(hell.pal.wall) < luma(hell.pal.floor), "near-black blood-dark walls");
-        assert!(red(hell.pal.wall_motif.0) && hell.pal.wall_motif.0 .0 >= 0xf0 && hell.pal.wall_motif.1 >= 500, "bright blood motifs on the walls");
-        assert!([hell.pal.fog, hell.pal.alarm, hell.pal.of(Hue::Kin), hell.pal.of(Hue::Therm)].into_iter().all(red), "hellish reds");
-        assert!(!red(base.pal.floor) && base.pal.floor_motif.1 == 0, "control: the cyberpunk floor is not red and has no motif");
+        assert!(grey(hell.pal().floor) && red(hell.pal().floor_motif.0) && hell.pal().floor_motif.1 > 0, "grey floor, blood motifs on it");
+        assert!(red(hell.pal().wall) && luma(hell.pal().wall) < luma(hell.pal().floor), "near-black blood-dark walls");
+        assert!(red(hell.pal().wall_motif.0) && hell.pal().wall_motif.0 .0 >= 0xf0 && hell.pal().wall_motif.1 >= 500, "bright blood motifs on the walls");
+        assert!([hell.pal().fog, hell.pal().alarm, hell.pal().of(Hue::Kin), hell.pal().of(Hue::Therm)].into_iter().all(red), "hellish reds");
+        assert!(!red(base.pal().floor) && base.pal().floor_motif.1 == 0, "control: the cyberpunk floor is not red and has no motif");
         // pink pastel: light inks, pink on top (red and blue over green), and the panels read from their own slots
         let pastel = |c: Rgb| c.0.min(c.1).min(c.2) >= 0x88;
         let pink = |c: Rgb| c.0 >= 0xf0 && c.2 > c.1;
-        assert!([kawai.pal.text, kawai.pal.player, kawai.pal.of(Hue::Kin), kawai.pal.of(Hue::Therm), kawai.pal.of(Hue::Emp), kawai.pal.of(Hue::Code), kawai.pal.xp, kawai.pal.chest].into_iter().all(pastel), "kawai pastels");
-        assert!([kawai.pal.ring, kawai.pal.alarm, kawai.pal.role(Role::Unique), kawai.pal.role(Role::Accent)].into_iter().all(pink), "kawai pinks");
-        assert!(!pastel(hell.pal.of(Hue::Kin)), "control: hellish hues are not pastel");
+        assert!([kawai.pal().text, kawai.pal().player, kawai.pal().of(Hue::Kin), kawai.pal().of(Hue::Therm), kawai.pal().of(Hue::Emp), kawai.pal().of(Hue::Code), kawai.pal().xp, kawai.pal().chest].into_iter().all(pastel), "kawai pastels");
+        assert!([kawai.pal().ring, kawai.pal().alarm, kawai.pal().role(Role::Unique), kawai.pal().role(Role::Accent)].into_iter().all(pink), "kawai pinks");
+        assert!(!pastel(hell.pal().of(Hue::Kin)), "control: hellish hues are not pastel");
         // moriah: silver stone (grey, cool, no gold) and sapphire blue gems on near-black stone
         let moria = load("moriah");
         let silver = |c: Rgb| c.2 >= c.0 && c.0.max(c.1).max(c.2) - c.0.min(c.1).min(c.2) <= 0x50;
         let gold = |c: Rgb| c.0 >= c.1 && c.1 > c.2.saturating_add(0x30);
         let sapphire = |c: Rgb| c.2 >= 0xe0 && c.2 > c.0.saturating_add(0x80);
-        assert!([moria.pal.floor, moria.pal.text, moria.pal.ring, moria.pal.of(Hue::Kin), moria.pal.role(Role::Accent)].into_iter().all(silver), "moriah silver");
-        assert!([moria.pal.xp, moria.pal.chest, moria.pal.of(Hue::Emp), moria.pal.role(Role::Rare)].into_iter().all(sapphire), "moriah blue gems");
-        assert!(![moria.pal.floor, moria.pal.text, moria.pal.xp, moria.pal.chest, moria.pal.ring].into_iter().any(gold), "moriah has no gold");
-        assert!(gold(hell.pal.chest) && !silver(hell.pal.floor), "control: hellish chests are gold, its floor not silver");
+        assert!([moria.pal().floor, moria.pal().text, moria.pal().ring, moria.pal().of(Hue::Kin), moria.pal().role(Role::Accent)].into_iter().all(silver), "moriah silver");
+        assert!([moria.pal().xp, moria.pal().chest, moria.pal().of(Hue::Emp), moria.pal().role(Role::Rare)].into_iter().all(sapphire), "moriah blue gems");
+        assert!(![moria.pal().floor, moria.pal().text, moria.pal().xp, moria.pal().chest, moria.pal().ring].into_iter().any(gold), "moriah has no gold");
+        assert!(gold(hell.pal().chest) && !silver(hell.pal().floor), "control: hellish chests are gold, its floor not silver");
         // cyberpunk: saturated neons (one channel near full, one near empty) on a near-black background
         let neon = |c: Rgb| c.0.max(c.1).max(c.2) >= 0xf0 && c.0.min(c.1).min(c.2) <= 0x40;
-        assert!([base.pal.ring, base.pal.alarm, base.pal.xp, base.pal.chest, base.pal.of(Hue::Kin), base.pal.of(Hue::Therm), base.pal.of(Hue::Emp), base.pal.role(Role::Accent)].into_iter().all(neon), "cyberpunk neons");
-        assert!(!neon(kawai.pal.of(Hue::Emp)), "control: kawai pastels are not neon");
+        assert!([base.pal().ring, base.pal().alarm, base.pal().xp, base.pal().chest, base.pal().of(Hue::Kin), base.pal().of(Hue::Therm), base.pal().of(Hue::Emp), base.pal().role(Role::Accent)].into_iter().all(neon), "cyberpunk neons");
+        assert!(!neon(kawai.pal().of(Hue::Emp)), "control: kawai pastels are not neon");
         // cyan and purple, not pink: the frame colours lean blue (blue over red) and green-free purples or cyans
         let cyan_purple = |c: Rgb| c.2 >= 0xd0 && c.2 >= c.0;
-        assert!([base.pal.ring, base.pal.xp, base.pal.floor, base.pal.of(Hue::Therm), base.pal.of(Hue::Emp), base.pal.of(Hue::Code), base.pal.role(Role::Accent), base.pal.role(Role::Unique), base.pal.role(Role::Magic)].into_iter().all(cyan_purple), "cyberpunk cyan-purple");
-        assert!(!cyan_purple(kawai.pal.ring), "control: kawai pink is not cyan-purple");
+        assert!([base.pal().ring, base.pal().xp, base.pal().floor, base.pal().of(Hue::Therm), base.pal().of(Hue::Emp), base.pal().of(Hue::Code), base.pal().role(Role::Accent), base.pal().role(Role::Unique), base.pal().role(Role::Magic)].into_iter().all(cyan_purple), "cyberpunk cyan-purple");
+        assert!(!cyan_purple(kawai.pal().ring), "control: kawai pink is not cyan-purple");
     }
 
     /// The base palette record without its own inline base24 (tests that add a scheme or base24 start here).
@@ -2902,8 +2936,8 @@ pub mod tests {
         };
         let base = Content::parse(&t).unwrap();
         let own = with(&inline).unwrap();
-        assert_eq!(own.pal.role(Role::Bg), dracula.slots[Role::Bg.slot()], "inline base24 sets the roles");
-        assert_ne!(base.pal.role(Role::Bg), own.pal.role(Role::Bg), "control: the base roles differ");
+        assert_eq!(own.pal().role(Role::Bg), dracula.slots[Role::Bg.slot()], "inline base24 sets the roles");
+        assert_ne!(base.pal().role(Role::Bg), own.pal().role(Role::Bg), "control: the base roles differ");
         let both = with(&format!("{inline}\"scheme\":\"dracula\",")).err().map(|e| e.to_string()).unwrap_or_default();
         assert!(both.contains("not both"), "{both}");
         let short = with("\"base24\":[\"#000000\"],").err().map(|e| e.to_string()).unwrap_or_default();
@@ -2917,7 +2951,7 @@ pub mod tests {
         let with = |id: &str| {
             let mut t = t.clone();
             t[2] = no_base24(&t[2]).replacen("\"t\":\"palette\",", &format!("\"t\":\"palette\",\"scheme\":\"{id}\","), 1);
-            Content::parse(&t).map(|c| c.pal.scheme.map(|s| s.as_str().to_string())).map_err(|e| e.to_string())
+            Content::parse(&t).map(|c| c.pal().scheme.clone().map(|s| s.as_str().to_string())).map_err(|e| e.to_string())
         };
         assert_eq!(with("dracula"), Ok(Some("dracula".into())));
         assert!(with("../x").unwrap_err().contains("palette.jsonl:2 .scheme: scheme id is"));
@@ -2928,7 +2962,7 @@ pub mod tests {
     #[test]
     fn legacy_palette_roles_read_the_old_fields() {
         let c = content();
-        assert_eq!((c.pal.role(Role::Danger), c.pal.role(Role::Bg)), (c.pal.alarm, c.pal.bg));
+        assert_eq!((c.pal().role(Role::Danger), c.pal().role(Role::Bg)), (c.pal().alarm, c.pal().bg));
     }
 
     #[test]
@@ -3067,8 +3101,8 @@ pub mod tests {
         assert_ne!(names(&dark), names(&base));
         assert!(names(&dark).contains(&"BONE ABBOT".to_string()) && dark.mini.as_ref().map(MiniPlan::len) == Some(3) && dark.trees.len() == 6 && dark.items.len() == 14);
         // hellish gives its own inline base24: roles come from it, not from the legacy fields
-        assert_eq!(dark.pal.role(Role::Bg), Rgb(7, 3, 3));
-        assert_eq!(cyber.pal.role(Role::Bg), cyber.pal.bg);
+        assert_eq!(dark.pal().role(Role::Bg), Rgb(7, 3, 3));
+        assert_eq!(cyber.pal().role(Role::Bg), cyber.pal().bg);
         // options and bindings are never themed
         assert_eq!(dark.binds.len(), base.binds.len());
     }
@@ -3107,7 +3141,7 @@ pub mod tests {
             assert!(d.join("profiles").join(&p.id).join("texts.jsonl").exists(), "{}: ships its own texts", p.id);
             assert_ne!(c.texts.get(crate::text::t::PANEL_FLUX), base.texts.get(crate::text::t::PANEL_FLUX), "{}: its own words", p.id);
             assert!(foes(&c).iter().all(|f| !foes(&base).contains(f)), "{}: its own foes", p.id);
-            assert_ne!(c.pal.role(Role::Bg), base.pal.role(Role::Bg), "{}: its own colours", p.id);
+            assert_ne!(c.pal().role(Role::Bg), base.pal().role(Role::Bg), "{}: its own colours", p.id);
             // art and voices in the language of its fantasy
             use crate::text::a;
             assert_ne!(c.texts.art(a::FACE_CALM[0]), base.texts.art(a::FACE_CALM[0]), "{}: its own face", p.id);
@@ -3116,7 +3150,7 @@ pub mod tests {
             let art = |c: &Content| c.classes.iter().map(|k| k.art.rows().iter().map(|r| r.iter().map(|(g, _)| g.ch()).collect::<String>()).collect::<Vec<_>>()).collect::<Vec<_>>();
             assert!(art(&c).iter().all(|x| !art(&base).contains(x)), "{}: its own hero art per class", p.id);
             assert!(Bark::ALL.iter().all(|&b| c.texts.lines(b) != base.texts.lines(b)), "{}: its own voice for every bark", p.id);
-            assert_ne!(c.pal.face, base.pal.face, "{}: its own walls", p.id);
+            assert_ne!(c.pal().face, base.pal().face, "{}: its own walls", p.id);
             let play = |c: &Content| (c.player.hp, c.world.npcs, c.world.bad);
             assert_ne!(play(&c), play(&base), "{}: its own hero and pal gameplay", p.id);
             assert!(c.texts.font().distinct() && c.texts.font().rows("A") != base.texts.font().rows("A"), "{}: its own readable lettering", p.id);

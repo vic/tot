@@ -27,7 +27,7 @@ impl Frame {
     /// The whole screen for `ui.start`. `c` is the base content on step 1 and the agentic steps, the picked
     /// adventure on the class step, so that step shows in that adventure's palette, texts and classes.
     pub fn start(&mut self, c: &Content, ui: &Ui, v: &StartView) {
-        let pal = &c.pal;
+        let pal = &c.pal();
         let tx = &c.texts;
         self.cells.fill(Cell { ch: Glyph::SPACE, fg: pal.text, bg: pal.bg });
         let rows = self.rows;

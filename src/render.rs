@@ -200,7 +200,7 @@ fn hash(a: u64) -> u64 {
 impl Frame {
     pub fn new(c: &Content, cols: u16, rows: u16) -> Frame {
         let n = usize::from(cols) * usize::from(rows);
-        let blank = Cell { ch: Glyph::SPACE, fg: c.pal.text, bg: c.pal.bg };
+        let blank = Cell { ch: Glyph::SPACE, fg: c.pal().text, bg: c.pal().bg };
         let v = &c.view;
         let mut fog = [0u16; 256];
         for (i, f) in fog.iter_mut().enumerate() {
@@ -314,7 +314,7 @@ impl Frame {
     /// Depth fog by distance from the camera.
     fn fogged(&self, c: &Content, col: Rgb, x: f64, y: f64) -> Rgb {
         let d = (x - self.eye.cx).hypot(y - self.eye.cy) as i32;
-        mix(col, c.pal.fog, u32::from(self.fog[((d / LUT_STEP) as usize).min(255)]))
+        mix(col, c.pal().fog, u32::from(self.fog[((d / LUT_STEP) as usize).min(255)]))
     }
 
     /// Screen cell of a world point, if inside the play area.
@@ -370,7 +370,7 @@ impl Frame {
         self.links.clear();
         let c = sim.c;
         let ui = v.ui;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let cols = usize::from(self.cols);
         let fc = c.view.floor_cell;
         // 0. interpolate actors between the last two ticks, move the camera, fix this frame's eye
@@ -532,7 +532,7 @@ impl Frame {
     /// ground silhouette.
     fn blocks(&mut self, sim: &Sim, (fpx, fpy): (f64, f64)) {
         let c = sim.c;
-        let (pal, v, ar) = (&c.pal, &c.view, sim.arena());
+        let (pal, v, ar) = (&c.pal(), &c.view, sim.arena());
         let (_, wall_rgb) = level_look(sim);
         let rows = match ar.template {
             Template::Open | Template::Pillars => v.block_rows[0],
@@ -613,7 +613,7 @@ impl Frame {
         let c = sim.c;
         let dot = |f: &mut Frame, x: i32, y: i32, hue: Hue| {
             if let Some(i) = f.cell_of(f64::from(x), f64::from(y)) {
-                let bg = mix(c.pal.bg, c.pal.of(hue), 350);
+                let bg = mix(c.pal().bg, c.pal().of(hue), 350);
                 f.tint(i, bg);
             }
         };
@@ -682,10 +682,10 @@ impl Frame {
                 }
                 if let Some(k) = hit {
                     let i = r as usize * cols + col as usize;
-                    self.cells[i].bg = mix(c.pal.bg, c.pal.alarm, k);
+                    self.cells[i].bg = mix(c.pal().bg, c.pal().alarm, k);
                     if self.cells[i].ch == Glyph::SPACE {
                         self.cells[i].ch = Glyph::of('░').unwrap_or(Glyph::SPACE);
-                        self.cells[i].fg = mix(c.pal.bg, c.pal.alarm, 600);
+                        self.cells[i].fg = mix(c.pal().bg, c.pal().alarm, 600);
                     }
                 }
             }
@@ -694,7 +694,7 @@ impl Frame {
 
     fn enemies(&mut self, sim: &Sim) {
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let e = &sim.e;
         let cols = usize::from(self.cols);
         // sight ends at the fog end: foes beyond it are not drawn (the spawn ring lies there, so none pops in)
@@ -775,7 +775,7 @@ impl Frame {
         let lift = if c.view.actor_rows[2] == 0 { h / 2 } else { h };
         let (x0, y0) = ((i % cols) as i32 - w / 2, (i / cols) as i32 - lift);
         if lift == h {
-            let shadow = Ink { ch: c.pal.shadow, fg: mix(c.pal.floor, c.pal.bg, 300), bg: None };
+            let shadow = Ink { ch: c.pal().shadow, fg: mix(c.pal().floor, c.pal().bg, 300), bg: None };
             for ox in w / 4..w - w / 4 {
                 let x = x0 + ox;
                 if x >= 0 && x < i32::from(self.cols) {
@@ -797,7 +797,7 @@ impl Frame {
                 let (ch, fg) = if rr <= 250_000 {
                     (def.cloud[(hh % def.cloud.len() as u64) as usize], hue)
                 } else if rr <= 1_000_000 && !hh.is_multiple_of(3) {
-                    (def.cloud[(hh >> 8) as usize % def.cloud.len()], mix(hue, c.pal.bg, 500))
+                    (def.cloud[(hh >> 8) as usize % def.cloud.len()], mix(hue, c.pal().bg, 500))
                 } else {
                     continue;
                 };
@@ -865,7 +865,7 @@ impl Frame {
     fn popup(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
         let (Mode::Pick, Some(offer)) = (ui.mode, sim.offer) else { return };
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let Some((x0, y0, w, h)) = self.popup_box(pal) else { return };
         let limit = sim.pick_timeout_ms();
         let left_ms = limit.saturating_sub(now_ms.saturating_sub(ui.pick_open_ms));
@@ -939,7 +939,7 @@ impl Frame {
     /// The shop: a plain-text list in the popup box.
     fn menu(&mut self, sim: &Sim, ui: &Ui) {
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         // (title, rows of (text, colour)), cursor
         let (title, rows, sel): (String, Vec<(String, Rgb)>, Option<usize>) = match ui.mode {
             Mode::Shop => {
@@ -1021,7 +1021,7 @@ impl Frame {
     fn hud_bar(&mut self, sim: &Sim) {
         let Some((x0, y0)) = self.bar_origin() else { return };
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let cols = usize::from(self.cols);
         for r in 0..BAR_H {
             for col in 0..BAR_W {
@@ -1105,7 +1105,7 @@ impl Frame {
             self.level_flash = None;
             return;
         }
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let r = ring_radius(t);
         let star = sim.c.texts.glyph(g::STAR);
         let n = LEVEL_RING_POINTS;
@@ -1135,7 +1135,7 @@ impl Frame {
     /// Sound as sight: a burst where a foe vanished, and a shaking ROAR over a boss that just appeared.
     fn sound_fx(&mut self, sim: &Sim) {
         let (c, now) = (sim.c, sim.tick);
-        let pal = &c.pal;
+        let pal = &c.pal();
         for k in 0..self.pops.len() {
             let (x, y, at) = self.pops[k];
             let (col, row) = self.scr(f64::from(x), f64::from(y));
@@ -1153,7 +1153,7 @@ impl Frame {
     /// The sky over the play area: rain and acid streaks on open floor, a red (blood moon) or pale (full moon)
     /// cast with the moon itself, and a big banner when the weather turns. Run before the HUD boxes.
     fn sky_fx(&mut self, sim: &Sim, now_ms: u64) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let w = sim.world.forecast(sim.tick).now;
         if self.sky != Some(w) {
             if self.sky.is_some() {
@@ -1205,7 +1205,7 @@ impl Frame {
     /// Champions and bosses roar when they first come into sight, sized by class. Drawn last, over the HUD.
     fn roars_fx(&mut self, sim: &Sim) {
         let (c, now) = (sim.c, sim.tick);
-        let pal = &c.pal;
+        let pal = &c.pal();
         // every champion and boss roars once, the first tick it is in sight; louder the stronger it is
         let sight2 = i64::from(c.view.fog_end).pow(2);
         for k in 0..sim.e.len() {
@@ -1260,7 +1260,7 @@ impl Frame {
     /// Pals still standing call for help: a big HELP! over them blinking between two colours, and sound waves
     /// rippling out from the pal. Drawn last, like every shout.
     fn pal_calls(&mut self, sim: &Sim) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let big = sim.c.texts.font().rows(sim.c.texts.get(t::PAL_HELP));
         let bw = big[0].chars().count() as i32;
         let (blink, wave) = ((sim.tick / PAL_BLINK).is_multiple_of(2), (sim.tick / PAL_WAVE % 3) as i32 + 1);
@@ -1288,7 +1288,7 @@ impl Frame {
     /// so it reads while the hero moves (tot-7op), and the line in a rounded speech bubble on the Doom face in the bar.
     fn hero_shout(&mut self, sim: &Sim) {
         let Some((word, line, at)) = self.face.shout(sim) else { return };
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let here = self.scr(f64::from(self.cur_p.0), f64::from(self.cur_p.1));
         let (col, row) = match self.shout_at {
             Some((t, spot)) if t == at => spot,
@@ -1327,7 +1327,7 @@ impl Frame {
 
     /// The weather-change banner: big letters on a dark plate, drawn last so nothing covers it.
     fn sky_banner_fx(&mut self, sim: &Sim, now_ms: u64) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         if let Some((bw, at)) = self.sky_banner {
             if now_ms.saturating_sub(at) >= SKY_BANNER_MS {
                 self.sky_banner = None;
@@ -1354,7 +1354,7 @@ impl Frame {
             self.died_ms = None;
             return;
         };
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let t = now_ms.saturating_sub(*self.died_ms.get_or_insert(now_ms));
         let sight2 = i64::from(sim.c.view.fog_end).pow(2);
         let fam = match cause {
@@ -1437,7 +1437,7 @@ impl Frame {
     pub(crate) fn sponsor(&mut self, c: &Content, row: u16) -> u16 {
         let label = SUPPORT_LABEL;
         let sx = self.cols.saturating_sub(label.chars().count() as u16 + 5);
-        self.button((row, sx), label, (c.pal.alarm, c.pal.bg), false, SUPPORT_URL);
+        self.button((row, sx), label, (c.pal().alarm, c.pal().bg), false, SUPPORT_URL);
         sx
     }
 
@@ -1494,7 +1494,7 @@ impl Frame {
 
     /// Fed thieves glow gold (stronger the more loot they ate); recent bites float a line above them.
     fn fed(&mut self, sim: &Sim) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         for k in 0..sim.e.len() {
             let loot = sim.e.loot[k];
             if loot == 0 && sim.e.panic[k] {
@@ -1534,7 +1534,7 @@ impl Frame {
     /// World layer: NPCs (friends in the hero colour, keepers in gold, neutrals dim), goblins and their gold,
     /// world chests (a revealed fake gets a red `!`), boss blast fuses and traps (dim while arming).
     fn world_layer(&mut self, sim: &Sim) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let w = &sim.world;
         let at = |f: &mut Self, x: i32, y: i32, p: Prio, ch: Glyph, fg: Rgb| {
             let (x, y) = (f64::from(x), f64::from(y));
@@ -1609,7 +1609,7 @@ impl Frame {
 
     /// The colour an agent gave a crew member, else its side's (pals the hero's, foes the alarm).
     fn mate_ink(sim: &Sim, m: &crate::sim::Mate) -> Rgb {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         m.kit.rgb.map_or(
             match m.side() {
                 crate::sim::Allegiance::Pal => pal.player,
@@ -1622,7 +1622,7 @@ impl Frame {
     /// Crew members (agentic NPCs): a pal stands on its own body with its agent's glyph and colour (a foe's body is
     /// drawn as the enemy it is).
     fn crew_layer(&mut self, sim: &Sim) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let n = sim.c.view.actor_rows[2].max(1);
         for m in &sim.crew {
             let Some((x, y, ..)) = sim.mate_at(m) else { continue };
@@ -1641,7 +1641,7 @@ impl Frame {
     /// Every crew member's name over its head, and over that the last line it said (drawn over the arena, under
     /// the panes and popups).
     fn crew_labels(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let n = sim.c.view.actor_rows[2].max(1);
         for m in &sim.crew {
             let Some((x, y, hp, max)) = sim.mate_at(m) else { continue };
@@ -1696,7 +1696,7 @@ impl Frame {
             if (0..cols).contains(&x) {
                 let k = row as usize * usize::from(self.cols) + x as usize;
                 self.cells[k].ch = Glyph::of(ch).unwrap_or(Glyph::SPACE);
-                self.cells[k].fg = if ch == '█' { fg } else { sim.c.pal.dim };
+                self.cells[k].fg = if ch == '█' { fg } else { sim.c.pal().dim };
             }
         }
     }
@@ -1710,7 +1710,7 @@ impl Frame {
 
     /// Objective arrows (green, the followed one big) and the line from the hero to the followed one (O hides it).
     fn objective_marks(&mut self, sim: &Sim, ui: &Ui) {
-        let fg = objective_ink(&sim.c.pal);
+        let fg = objective_ink(&sim.c.pal());
         let (open, sel) = Self::objectives(sim, ui);
         let followed = sel.and_then(|k| open[k].1);
         if let (true, Some((ox, oy))) = (ui.obj_line, followed) {
@@ -1789,7 +1789,7 @@ impl Frame {
 
     /// Crew pane (right, under the stats): every member with its glyph, name, class word and HP.
     fn crew_pane(&mut self, sim: &Sim, ui: &Ui) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let tasks = self.task_rows(sim, ui);
         let h = 1 + sim.crew.len() as u16 + tasks.len() as u16;
         if (sim.crew.is_empty() && tasks.is_empty()) || self.cols < PANEL_W || self.play_rows() < PANEL_H + h {
@@ -1816,7 +1816,7 @@ impl Frame {
 
     /// Crew chat (left, under the power-up panes): the newest lines that fit, wrapped, speaker in its colour.
     fn chat_pane(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let top = MAP_H + 1 + LOOT_PANES * 3;
         let mut bottom = match self.bar_origin() {
             Some((bx, by)) if bx < CHAT_W => by,
@@ -1868,7 +1868,7 @@ impl Frame {
     fn loot(&mut self, sim: &Sim, x: f64, y: f64, id: crate::sim::ItemId) {
         let Some(it) = sim.c.items.get(usize::from(id.0)) else { return };
         let Some(i) = self.cell_of(x, y) else { return };
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let fg = pal.role(it.rarity.role());
         let glow = mix(fg, pal.bg, LOOT_GLOW);
         self.put(i, Prio::Pickup, self.vd(x, y), Ink { ch: it.glyph, fg, bg: Some(glow) });
@@ -1882,7 +1882,7 @@ impl Frame {
 
     /// Chest: 3x2 gold sprite on a pulsing gold glow, centred on the chest's cell.
     fn chest(&mut self, sim: &Sim, x: f64, y: f64) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         if self.cell_of(x, y).is_none() {
             return;
         }
@@ -1905,7 +1905,7 @@ impl Frame {
     fn boss_bar(&mut self, sim: &Sim) {
         let Some(b) = sim.boss_ix() else { return };
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let (left, right) = (MAP_W + 1, self.cols.saturating_sub(PANEL_W + 1));
         if right <= left + BOSS_BAR_W {
             return;
@@ -1941,17 +1941,17 @@ impl Frame {
         self.hero_pane(sim, ui);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
-            self.pointer(sim, x, y, c.pal.alarm);
+            self.pointer(sim, x, y, c.pal().alarm);
         }
         for st in &sim.stairs {
-            self.pointer_sized(sim, st.x, st.y, portal_ink(&c.pal), true);
+            self.pointer_sized(sim, st.x, st.y, portal_ink(&c.pal()), true);
         }
         for &(x, y) in &sim.treasures {
-            self.pointer(sim, x, y, c.pal.chest);
+            self.pointer(sim, x, y, c.pal().chest);
         }
         // the nearest few pals, keepers and goblins in earshot get an arrow in their own colour; every one on the
         // floor would bury the screen edge in arrows
-        let goblins = sim.world.goblins.iter().map(|g| (g.x, g.y, c.pal.chest));
+        let goblins = sim.world.goblins.iter().map(|g| (g.x, g.y, c.pal().chest));
         let npcs = sim.world.npcs.iter().filter(|p| p.npc != crate::sim::Npc::Neutral).map(|p| (p.x, p.y, npc_ink(c, p.npc).1));
         let mut calls: Vec<(i64, i32, i32, Rgb)> = npcs.chain(goblins).map(|(x, y, fg)| (dist2(x - sim.p.x, y - sim.p.y), x, y, fg)).filter(|&(d2, ..)| d2 <= PAL_CALL_MM.pow(2)).collect();
         calls.sort_unstable_by_key(|&(d2, x, y, _)| (d2, x, y));
@@ -1961,7 +1961,7 @@ impl Frame {
         // the level's name under the map, over the edge arrows
         if self.cols >= MAP_W && self.play_rows() > MAP_H {
             let s: String = level_name(sim, sim.level).chars().take(usize::from(MAP_W)).collect();
-            self.text(MAP_H, 1, &s, c.pal.role(Role::Legendary));
+            self.text(MAP_H, 1, &s, c.pal().role(Role::Legendary));
         }
         // shouts last: only the popups may cover them
         self.pal_calls(sim);
@@ -1977,7 +1977,7 @@ impl Frame {
     fn map(&mut self, sim: &Sim, heading: Heading, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
         let goals: Vec<(i32, i32)> = sim.quests.iter().filter_map(|q| sim.objective(q)).collect();
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let cols = usize::from(self.cols);
         let (x0, y0) = (0u16, 0u16);
         if self.cols < MAP_W || self.play_rows() < MAP_H {
@@ -2022,7 +2022,7 @@ impl Frame {
         if n == 0 || ui.mode == Mode::Pick {
             return;
         }
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         // a vivid role colour, never the plain chest white: each pane filled with its glow, the top one pulsing (tot-8zt)
         let fg = pal.role(POWER_ROLE);
         let pulse = (sim.tick / CHEST_PULSE).is_multiple_of(2);
@@ -2053,7 +2053,7 @@ impl Frame {
     /// the middle and N E S W round it. It turns with the eased camera (the same rotation the map makes at rest),
     /// so a q/e turn swings it smoothly. N in the alarm colour (tot-5ah).
     fn rose(&mut self, c: &Content) {
-        let (p, pal) = (self.eye.p, &c.pal);
+        let (p, pal) = (self.eye.p, &c.pal());
         self.plate(0, 0, 3, 3, pal.hud_bg);
         let at = |(x, y): (f64, f64)| ((ROSE_C + x).round() as i32, (ROSE_C + y).round() as i32);
         self.flash_cell(ROSE_C as i32, ROSE_C as i32, c.texts.glyph(g::STAR), pal.dim);
@@ -2068,7 +2068,7 @@ impl Frame {
 
     fn panel(&mut self, sim: &Sim, phase: &str, bytes: usize) {
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         if self.cols < PANEL_W || self.play_rows() < PANEL_H {
             return;
         }
@@ -2245,7 +2245,7 @@ impl Frame {
 
     /// An edge arrow toward (wx, wy); `big` doubles it (objectives, portals: the things to find).
     fn pointer_sized(&mut self, sim: &Sim, wx: i32, wy: i32, fg: Rgb, big: bool) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let (tx, ty) = self.scr(f64::from(wx), f64::from(wy));
         let (cols, rows) = (i32::from(self.cols), i32::from(self.play_rows()));
         if (0..cols).contains(&tx) && (0..rows).contains(&ty) {
@@ -2317,7 +2317,7 @@ impl Frame {
     fn strip(&mut self, sim: &Sim, v: &View) {
         self.overlays(sim, v);
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let ui = v.ui;
         let (rb, rcm) = (self.rows - self.strip, self.rows - 1);
         let ended = sim.outcome.is_some();
@@ -2410,7 +2410,7 @@ impl Frame {
     /// Message line at the top of the play area (between map and panel): look tooltip, the picked card, narration,
     /// The story speaks in a framed card at the top centre, typed out letter by letter so the eye catches it.
     fn story_card(&mut self, sim: &Sim, text: &str, at: u32) {
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let (lo, hi) = (i32::from(MAP_W) + 1, i32::from(self.cols.saturating_sub(PANEL_W + 1)));
         let room = (hi - lo - 4).max(0) as usize;
         let line: String = text.chars().take(room).collect();
@@ -2432,7 +2432,7 @@ impl Frame {
     /// or the last action's result.
     fn message(&mut self, sim: &Sim, v: &View) {
         let (c, ui) = (sim.c, v.ui);
-        let pal = &c.pal;
+        let pal = &c.pal();
         if ui.mode == Mode::Look {
             self.tooltip(sim, ui, 0, MAP_W + 1);
             return;
@@ -2466,7 +2466,7 @@ impl Frame {
         let (wx, wy) = self.world(cc + ui.cursor.0, rc + ui.cursor.1);
         let (ax, ay) = (wx.round() as i32, wy.round() as i32);
         let best = (0..sim.e.len()).map(|k| (dist2(sim.e.x[k] - ax, sim.e.y[k] - ay), k)).min().filter(|(d2, _)| *d2 <= 2_250_000);
-        let pal = &c.pal;
+        let pal = &c.pal();
         let tx = &c.texts;
         let Some((_, k)) = best else {
             self.text(row, x0, tx.get(t::LOOK_HELP), pal.dim);
@@ -2633,7 +2633,7 @@ pub fn level_name(sim: &Sim, l: crate::sim::Level) -> String {
 /// The (floor, wall) colours of the level the hero is on: the agent's look, else the adventure's palette.
 fn level_look(sim: &Sim) -> (Rgb, Rgb) {
     let rgb = |c: crate::sim::Rgb8| Rgb(c.0, c.1, c.2);
-    sim.look().map_or((sim.c.pal.floor, sim.c.pal.wall), |(f, w)| (rgb(f), rgb(w)))
+    sim.look().map_or((sim.c.pal().floor, sim.c.pal().wall), |(f, w)| (rgb(f), rgb(w)))
 }
 
 /// The glyph of a stair by where it leads: up to the town, or down.
@@ -2655,7 +2655,7 @@ fn stat_value(s: crate::data::Stat, v: i32) -> String {
 /// The service lines of the shop popup: what the keeper offers besides its stock, then what the last service did.
 fn service_rows(sim: &Sim, ui: &Ui) -> Vec<(String, Rgb)> {
     use crate::sim::{Deed, Npc};
-    let (c, pal) = (sim.c, &sim.c.pal);
+    let (c, pal) = (sim.c, &sim.c.pal());
     let name = |id: crate::sim::ItemId| c.items.get(usize::from(id.0)).map_or("", |it| it.name.as_str());
     let slot = Slot::ALL[ui.gear_sel.min(Slot::ALL.len() - 1)];
     let piece = sim.gear.piece(slot);
@@ -2697,7 +2697,7 @@ fn service_rows(sim: &Sim, ui: &Ui) -> Vec<(String, Rgb)> {
 /// Letter and colour of an NPC, on the arena and on the map: pals in the hero colour, keepers in gold.
 fn npc_ink(c: &Content, npc: crate::sim::Npc) -> (Glyph, Rgb) {
     use crate::sim::Npc;
-    let (pal, gl) = (&c.pal, |k| c.texts.glyph(k));
+    let (pal, gl) = (&c.pal(), |k| c.texts.glyph(k));
     match npc {
         Npc::Pal { .. } => (gl(g::NPC_PAL), pal.player),
         Npc::Merchant { .. } => (gl(g::NPC_MERCHANT), pal.chest),
@@ -3083,8 +3083,8 @@ mod tests {
         explore(&mut f.seen, (px, py), 1);
         f.map(&sim, Heading::default(), unit, (px, py), &[], &[]);
         let (known, unknown) = (at(&f, (1, 0)), at(&f, (3, 0)));
-        assert_eq!((known.ch.ch(), known.bg), ('░', c.pal.hud_bg));
-        assert_eq!((unknown.ch.ch(), unknown.bg), (' ', c.pal.fog));
+        assert_eq!((known.ch.ch(), known.bg), ('░', c.pal().hud_bg));
+        assert_eq!((unknown.ch.ch(), unknown.bg), (' ', c.pal().fog));
     }
 
     #[test]
@@ -3092,7 +3092,7 @@ mod tests {
         let c = Content::parse(&texts()).unwrap();
         let mut f = Frame::new(&c, 120, 40);
         let filled = |f: &mut Frame, val, max| {
-            f.bar(0, 0, val, max, 6, c.pal.text);
+            f.bar(0, 0, val, max, 6, c.pal().text);
             (0..6).filter(|&x| f.cells[x].ch.ch() == '█').count()
         };
         assert_eq!(filled(&mut f, 4, 27), 1, "4 of 27 shows one cell");
@@ -3108,12 +3108,12 @@ mod tests {
         let n_at = |f: &mut Frame, q: f64| {
             f.eye.p = Proj::at(q);
             f.rose(&c);
-            let i = (0..usize::from(MAP_H) * 120).find(|&i| i % 120 < usize::from(MAP_W) && f.cells[i].ch.ch() == 'N' && f.cells[i].fg == c.pal.alarm).unwrap();
+            let i = (0..usize::from(MAP_H) * 120).find(|&i| i % 120 < usize::from(MAP_W) && f.cells[i].ch.ch() == 'N' && f.cells[i].fg == c.pal().alarm).unwrap();
             // tiny: the whole compass on its own plate in the 3x3 top-left corner
             assert!((i % 120) < 3 && i / 120 < 3, "N in the top-left 3x3");
-            assert!([0, 1, 2].iter().all(|&r| f.cells[r * 120..r * 120 + 3].iter().all(|cl| cl.bg == c.pal.hud_bg)), "on its own plate");
+            assert!([0, 1, 2].iter().all(|&r| f.cells[r * 120..r * 120 + 3].iter().all(|cl| cl.bg == c.pal().hud_bg)), "on its own plate");
             for row in 0..usize::from(MAP_H) {
-                f.cells[row * 120..row * 120 + usize::from(MAP_W)].fill(Cell { ch: Glyph::SPACE, fg: c.pal.text, bg: c.pal.bg });
+                f.cells[row * 120..row * 120 + usize::from(MAP_W)].fill(Cell { ch: Glyph::SPACE, fg: c.pal().text, bg: c.pal().bg });
             }
             ((i % 120) as f64 - ROSE_C, (i / 120) as f64 - ROSE_C)
         };
@@ -3210,10 +3210,10 @@ mod tests {
         let t = text(&f);
         assert!(t.contains(&level_line(&c, sim.p.level)), "line shown on level up");
         // ring: stars in several bright colours, each on a glow of its own colour
-        let ring: Vec<Rgb> = f.cells.iter().filter(|cl| cl.ch.ch() == '✦' && cl.bg == mix(cl.fg, c.pal.bg, LEVEL_GLOW_BG)).map(|cl| cl.fg).collect();
+        let ring: Vec<Rgb> = f.cells.iter().filter(|cl| cl.ch.ch() == '✦' && cl.bg == mix(cl.fg, c.pal().bg, LEVEL_GLOW_BG)).map(|cl| cl.fg).collect();
         assert!(ring.len() >= 8, "ring drawn with glow");
-        assert!(LEVEL_GLOW.iter().filter(|&&r| ring.contains(&c.pal.role(r))).count() >= 3, "several bright colours");
-        assert!(ring.iter().all(|&fg| LEVEL_GLOW.iter().any(|&r| c.pal.role(r) == fg)), "only the bright roles");
+        assert!(LEVEL_GLOW.iter().filter(|&&r| ring.contains(&c.pal().role(r))).count() >= 3, "several bright colours");
+        assert!(ring.iter().all(|&fg| LEVEL_GLOW.iter().any(|&r| c.pal().role(r) == fg)), "only the bright roles");
         f.compose(&sim, &view(100 + LEVEL_FLASH_MS + 1));
         assert!(!text(&f).contains(&level_line(&c, sim.p.level)), "flash ends");
         // negative control: same level, no new flash
@@ -3225,11 +3225,11 @@ mod tests {
     #[test]
     fn chest_glow_pulses_and_is_gold_tinted() {
         let c = Content::parse(&texts()).unwrap();
-        let (a, b) = (chest_glow(&c.pal, 0), chest_glow(&c.pal, CHEST_PULSE));
+        let (a, b) = (chest_glow(&c.pal(), 0), chest_glow(&c.pal(), CHEST_PULSE));
         assert_ne!(a, b, "glow must pulse");
-        assert_eq!(a, chest_glow(&c.pal, 2 * CHEST_PULSE), "period is two phases");
+        assert_eq!(a, chest_glow(&c.pal(), 2 * CHEST_PULSE), "period is two phases");
         // negative control: the glow is the chest colour lifted off the bg, not the bg itself
-        assert_ne!(a, c.pal.bg);
+        assert_ne!(a, c.pal().bg);
     }
 
     #[test]
@@ -3252,10 +3252,10 @@ mod tests {
         f.compose(&sim, &view);
         assert!(painted(&f, &help) && play(&f).contains('p') && play(&f).contains('('), "big HELP! with waves\n{}", play(&f));
         // it blinks: another colour one blink later
-        let fg_now = f.cells.iter().find(|cl| cl.ch.ch() == '▄' && (cl.fg == c.pal.player || cl.fg == c.pal.xp)).map(|cl| cl.fg);
+        let fg_now = f.cells.iter().find(|cl| cl.ch.ch() == '▄' && (cl.fg == c.pal().player || cl.fg == c.pal().xp)).map(|cl| cl.fg);
         sim.tick += PAL_BLINK;
         f.compose(&sim, &view);
-        let fg_next = f.cells.iter().find(|cl| cl.ch.ch() == '▄' && (cl.fg == c.pal.player || cl.fg == c.pal.xp)).map(|cl| cl.fg);
+        let fg_next = f.cells.iter().find(|cl| cl.ch.ch() == '▄' && (cl.fg == c.pal().player || cl.fg == c.pal().xp)).map(|cl| cl.fg);
         assert!(fg_now.is_some() && fg_now != fg_next, "blinks");
         assert_eq!(arrows(&f), base, "on screen: no arrow");
         sim.world.npcs[0].x = sim.p.x + 100_000;
@@ -3435,9 +3435,9 @@ mod tests {
         let mut sim = Sim::new(&c, 7, None);
         sim.world.npcs.clear();
         let bare = look(&sim);
-        assert_eq!(bare[0].map(|t| t.0), Some(c.pal.body.ch()), "control: bare torso");
+        assert_eq!(bare[0].map(|t| t.0), Some(c.pal().body.ch()), "control: bare torso");
         assert_eq!(bare[1..], [None; 4], "control: nothing beside a bare level-1 hero");
-        let ink = |id: ItemId| (c.items[usize::from(id.0)].glyph.ch(), c.pal.role(c.items[usize::from(id.0)].rarity.role()));
+        let ink = |id: ItemId| (c.items[usize::from(id.0)].glyph.ch(), c.pal().role(c.items[usize::from(id.0)].rarity.role()));
         let [armor, weapon, charm] = [Slot::Armor, Slot::Weapon, Slot::Charm].map(item);
         for id in [armor, weapon, charm] {
             sim.gear.wear(&c, id);
@@ -3485,7 +3485,7 @@ mod tests {
             let mut f = Frame::new(&c, 160, 50);
             f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
             let (x, y) = f.pos[0];
-            let (fam_hue, gold) = (f.fogged(&c, c.pal.of(c.fam(f_id).hue), x, y), f.fogged(&c, c.pal.role(Role::Legendary), x, y));
+            let (fam_hue, gold) = (f.fogged(&c, c.pal().of(c.fam(f_id).hue), x, y), f.fogged(&c, c.pal().role(Role::Legendary), x, y));
             let boss = |col: Option<Rgb>| (0..f.cells.len()).filter(|&j| f.z[j] == Prio::EliteBoss && col.is_none_or(|col| f.cells[j].fg == col)).count();
             (boss(None), boss(Some(fam_hue)), boss(Some(gold)))
         };
@@ -3565,9 +3565,9 @@ mod tests {
             let mut f = Frame::new(&c, 120, 40);
             f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
             let (col, row) = f.scr(f64::from(x), f64::from(y));
-            let fg = c.pal.role(c.items[usize::from(id.0)].rarity.role());
+            let fg = c.pal().role(c.items[usize::from(id.0)].rarity.role());
             let cell = f.cells[row as usize * 120 + col as usize];
-            assert!(cell.fg == fg && cell.bg != c.pal.bg, "item in its rarity colour on a glow");
+            assert!(cell.fg == fg && cell.bg != c.pal().bg, "item in its rarity colour on a glow");
             (1..=6).take_while(|h| f.cells[(row - h) as usize * 120 + col as usize].fg == fg && "│╎".contains(f.cells[(row - h) as usize * 120 + col as usize].ch.ch())).count()
         };
         let (common, unique) = (beam(by(Rarity::Common)), beam(by(Rarity::Unique)));
@@ -3582,7 +3582,7 @@ mod tests {
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let (col, row) = f.scr(f64::from(x), f64::from(y));
         let cell = f.cells[row as usize * 120 + col as usize];
-        assert_eq!((cell.ch.ch(), cell.fg, cell.bg), ('$', c.pal.chest, chest_glow(&c.pal, sim.tick)), "gold glows");
+        assert_eq!((cell.ch.ch(), cell.fg, cell.bg), ('$', c.pal().chest, chest_glow(&c.pal(), sim.tick)), "gold glows");
     }
 
     #[test]
@@ -3629,7 +3629,7 @@ mod tests {
         let fg = npc_ink(&c, Npc::Merchant { honest: true }).1;
         let (bare, with) = (glowing(vec![]), glowing(vec![Placed { npc: Npc::Merchant { honest: true }, x: 0, y: 0 }]));
         let new = |col: Rgb| bare.iter().zip(&with).filter(|(a, b)| *a != *b && **b == col).count();
-        let (head, body) = (new(mix(fg, c.pal.bg, NPC_GLOW)), new(mix(fg, c.pal.bg, NPC_BODY_GLOW)));
+        let (head, body) = (new(mix(fg, c.pal().bg, NPC_GLOW)), new(mix(fg, c.pal().bg, NPC_BODY_GLOW)));
         assert!(head == 1 && body >= usize::from(c.view.actor_rows[2]) - 1, "a glowing head over a glowing body as tall as an elite: {head} {body}");
         assert_eq!(bare, glowing(vec![]), "control: the same frame without the persona");
     }
@@ -3648,7 +3648,7 @@ mod tests {
         f.compose(&sim, &view);
         let (merchant, goblin) = (c.texts.glyph(g::NPC_MERCHANT).ch(), c.texts.glyph(g::MAP_GOBLIN).ch());
         assert!(!map(&f).contains(merchant) && !map(&f).contains(goblin), "control: none on the map");
-        let gold_arrows = |f: &Frame| f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == c.pal.chest).count();
+        let gold_arrows = |f: &Frame| f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == c.pal().chest).count();
         let before = gold_arrows(&f);
         sim.world.npcs = vec![Placed { npc: Npc::Merchant { honest: true }, x: sim.p.x + 40_000, y: sim.p.y }];
         f.compose(&sim, &view);
@@ -3709,9 +3709,9 @@ mod tests {
         assert!(f.plain().contains("POWER-UP") && !f.plain().contains("UPGRADE"), "waits as a pane, no popup");
         // coloured to be spotted: the frame in the power colour (not the plain chest white), the inside filled
         let corner = f.cells[usize::from(MAP_H + 1) * 120];
-        assert_eq!((corner.ch.ch(), corner.fg), ('╭', c.pal.role(POWER_ROLE)), "pane frame in the power colour");
-        assert_ne!(c.pal.role(POWER_ROLE), c.pal.chest, "control: not the chest white");
-        assert_ne!(f.cells[usize::from(MAP_H + 2) * 120 + 3].bg, c.pal.hud_bg, "pane filled with its glow");
+        assert_eq!((corner.ch.ch(), corner.fg), ('╭', c.pal().role(POWER_ROLE)), "pane frame in the power colour");
+        assert_ne!(c.pal().role(POWER_ROLE), c.pal().chest, "control: not the chest white");
+        assert_ne!(f.cells[usize::from(MAP_H + 2) * 120 + 3].bg, c.pal().hud_bg, "pane filled with its glow");
         assert_eq!(ui.mode, Mode::Play);
         ui.key(crate::input::KeyEv { key: crate::input::Key::Char('p'), kind: crate::input::Kind::Press, text: Some('p') }, &c, 7_000);
         f.compose(&sim, &View { ui: &ui, now_ms: 7_000, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
@@ -3778,7 +3778,7 @@ mod tests {
         let art = base.texts.art(crate::text::a::TITLE);
         assert!(art.iter().all(|r| s.contains(r.trim())), "title art\n{s}");
         assert!(s.contains(base.texts.get(crate::text::t::PICK_ADVENTURE)) && advs.iter().all(|a| s.contains(&a.name) && s.contains(&a.blurb)));
-        assert!(f.cells.iter().any(|cl| cl.bg == base.pal.role(Role::Select)), "the cursor's entry is lit");
+        assert!(f.cells.iter().any(|cl| cl.bg == base.pal().role(Role::Select)), "the cursor's entry is lit");
         // step 2: the dark adventure, loaded: its classes, in its colours
         let dark_ix = advs.iter().position(|a| a.id == "hellish").unwrap();
         let dark = Content::load_profile(d, Some("hellish")).unwrap();
@@ -3788,8 +3788,8 @@ mod tests {
         let s = f.plain();
         assert!(s.contains(dark.texts.get(crate::text::t::PICK_CLASS)) && dark.classes.iter().all(|k| s.contains(&k.name) && s.contains(&k.desc)), "{s}");
         assert!(!base.classes.iter().any(|k| s.contains(&k.name)), "control: not the base classes");
-        assert_ne!(dark.pal.bg, base.pal.bg, "control: the adventures differ in colour");
-        assert_eq!(f.cells[0].bg, dark.pal.bg, "painted in the adventure's colours");
+        assert_ne!(dark.pal().bg, base.pal().bg, "control: the adventures differ in colour");
+        assert_eq!(f.cells[0].bg, dark.pal().bg, "painted in the adventure's colours");
     }
 
     #[test]
@@ -3916,7 +3916,7 @@ mod tests {
         let c = Content::parse(&texts()).unwrap();
         let sim = Sim::new(&c, 7, None);
         let mut f = Frame::new(&c, 200, 60);
-        let sel = mix(c.pal.alarm, c.pal.hud_bg, heropane::SEL_BG);
+        let sel = mix(c.pal().alarm, c.pal().hud_bg, heropane::SEL_BG);
         // cells on the selection background
         let mut lit = |ui: &Ui| {
             f.compose(&sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
@@ -4015,7 +4015,7 @@ mod tests {
         let last = f.plain().lines().nth(39).unwrap().to_string();
         assert!(last.trim_end().ends_with(&format!("▐ {label} ▌")), "a pill button: {last}");
         let lx = last.chars().count() - last.chars().rev().position(|ch| ch == '▌').unwrap() - 1;
-        assert_eq!(f.cells[39 * 120 + lx - 2].bg, c.pal.alarm, "filled");
+        assert_eq!(f.cells[39 * 120 + lx - 2].bg, c.pal().alarm, "filled");
         f.emit();
         let out = String::from_utf8_lossy(&f.out).to_string();
         assert!(out.contains(&format!("\x1b]8;id=tot;{url}")), "OSC 8 link emitted");
@@ -4070,16 +4070,16 @@ mod tests {
         // keys stand out by colour (accent, plain background); the label is ordinary text
         let at = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("spc fire").map(|x| (38 + r, l[..x].chars().count()))).unwrap();
         let cell = |f: &Frame, dx: usize| f.cells[at.0 * 120 + at.1 + dx];
-        assert!(cell(&f, 0).fg == key_fg(&c.pal) && cell(&f, 0).bg == cell(&f, 5).bg && cell(&f, 5).fg != key_fg(&c.pal), "key in accent, no block");
+        assert!(cell(&f, 0).fg == key_fg(&c.pal()) && cell(&f, 0).bg == cell(&f, 5).bg && cell(&f, 5).fg != key_fg(&c.pal()), "key in accent, no block");
         // a toggle shows its state as the label background only: text never changes
         let lab = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("F autofire").map(|x| (38 + r, l[..x].chars().count() + 2))).unwrap();
         let bg_at = |f: &Frame| f.cells[lab.0 * 120 + lab.1].bg;
         let on_bg = bg_at(&f);
-        assert!(on_bg != c.pal.bg, "ON has a coloured background");
+        assert!(on_bg != c.pal().bg, "ON has a coloured background");
         ui.autofire = false;
         f.compose(&sim, &View { ui: &ui, now_ms: 9_999, alpha: 1.0, phase: "SWARM", last_bytes: 0 });
         assert_eq!(rows(&f), a, "same text with auto-fire off");
-        assert!(bg_at(&f) != on_bg && bg_at(&f) != c.pal.bg, "OFF: another colour");
+        assert!(bg_at(&f) != on_bg && bg_at(&f) != c.pal().bg, "OFF: another colour");
         assert_eq!(rows(&f).replace("auto-fire [OFF]", "auto-fire [ON] "), a, "only the tag changed");
     }
 
@@ -4208,7 +4208,7 @@ mod tests {
         for k in 0..64 {
             let a = f64::from(k) * std::f64::consts::TAU / 64.0;
             let (x, y) = (sim.p.x + (a.cos() * 1.0e6) as i32, sim.p.y + (a.sin() * 1.0e6) as i32);
-            f.pointer(&sim, x, y, c.pal.alarm);
+            f.pointer(&sim, x, y, c.pal().alarm);
         }
         let arrows = ['▶', '◀', '▲', '▼'];
         for r in 0..f.play_rows() {
@@ -4268,8 +4268,8 @@ mod tests {
         assert_eq!(f.cells[pi].ch.ch(), '@');
         // the strip is plain except the sponsor button (a link span) and toggle labels (state colours)
         let in_link = |i: usize| f.links.iter().any(|(lo, hi, _)| (*lo..*hi).contains(&i));
-        let toggles = [Role::Heal, Role::Danger].map(|r| mix(c.pal.role(r), c.pal.bg, TOGGLE_BG));
-        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal.hud_bg || cell.bg == c.pal.bg || in_link(i) || toggles.contains(&cell.bg)));
+        let toggles = [Role::Heal, Role::Danger].map(|r| mix(c.pal().role(r), c.pal().bg, TOGGLE_BG));
+        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal().hud_bg || cell.bg == c.pal().bg || in_link(i) || toggles.contains(&cell.bg)));
     }
 
     fn headings() -> [Heading; 4] {
@@ -4326,7 +4326,7 @@ mod tests {
         ui.heading = h;
         let mut f = Frame::new(c, 120, 40);
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
-        let pal = &c.pal;
+        let pal = &c.pal();
         let play = &f.cells[..120 * 37];
         let classes = pal.face.iter().filter(|g| play.iter().any(|cell| cell.ch == **g)).count();
         let shadows = play.iter().filter(|cell| cell.ch == pal.shadow).count();
@@ -4378,7 +4378,7 @@ mod tests {
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let is_block = |i: usize| f.bd[i] != i32::MIN;
         let lefts: Vec<Glyph> = (0..37 * 120).filter(|&i| is_block(i) && (i % 120 == 0 || !is_block(i - 1))).map(|i| f.cells[i].ch).collect();
-        (lefts.iter().filter(|g| **g == c.pal.face[1]).count(), lefts.iter().filter(|g| **g == c.pal.face[2]).count())
+        (lefts.iter().filter(|g| **g == c.pal().face[1]).count(), lefts.iter().filter(|g| **g == c.pal().face[2]).count())
     }
 
     #[test]
@@ -4589,7 +4589,7 @@ mod tests {
                 let (x0, y0) = ((f.cols - w) / 2, (f.play_rows() - h) / 2);
                 for r in y0..y0 + h {
                     for col in x0..x0 + w {
-                        f.cells[usize::from(r) * usize::from(f.cols) + usize::from(col)] = Cell { ch: Glyph::SPACE, fg: c.pal.text, bg: c.pal.bg };
+                        f.cells[usize::from(r) * usize::from(f.cols) + usize::from(col)] = Cell { ch: Glyph::SPACE, fg: c.pal().text, bg: c.pal().bg };
                     }
                 }
                 f.emit();
@@ -4708,8 +4708,8 @@ mod tests {
         let (cc, rc) = f.centre();
         let n = i32::from(c.view.actor_rows[0]);
         let cells: Vec<Glyph> = ((rc - n - 1)..=(rc + 1)).flat_map(|r| ((cc - 3)..=(cc + 3)).map(move |col| (r * 120 + col) as usize)).map(|i| f.cells[i].ch).collect();
-        let tall = cells.iter().filter(|g| **g == c.pal.face[0] || **g == c.pal.face[1]).count();
-        (tall, cells.iter().filter(|g| **g == c.pal.face[2]).count())
+        let tall = cells.iter().filter(|g| **g == c.pal().face[0] || **g == c.pal().face[1]).count();
+        (tall, cells.iter().filter(|g| **g == c.pal().face[2]).count())
     }
 
     #[test]
@@ -4942,7 +4942,7 @@ mod tests {
         assert!(s.contains(&format!("{cursor}{}", c.texts.fill(t::QUEST_ROW, ["Go East", "0", "5"]))) && s.contains(&format!("{m}m")), "followed task with arrow and metres\n{s}");
         assert!(sim.objective(&sim.quests[1]).is_none(), "control: a slay quest without a spot points nowhere");
         // the line: dots toward the objective; O hides it
-        let dots = |f: &Frame| f.cells.iter().filter(|cl| cl.ch == Glyph::of('·').unwrap() && cl.fg == objective_ink(&c.pal)).count();
+        let dots = |f: &Frame| f.cells.iter().filter(|cl| cl.ch == Glyph::of('·').unwrap() && cl.fg == objective_ink(&c.pal())).count();
         shot(&mut f, &sim, &ui);
         let on = dots(&f);
         ui.obj_line = false;
@@ -4956,11 +4956,11 @@ mod tests {
         sim.quest_at(w("east"), Spot::new(None, 80, 0)).unwrap();
         ui.obj_sel = 0;
         shot(&mut f, &sim, &ui);
-        let green_arrows = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == objective_ink(&c.pal)).count();
+        let green_arrows = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == objective_ink(&c.pal())).count();
         assert!(green_arrows >= 2, "a big green arrow toward the followed objective ({green_arrows})");
         let _ = spot;
         // portals: cyan arrows, doubled
-        let cyan = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == portal_ink(&c.pal)).count();
+        let cyan = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == portal_ink(&c.pal())).count();
         assert!(cyan >= 2, "portal arrows in the portal colour, big ({cyan})");
     }
 }

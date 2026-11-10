@@ -46,7 +46,7 @@ impl Frame {
         };
         self.pane_at = tab.and_then(|_| self.pane_origin());
         let (Some(tab), Some((left, top))) = (tab, self.pane_at) else { return };
-        let pal = &sim.c.pal;
+        let pal = &sim.c.pal();
         let (l, t, w) = (i32::from(left), i32::from(top), i32::from(PANEL_W));
         self.plate(l, t, w, i32::from(PANE_H), pal.hud_bg);
         // tabs on the top edge, the shown one lit
@@ -79,7 +79,7 @@ impl Frame {
     /// worn items listed beside it.
     fn pane_armor(&mut self, sim: &Sim, ui: &Ui, (l, t): (i32, i32)) {
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let ink = |slot: Option<Slot>| match slot.and_then(|s| sim.gear.worn(s)).and_then(|id| c.items.get(usize::from(id.0))) {
             Some(it) => pal.role(it.rarity.role()),
             None if slot.is_some() => pal.dim,
@@ -117,7 +117,7 @@ impl Frame {
     /// lines to the nodes it requires, the cursor's node in a box, its details on the last row.
     fn pane_skills(&mut self, sim: &Sim, ui: &Ui, (l, t): (i32, i32)) {
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         let Some(tree): Option<&Tree> = crate::input::hero_tree(c, ui.class) else {
             self.text((t + 1) as u16, l as u16, c.texts.get(t::PANE_NO_TREE), pal.dim);
             return;
@@ -179,7 +179,7 @@ impl Frame {
     fn pane_bags(&mut self, sim: &Sim, ui: &Ui, (l, t): (i32, i32)) {
         use crate::input::BAG_COLS;
         let c = sim.c;
-        let pal = &c.pal;
+        let pal = &c.pal();
         for k in 0..crate::sim::BAG_SLOTS {
             let (x, y) = (l + (k % BAG_COLS) as i32 * 5, t + (k / BAG_COLS) as i32 * 3);
             let it = sim.bag.get(k).and_then(|id| c.items.get(usize::from(id.0)));
