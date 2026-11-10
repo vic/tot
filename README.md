@@ -74,6 +74,20 @@ whoever writes to it, so each subagent can run its own members and talk to the o
 shows in the lower left, the crew in the pane under the stats, and each member's name and last line over its head.
 The game reports back what the crew did, the lines it refused and why, and the state of the fight.
 
+Pals roam on their own: each one walks between spots of its own near you, goes after foes near itself, and comes back
+when it strays too far. A bar over each pal and each boss shows its health; `H` hides and shows the bars. A pal you
+rescue in the dungeon joins your party with its own name, look and abilities.
+
+## An open world the agents direct
+
+The engine holds no story. Under a safe town lie the deeps, level after level, linked by stairs; each level deeper has
+tougher foes. Once an agent is connected it runs the world. It names the levels, puts people in them, gives you
+quests and shows you scenes. A person has a job: it trades, forges, enchants, heals, or only talks. Walk up to one to
+meet it. A quest is a goal the engine counts (slay foes, win pals, reach a level) and a reward it pays when you are
+done. A scene is a card with the agent's words and up to four choices; the world waits while you read, and your choice
+goes back to the agent. The agent hears where you go, whom you meet and what you choose, and it acts on its own
+between your prompts. A dim line under the chat gives tips on playing with agents.
+
 To try it without a kitty terminal, run a headless fight. The autopilot plays the hero, and the run prints the chat:
 
 ```sh frame="terminal"

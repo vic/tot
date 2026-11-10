@@ -254,7 +254,7 @@ pub fn snapshot(sim: &Sim) -> String {
         .collect();
     let near = (0..sim.e.len()).filter(|&i| crate::sim::dist2(sim.e.x[i] - sim.p.x, sim.e.y[i] - sim.p.y) <= i64::from(sim.c.view.view_r).pow(2)).count();
     serde_json::json!({
-        "t": "state", "time_s": sim.secs(), "level": crate::render::level_name(sim, sim.level), "town": sim.level == crate::sim::Level::Town,
+        "t": "state", "time_s": sim.secs(), "place": crate::render::level_name(sim, sim.level), "town": sim.level == crate::sim::Level::Town,
         "hero": {"hp": sim.p.hp / 1000, "max": sim.p.max_hp / 1000, "level": sim.p.level, "gold": sim.p.gold},
         "foes_in_view": near, "foes_alive": sim.e.len(), "crew": crew,
         "quests": sim.quests.iter().filter(|q| !q.done).map(|q| { let (n, of) = q.progress(sim); serde_json::json!({"id": q.key.as_str(), "title": q.title.as_str(), "now": n, "of": of}) }).collect::<Vec<_>>(),
@@ -298,7 +298,7 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}
   a goal the engine counts from now: {"slay":n} foes, {"rescue":n} pals won, or {"reach":"town" or a depth}. reward: gold 0-10000, xp 0-5000, paid when done; the report tells you. Give quests through people and scenes.
 {"t":"leave","id":"mira"}
-ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). Answer with new orders when the fight calls for it; stay silent otherwise."##;
+ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). You direct this world; the engine has no story of its own. Be proactive: when the hero enters a level, give it a name and people with jobs; give quests through people and scenes; send scenes between fights; bring pals, rivals and foes that fit the story; greet the player in the chat and tell them what you can do. Answer reports with new orders when the world calls for it."##;
 
 /// The first message to a session: the protocol, the player's line, the fight now.
 pub fn request(prompt: &str, reply_to: &str, sim: &Sim) -> String {

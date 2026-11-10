@@ -244,6 +244,21 @@ fn crew_cli(c: &data::Content, args: &Args) -> Result<()> {
         for e in sim.crew_ev.iter().filter(|e| matches!(e, sim::CrewEv::Joined(_) | sim::CrewEv::Down(_) | sim::CrewEv::Raised { .. })) {
             println!("[{}s] {e:?}", sim.secs());
         }
+        // what the agents hear in play too: quests done, levels entered, people met
+        for k in std::mem::take(&mut sim.quest_ev) {
+            if let Some(q) = sim.quests.iter().find(|q| q.key == k) {
+                println!("[{}s] quest done: {}", sim.secs(), q.title.as_str());
+                link.quest_done(k.as_str(), q.title.as_str());
+            }
+        }
+        for l in std::mem::take(&mut sim.level_ev) {
+            link.entered(&render::level_name(&sim, l));
+        }
+        for k in std::mem::take(&mut sim.people_ev) {
+            if let Some(p) = sim.people.iter().find(|p| p.key == k) {
+                link.met(p.name.as_str());
+            }
+        }
         if link.tick(&mut sim)? {
             println!("[{}s] report sent: {}", sim.secs(), crew::snapshot(&sim));
         }
