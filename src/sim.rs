@@ -12,7 +12,11 @@ mod solid;
 mod step;
 pub mod weather;
 mod world;
-pub use crew::{Allegiance, Body, CrewErr, CrewEv, Mate, Role, Stance, Word, CREW_MAX};
+pub use crew::{Allegiance, Body, Feat, CrewErr, CrewEv, Kit, Mate, Rgb8, Stance, Verb, Word, CREW_MAX};
+/// The ranges a crew kit's numbers must fall in (the agent protocol states them).
+pub mod crew_ranges {
+    pub use super::crew::{ABILITIES, EVERY_MS, HP_PM, PACE_PM, POWER_PM, RADIUS_MM, REACH_MM};
+}
 pub use npc::Npc;
 #[cfg(test)]
 pub use npc::Placed;
@@ -991,8 +995,8 @@ pub struct Sim<'c> {
     /// agentic NPCs (pals and foes an agent runs) and what they did since the play loop last looked
     pub crew: Vec<Mate>,
     pub crew_ev: Vec<CrewEv>,
-    /// spots pal tanks hold this tick (foes near one go for it)
-    taunts: Vec<(i32, i32)>,
+    /// spots pal taunters hold this tick and their radius (foes inside go for them)
+    taunts: Vec<(i32, i32, i32)>,
     pub narration: Option<(usize, u32)>,
     /// short-lived world events the view shows as floating text (sim stays text-free)
     pub barks: Vec<Bark>,
@@ -1080,7 +1084,7 @@ impl<'c> Sim<'c> {
             boons: crate::legacy::Boons::default(),
             crew: Vec::with_capacity(CREW_MAX),
             crew_ev: Vec::with_capacity(crew::CREW_EV_CAP),
-            taunts: Vec::with_capacity(CREW_MAX),
+            taunts: Vec::with_capacity(CREW_MAX * crew::ABILITIES),
             narration: None,
             barks: Vec::with_capacity(64),
             hijacked: 0,

@@ -293,10 +293,10 @@ impl<'c> Sim<'c> {
                         (tx, ty, td2) = (e.x[j], e.y[j], d2);
                     }
                 }
-                // a crew tank near it draws it away from the hero
-                for &(ax, ay) in &self.taunts {
+                // a crew taunter near it draws it away from the hero
+                for &(ax, ay, ar) in &self.taunts {
                     let d2 = dist2(ax - x, ay - y);
-                    if d2 <= i64::from(super::crew::TAUNT_R).pow(2) && d2 < td2 {
+                    if d2 <= i64::from(ar).pow(2) && d2 < td2 {
                         (tx, ty, td2) = (ax, ay, d2);
                     }
                 }

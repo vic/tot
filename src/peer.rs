@@ -62,6 +62,13 @@ fn alive(proc: &Path, pid: u32, start: &str) -> bool {
     stat.rfind(')').and_then(|i| stat[i + 1..].split_whitespace().nth(22 - 3)).is_some_and(|f| f == start)
 }
 
+impl Session {
+    /// The same agent: both reach the same socket.
+    pub fn socket_eq(&self, o: &Session) -> bool {
+        self.socket == o.socket
+    }
+}
+
 /// Our own address: a socket we listen on for replies, `<socks>/tot-<pid>.sock`, mode 0600. Dropping it
 /// removes the file.
 pub struct Inbox {
@@ -89,6 +96,11 @@ impl Inbox {
     /// Message bodies received since the last call (never blocks). A frame that is not a well-formed message
     /// is dropped.
     pub fn poll(&self) -> Vec<String> {
+        self.letters().into_iter().map(|l| l.text).collect()
+    }
+
+    /// Messages received since the last call, each with its sender when the envelope names a reply address.
+    pub fn letters(&self) -> Vec<Letter> {
         let mut out = Vec::new();
         while let Ok((s, _)) = self.listener.accept() {
             let _ = s.set_nonblocking(false);
@@ -96,7 +108,7 @@ impl Inbox {
             let mut r = BufReader::new(s.take(MAX_FRAME));
             let mut line = String::new();
             while r.read_line(&mut line).is_ok_and(|n| n > 0) {
-                out.extend(body(&line));
+                out.extend(body(&line).map(|text| Letter { from: sender(&line), text }));
                 line.clear();
             }
         }
@@ -108,6 +120,34 @@ impl Drop for Inbox {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+/// One received message and who sent it (a session that can be answered), when the envelope says.
+pub struct Letter {
+    pub from: Option<Session>,
+    pub text: String,
+}
+
+/// The sender of a frame line: its `uds:` reply address (%XX decoded) and its `from-name`. Any session or
+/// subagent that writes to us can be answered this way.
+fn sender(line: &str) -> Option<Session> {
+    let v: serde_json::Value = serde_json::from_str(line.trim_end()).ok()?;
+    let enc = v["from"].as_str()?.strip_prefix("uds:")?.as_bytes();
+    let mut path = Vec::with_capacity(enc.len());
+    let mut i = 0;
+    while i < enc.len() {
+        if enc[i] == b'%' {
+            path.push(u8::from_str_radix(std::str::from_utf8(enc.get(i + 1..i + 3)?).ok()?, 16).ok()?);
+            i += 3;
+        } else {
+            path.push(enc[i]);
+            i += 1;
+        }
+    }
+    let content = v["message"]["content"].as_str().unwrap_or_default();
+    let name = content.split("from-name=\"").nth(1).and_then(|r| r.split('"').next()).filter(|n| !n.is_empty()).unwrap_or("agent");
+    let socket = PathBuf::from(String::from_utf8(path).ok()?);
+    Some(Session { pid: 0, name: name.to_string(), cwd: String::new(), busy: false, socket })
 }
 
 /// The text of one received frame line: the envelope's content with the cross-session wrapper cut off (a
