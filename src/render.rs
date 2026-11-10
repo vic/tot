@@ -1567,13 +1567,13 @@ impl Frame {
         for g in &w.goblins {
             at(self, g.x, g.y, Prio::EliteBoss, sim.c.texts.glyph(g::GOBLIN), pal.chest);
         }
-        // stairs: two rows of the stair glyph on a glow, the way on to the next level reads from afar
+        // portals (stairs): a block PORTAL_W x PORTAL_H of the stair glyph in the portal colour on a glow, the way on
+        // to the next level reads from afar
         for st in &sim.stairs {
             let (x, y) = (f64::from(st.x), f64::from(st.y));
-            let Some(i) = self.cell_of(x, y) else { continue };
-            let fg = pal.role(Role::Legendary);
+            let fg = portal_ink(pal);
             let ink = Ink { ch: stair_glyph(sim.c, st.to), fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
-            self.stand(i, self.vd(x, y), 1, Prio::EliteBoss, [ink, ink, ink]);
+            self.footprint(x, y, (PORTAL_W, PORTAL_H), ink);
         }
         // a persona stands as tall as an elite foe, its head on a glow of its own colour and its body glowing
         // fainter, so a pal or a keeper reads at a glance in a crowd
@@ -1586,6 +1586,10 @@ impl Frame {
             };
             let (x, y) = (f64::from(p.x), f64::from(p.y));
             let Some(i) = self.cell_of(x, y) else { continue };
+            // a shop is a building: a stall SHOP_W x SHOP_H in the keeper's colour under it
+            if p.npc.keeper_honest().is_some() {
+                self.footprint(x, y, (SHOP_W, SHOP_H), Ink { ch: Glyph::of('▓').unwrap_or(pal.body), fg: mix(fg, pal.bg, 450), bg: Some(mix(fg, pal.bg, NPC_BODY_GLOW)) });
+            }
             let head = Ink { ch, fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
             let body = Ink { ch: pal.body, fg, bg: Some(mix(fg, pal.bg, NPC_BODY_GLOW)) };
             let shadow = Ink { ch: pal.shadow, fg: mix(pal.floor, pal.bg, 300), bg: None };
@@ -1697,6 +1701,80 @@ impl Frame {
         }
     }
 
+    /// The objectives on this level (quest, world spot) and the one the player follows (`ui.obj_sel` wraps).
+    fn objectives<'s>(sim: &'s Sim, ui: &Ui) -> (Vec<Objective<'s>>, Option<usize>) {
+        let open: Vec<_> = sim.quests.iter().filter(|q| !q.done).map(|q| (q, sim.objective(q))).collect();
+        let sel = (!open.is_empty()).then(|| ui.obj_sel % open.len());
+        (open, sel)
+    }
+
+    /// Objective arrows (green, the followed one big) and the line from the hero to the followed one (O hides it).
+    fn objective_marks(&mut self, sim: &Sim, ui: &Ui) {
+        let fg = objective_ink(&sim.c.pal);
+        let (open, sel) = Self::objectives(sim, ui);
+        let followed = sel.and_then(|k| open[k].1);
+        if let (true, Some((ox, oy))) = (ui.obj_line, followed) {
+            let (x0, y0) = self.scr(f64::from(sim.p.x), f64::from(sim.p.y));
+            let (x1, y1) = self.scr(f64::from(ox), f64::from(oy));
+            let n = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
+            let dot = Glyph::of('·').unwrap_or(Glyph::SPACE);
+            // a dotted line every other cell, on bare floor only (actors and buildings stay clear)
+            for k in (2..n).step_by(2) {
+                let (c, r) = (x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n);
+                if (0..i32::from(self.cols)).contains(&c) && (0..i32::from(self.play_rows())).contains(&r) && !self.boxed(c as u16, r as u16) {
+                    let i = r as usize * usize::from(self.cols) + c as usize;
+                    if self.cells[i].ch == Glyph::SPACE {
+                        self.cells[i].ch = dot;
+                        self.cells[i].fg = fg;
+                    }
+                }
+            }
+        }
+        for (k, (_, spot)) in open.iter().enumerate() {
+            if let Some((x, y)) = spot {
+                self.pointer_sized(sim, *x, *y, fg, Some(k) == sel);
+            }
+        }
+    }
+
+    /// The task list (crew pane foot): every open quest with its progress, and for those placed here an arrow toward
+    /// its objective and the metres to it; the followed one is marked.
+    fn task_rows(&self, sim: &Sim, ui: &Ui) -> Vec<String> {
+        let (open, sel) = Self::objectives(sim, ui);
+        let (px, py) = self.scr(f64::from(sim.p.x), f64::from(sim.p.y));
+        open.iter()
+            .enumerate()
+            .map(|(k, (q, spot))| {
+                let (now, of) = q.progress(sim);
+                let mut s = sim.c.texts.fill(t::QUEST_ROW, [q.title.as_str(), &now.to_string(), &of.to_string()]);
+                if let Some((x, y)) = spot {
+                    let (tx, ty) = self.scr(f64::from(*x), f64::from(*y));
+                    let (dx, dy) = (tx - px, ty - py);
+                    let arrow = if dx.abs() > dy.abs() { if dx > 0 { ARROW_E } else { ARROW_W } } else if dy > 0 { ARROW_S } else { ARROW_N };
+                    s += &format!(" {arrow} {}m", crate::sim::isqrt(dist2(x - sim.p.x, y - sim.p.y)) / 1000);
+                }
+                let mark = if Some(k) == sel { sim.c.texts.get(t::PICK_CURSOR).to_string() } else { " ".repeat(sim.c.texts.get(t::PICK_CURSOR).chars().count()) };
+                format!("{mark}{s}")
+            })
+            .collect()
+    }
+
+    /// A building's footprint: `w` x `h` cells of `ink` with its foot row on the cell of world (x, y), centred on it.
+    fn footprint(&mut self, x: f64, y: f64, (w, h): (i32, i32), ink: Ink) {
+        let Some(i) = self.cell_of(x, y) else { return };
+        let cols = usize::from(self.cols);
+        let (cx, cy) = ((i % cols) as i32, (i / cols) as i32);
+        let d = self.vd(x, y);
+        for oy in 0..h {
+            for ox in -(w / 2)..=(w / 2) {
+                let (c, r) = (cx + ox, cy - oy);
+                if (0..i32::from(self.cols)).contains(&c) && (0..i32::from(self.play_rows())).contains(&r) {
+                    self.put(r as usize * cols + c as usize, Prio::EliteBoss, d, ink);
+                }
+            }
+        }
+    }
+
     /// `s` centred on column `col` of play row `row`, cut at the screen edges; nothing when the row is off screen.
     fn label(&mut self, row: i32, col: i32, s: &str, fg: Rgb) {
         if !(0..i32::from(self.play_rows())).contains(&row) {
@@ -1710,20 +1788,19 @@ impl Frame {
     }
 
     /// Crew pane (right, under the stats): every member with its glyph, name, class word and HP.
-    fn crew_pane(&mut self, sim: &Sim) {
+    fn crew_pane(&mut self, sim: &Sim, ui: &Ui) {
         let pal = &sim.c.pal;
-        let open: Vec<&crate::sim::Quest> = sim.quests.iter().filter(|q| !q.done).collect();
-        let h = 1 + sim.crew.len() as u16 + open.len() as u16;
-        if (sim.crew.is_empty() && open.is_empty()) || self.cols < PANEL_W || self.play_rows() < PANEL_H + h {
+        let tasks = self.task_rows(sim, ui);
+        let h = 1 + sim.crew.len() as u16 + tasks.len() as u16;
+        if (sim.crew.is_empty() && tasks.is_empty()) || self.cols < PANEL_W || self.play_rows() < PANEL_H + h {
             return;
         }
         let (x0, y0) = (self.cols - PANEL_W, PANEL_H);
         self.plate(i32::from(x0), i32::from(y0), i32::from(PANEL_W), i32::from(h), pal.hud_bg);
-        // open quests at the foot of the pane, in the quest colour
-        for (k, q) in open.iter().enumerate() {
-            let (now, of) = q.progress(sim);
-            let line: String = sim.c.texts.fill(t::QUEST_ROW, [q.title.as_str(), &now.to_string(), &of.to_string()]).chars().take(usize::from(PANEL_W) - 2).collect();
-            self.text(y0 + 1 + sim.crew.len() as u16 + k as u16, x0 + 1, &line, pal.role(Role::Legendary));
+        // the task list at the foot of the pane, in the objective colour: progress, arrow and metres, the followed one marked
+        for (k, line) in tasks.iter().enumerate() {
+            let line: String = line.chars().take(usize::from(PANEL_W) - 2).collect();
+            self.text(y0 + 1 + sim.crew.len() as u16 + k as u16, x0 + 1, &line, objective_ink(pal));
         }
         let title = sim.c.texts.fill(t::CREW_TITLE, [&sim.crew.len().to_string(), &crate::sim::CREW_MAX.to_string()]);
         self.text(y0, x0 + 1, &title, pal.role(Role::Legendary));
@@ -1858,7 +1935,8 @@ impl Frame {
         self.loot_panes(sim, ui);
         self.crew_labels(sim, ui, now_ms);
         self.panel(sim, v.phase, v.last_bytes);
-        self.crew_pane(sim);
+        self.crew_pane(sim, ui);
+        self.objective_marks(sim, ui);
         self.chat_pane(sim, ui, now_ms);
         self.hero_pane(sim, ui);
         self.hud_bar(sim);
@@ -1866,7 +1944,7 @@ impl Frame {
             self.pointer(sim, x, y, c.pal.alarm);
         }
         for st in &sim.stairs {
-            self.pointer(sim, st.x, st.y, c.pal.role(Role::Legendary));
+            self.pointer_sized(sim, st.x, st.y, portal_ink(&c.pal), true);
         }
         for &(x, y) in &sim.treasures {
             self.pointer(sim, x, y, c.pal.chest);
@@ -1897,6 +1975,7 @@ impl Frame {
     }
 
     fn map(&mut self, sim: &Sim, heading: Heading, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
+        let goals: Vec<(i32, i32)> = sim.quests.iter().filter_map(|q| sim.objective(q)).collect();
         let c = sim.c;
         let pal = &c.pal;
         let cols = usize::from(self.cols);
@@ -1918,8 +1997,10 @@ impl Frame {
                     (c.texts.glyph(g::MAP_BOSS), pal.alarm)
                 } else if sim.world.goblins.iter().any(|gb| (gb.x.div_euclid(unit), gb.y.div_euclid(unit)) == (cx, cy)) {
                     (c.texts.glyph(g::MAP_GOBLIN), pal.chest)
+                } else if goals.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
+                    (c.texts.glyph(g::MAP_OBJECTIVE), objective_ink(pal))
                 } else if let Some(st) = sim.stairs.iter().find(|s| (s.x.div_euclid(unit), s.y.div_euclid(unit)) == (cx, cy)) {
-                    (stair_glyph(c, st.to), pal.role(Role::Legendary))
+                    (stair_glyph(c, st.to), portal_ink(pal))
                 } else if let Some(p) = sim.world.npcs.iter().find(|p| p.npc != crate::sim::Npc::Neutral && (p.x.div_euclid(unit), p.y.div_euclid(unit)) == (cx, cy)) {
                     npc_ink(c, p.npc)
                 } else if known && rock(sim.arena(), cx, cy) {
@@ -2159,6 +2240,11 @@ impl Frame {
 
     /// Arrow on the screen edge toward an off-screen world point (mm). On-screen points get none.
     fn pointer(&mut self, sim: &Sim, wx: i32, wy: i32, fg: Rgb) {
+        self.pointer_sized(sim, wx, wy, fg, false);
+    }
+
+    /// An edge arrow toward (wx, wy); `big` doubles it (objectives, portals: the things to find).
+    fn pointer_sized(&mut self, sim: &Sim, wx: i32, wy: i32, fg: Rgb, big: bool) {
         let pal = &sim.c.pal;
         let (tx, ty) = self.scr(f64::from(wx), f64::from(wy));
         let (cols, rows) = (i32::from(self.cols), i32::from(self.play_rows()));
@@ -2199,6 +2285,19 @@ impl Frame {
         // glow: the arrow's own colour lifted off the background (gold for treasure, red for bosses)
         let glow = mix(fg, pal.hud_bg, 700);
         self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: glow };
+        // a big arrow (objectives, portals) is doubled along its way, toward the centre, where the cell is free
+        if big {
+            let (bx, by) = match ch {
+                ARROW_E => (i32::from(col) - 1, i32::from(row)),
+                ARROW_W => (i32::from(col) + 1, i32::from(row)),
+                ARROW_S => (i32::from(col), i32::from(row) - 1),
+                _ => (i32::from(col), i32::from(row) + 1),
+            };
+            if (0..cols).contains(&bx) && (0..rows).contains(&by) && !self.boxed(bx as u16, by as u16) {
+                let j = by as usize * usize::from(self.cols) + bx as usize;
+                self.cells[j] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg, bg: glow };
+            }
+        }
         // distance in metres beside the arrow, clear of both boxes
         let m = (dist2(wx - sim.p.x, wy - sim.p.y) as f64).sqrt() / 1000.0;
         let label = format!("{}m", m as i64);
@@ -2506,6 +2605,19 @@ fn kind_icon(k: crate::data::SkillKind) -> &'static str {
     }
 }
 
+/// An open quest and where its objective is on the hero's level (None: nowhere here).
+type Objective<'s> = (&'s crate::sim::Quest, Option<(i32, i32)>);
+
+/// Portals and their arrows: the palette's info role (base0C, cyan in base24 schemes).
+fn portal_ink(pal: &crate::data::Palette) -> Rgb {
+    pal.role(Role::Info)
+}
+
+/// Objectives on the map, their arrows and the line to the followed one: the palette's heal role (base0B, green).
+fn objective_ink(pal: &crate::data::Palette) -> Rgb {
+    pal.role(Role::Heal)
+}
+
 /// A level's name: the one an agent gave it, else the adventure's words.
 pub fn level_name(sim: &Sim, l: crate::sim::Level) -> String {
     let c = sim.c;
@@ -2800,6 +2912,11 @@ const CHAT_ROWS: usize = 10;
 const TIP_MS: u64 = 12_000;
 /// Health bar over a pal's head (cells); a boss's is as wide as its cloud, never narrower.
 const HEAD_BAR_W: i32 = 8;
+/// Buildings on the terrain: a portal (stair) and a shop stall, in cells (odd widths centre on their spot).
+const PORTAL_W: i32 = 5;
+const PORTAL_H: i32 = 3;
+const SHOP_W: i32 = 5;
+const SHOP_H: i32 = 2;
 /// Power-up panes: their colour role and fill (permille toward the panel background; the top pane pulses to HI).
 const POWER_ROLE: Role = Role::Unique;
 const POWER_GLOW: u32 = 700;
@@ -3995,7 +4112,8 @@ mod tests {
     // re-pinned 2026-11-10: key hints gain P (speak to agents) and L (legacy)
     // re-pinned 2026-11-10: a dim agent tip line at the bottom left
     // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
-    const GOLDEN: u64 = 0x2a3f_938c_aed6_b67b;
+    // re-pinned 2026-11-10: cyan portal blocks and big portal arrows, shop stalls, shorter key labels (goal, path)
+    const GOLDEN: u64 = 0x4d94_11d3_61bc_7ee6;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -4796,10 +4914,53 @@ mod tests {
         let w = |s: &str| crate::sim::Word::parse(s).unwrap();
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         assert!(!f.plain().contains("Rat Purge"), "control: no quest");
-        sim.give_quest(w("rats"), w("Rat Purge"), crate::sim::Goal::Slay(20), crate::sim::Reward::default()).unwrap();
+        sim.give_quest(w("rats"), w("Rat Purge"), crate::sim::Goal::Slay(20), crate::sim::Reward::default(), None).unwrap();
         sim.stats.kills += 7;
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let row = c.texts.fill(t::QUEST_ROW, ["Rat Purge", "7", "20"]);
         assert!(f.plain().contains(&row), "{row}\n{}", f.plain());
+    }
+
+    #[test]
+    fn tasks_list_arrows_and_metres_one_followed_objective_with_a_line_and_cyan_portals() {
+        use crate::sim::{Goal, Reward, Spot};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let w = |s: &str| crate::sim::Word::parse(s).unwrap();
+        // one quest 10 tiles east (agent spot), one with no spot on this level
+        sim.give_quest(w("east"), w("Go East"), Goal::Slay(5), Reward::default(), Spot::new(None, 10, 0)).unwrap();
+        sim.give_quest(w("kill"), w("Kill"), Goal::Slay(9), Reward::default(), None).unwrap();
+        let shot = |f: &mut Frame, sim: &Sim, ui: &Ui| {
+            f.compose(sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let s = shot(&mut f, &sim, &ui);
+        let (spot, m) = (sim.objective(&sim.quests[0]).unwrap(), crate::sim::isqrt(dist2(sim.quests[0].at.unwrap().1 - sim.p.x, sim.quests[0].at.unwrap().2 - sim.p.y)) / 1000);
+        let cursor = c.texts.get(t::PICK_CURSOR);
+        assert!(s.contains(&format!("{cursor}{}", c.texts.fill(t::QUEST_ROW, ["Go East", "0", "5"]))) && s.contains(&format!("{m}m")), "followed task with arrow and metres\n{s}");
+        assert!(sim.objective(&sim.quests[1]).is_none(), "control: a slay quest without a spot points nowhere");
+        // the line: dots toward the objective; O hides it
+        let dots = |f: &Frame| f.cells.iter().filter(|cl| cl.ch == Glyph::of('·').unwrap() && cl.fg == objective_ink(&c.pal)).count();
+        shot(&mut f, &sim, &ui);
+        let on = dots(&f);
+        ui.obj_line = false;
+        shot(&mut f, &sim, &ui);
+        assert!(on > 3 && dots(&f) == 0, "a line to the followed objective, togglable ({on})");
+        // o follows the next one: the mark moves to the second task
+        crate::input::tests::press_key(&mut ui, &c, 'o');
+        let s = shot(&mut f, &sim, &ui);
+        assert!(s.contains(&format!("{cursor}{}", c.texts.fill(t::QUEST_ROW, ["Kill", "0", "9"]))), "the next task followed\n{s}");
+        // an agent moves the objective far off screen: a green arrow points at it
+        sim.quest_at(w("east"), Spot::new(None, 80, 0)).unwrap();
+        ui.obj_sel = 0;
+        shot(&mut f, &sim, &ui);
+        let green_arrows = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == objective_ink(&c.pal)).count();
+        assert!(green_arrows >= 2, "a big green arrow toward the followed objective ({green_arrows})");
+        let _ = spot;
+        // portals: cyan arrows, doubled
+        let cyan = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == portal_ink(&c.pal)).count();
+        assert!(cyan >= 2, "portal arrows in the portal colour, big ({cyan})");
     }
 }

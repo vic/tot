@@ -351,3 +351,4 @@
 {"t":"text","id":"quest_row","text":"+ {title} {now}/{of}"}
 {"t":"text","id":"msg_quest_done","text":"The pact is kept: {title}."}
 {"t":"text","id":"msg_adventure_new","text":"A new hell opens: {id}."}
+{"t":"glyph","id":"map_objective","glyph":"+"}

@@ -692,7 +692,7 @@ const fn gl(id: &'static str, doc: &'static str) -> GlyphSpec {
     GlyphSpec { id, doc }
 }
 
-pub const GLYPHS: [GlyphSpec; 33] = [
+pub const GLYPHS: [GlyphSpec; 34] = [
     gl("hero_head", "The hero's head in the arena (top of its body column), on the ring colour."),
     gl("hero_armor", "The hero's torso when it wears armor, in the armor's rarity colour."),
     gl("ore", "Ore lying on the floor (the blacksmith forges with it)."),
@@ -707,6 +707,7 @@ pub const GLYPHS: [GlyphSpec; 33] = [
     gl("npc_jeweler", "A jeweler who sells trinkets and enchants worn pieces (arena and map)."),
     gl("stairs_down", "A stair down to the next level (arena and map)."),
     gl("stairs_up", "A stair up to the town (arena and map)."),
+    gl("map_objective", "Map: a quest objective (drawn in the objective colour)."),
     gl("npc_neutral", "A neutral bystander (arena and map)."),
     gl("map_hero", "The hero on the map (top left box)."),
     gl("map_chest", "A treasure on the map."),
@@ -762,6 +763,7 @@ pub mod g {
     pub const NPC_JEWELER: GlyphId = GlyphId::named("npc_jeweler");
     pub const STAIRS_DOWN: GlyphId = GlyphId::named("stairs_down");
     pub const STAIRS_UP: GlyphId = GlyphId::named("stairs_up");
+    pub const MAP_OBJECTIVE: GlyphId = GlyphId::named("map_objective");
     pub const NPC_NEUTRAL: GlyphId = GlyphId::named("npc_neutral");
     pub const MAP_HERO: GlyphId = GlyphId::named("map_hero");
     pub const MAP_CHEST: GlyphId = GlyphId::named("map_chest");

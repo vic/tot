@@ -23,10 +23,10 @@ pub mod crew_ranges {
 pub use level::{DANGER_MAX, Danger, Level, LevelDef, Stair};
 pub use npc::Npc;
 pub use people::{Job, Person, PersonDef};
-pub use quest::{Goal, Quest, QuestErr, Reward};
+pub use quest::{Goal, Quest, QuestErr, Reward, Spot};
 /// The reward caps a quest must stay under (the agent protocol states them).
 pub mod quest_caps {
-    pub use super::quest::{GOLD_MAX, XP_MAX};
+    pub use super::quest::{GOLD_MAX, SPOT_MAX, XP_MAX};
 }
 #[cfg(test)]
 pub use npc::Placed;

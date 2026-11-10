@@ -25,6 +25,8 @@ pub struct Quest {
     pub title: crew::Word,
     pub goal: Goal,
     pub reward: Reward,
+    /// where its objective is (level, world mm), when an agent gave a spot
+    pub at: Option<(Level, i32, i32)>,
     /// the run's counter (kills or pals) when the quest was given
     base: u32,
     pub done: bool,
@@ -38,6 +40,23 @@ impl Quest {
             Goal::Rescue(n) => ((u32::from(sim.world.pals)).saturating_sub(self.base).min(u32::from(n)), u32::from(n)),
             Goal::Reach(l) => (u32::from(sim.level == l || self.done), 1),
         }
+    }
+}
+
+/// A spot an agent gives: whole tiles from a level's start (dx, dy each -SPOT_MAX..=SPOT_MAX), on that level (None:
+/// the hero's level when it is given).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Spot {
+    pub level: Option<Level>,
+    dx: i32,
+    dy: i32,
+}
+
+pub const SPOT_MAX: i32 = 200;
+
+impl Spot {
+    pub fn new(level: Option<Level>, dx: i32, dy: i32) -> Option<Spot> {
+        (dx.abs() <= SPOT_MAX && dy.abs() <= SPOT_MAX).then_some(Spot { level, dx, dy })
     }
 }
 
@@ -55,7 +74,7 @@ pub enum QuestErr {
 }
 
 impl Sim<'_> {
-    pub fn give_quest(&mut self, key: crew::Word, title: crew::Word, goal: Goal, reward: Reward) -> Result<(), QuestErr> {
+    pub fn give_quest(&mut self, key: crew::Word, title: crew::Word, goal: Goal, reward: Reward, at: Option<Spot>) -> Result<(), QuestErr> {
         if matches!(goal, Goal::Slay(0) | Goal::Rescue(0)) || reward.gold > GOLD_MAX || reward.xp > XP_MAX {
             return Err(QuestErr::Bounds);
         }
@@ -71,8 +90,42 @@ impl Sim<'_> {
             Goal::Rescue(_) => u32::from(self.world.pals),
             Goal::Reach(_) => 0,
         };
-        self.quests.push(Quest { key, title, goal, reward, base, done: false });
+        let at = at.map(|s| self.place_spot(s));
+        self.quests.push(Quest { key, title, goal, reward, base, done: false, at });
         Ok(())
+    }
+
+    /// An agent moves quest `key`'s objective to `at` (None: back to the engine's own pick).
+    pub fn quest_at(&mut self, key: crew::Word, at: Option<Spot>) -> Result<(), QuestErr> {
+        let at = at.map(|s| self.place_spot(s));
+        let q = self.quests.iter_mut().find(|q| q.key == key && !q.done).ok_or(QuestErr::Taken)?;
+        q.at = at;
+        Ok(())
+    }
+
+    /// A spot an agent names, made concrete: on its level (the hero's when unnamed), in world mm from the level's start.
+    fn place_spot(&self, s: Spot) -> (Level, i32, i32) {
+        let t = crate::floorgen::TILE_MM;
+        (s.level.unwrap_or(self.level), s.dx * t, s.dy * t)
+    }
+
+    /// Where quest `q` points on the hero's level now: the agent's spot when it lies here, else for a level to reach
+    /// the stair toward it; None when the objective is nowhere on this level (slay and rescue without a spot).
+    pub fn objective(&self, q: &Quest) -> Option<(i32, i32)> {
+        if q.done {
+            return None;
+        }
+        if let Some((l, x, y)) = q.at
+            && l == self.level
+        {
+            return Some((x, y));
+        }
+        let Goal::Reach(l) = q.goal else { return None };
+        if l == self.level {
+            return None;
+        }
+        let up = l == Level::Town;
+        self.stairs.iter().find(|s| s.to == l).or_else(|| self.stairs.iter().find(|s| (s.to == Level::Town) == up)).map(|s| (s.x, s.y))
     }
 
     /// Finished quests pay out (gold, XP) once and are told to the play loop.
@@ -106,11 +159,11 @@ mod tests {
         let c = content();
         let mut s = Sim::new(&c, 7, None);
         s.stats.kills = 40;
-        s.give_quest(w("rats"), w("Rat Purge"), Goal::Slay(3), Reward { gold: 100, xp: 0 }).unwrap();
-        s.give_quest(w("town"), w("Go Home"), Goal::Reach(Level::Town), Reward { gold: 0, xp: 7 }).unwrap();
-        assert_eq!(s.give_quest(w("rats"), w("x"), Goal::Slay(1), Reward::default()), Err(QuestErr::Taken));
-        assert_eq!(s.give_quest(w("big"), w("x"), Goal::Slay(1), Reward { gold: GOLD_MAX + 1, xp: 0 }), Err(QuestErr::Bounds), "NEG: reward over the cap");
-        assert_eq!(s.give_quest(w("zero"), w("x"), Goal::Slay(0), Reward::default()), Err(QuestErr::Bounds), "NEG: an empty goal");
+        s.give_quest(w("rats"), w("Rat Purge"), Goal::Slay(3), Reward { gold: 100, xp: 0 }, None).unwrap();
+        s.give_quest(w("town"), w("Go Home"), Goal::Reach(Level::Town), Reward { gold: 0, xp: 7 }, None).unwrap();
+        assert_eq!(s.give_quest(w("rats"), w("x"), Goal::Slay(1), Reward::default(), None), Err(QuestErr::Taken));
+        assert_eq!(s.give_quest(w("big"), w("x"), Goal::Slay(1), Reward { gold: GOLD_MAX + 1, xp: 0 }, None), Err(QuestErr::Bounds), "NEG: reward over the cap");
+        assert_eq!(s.give_quest(w("zero"), w("x"), Goal::Slay(0), Reward::default(), None), Err(QuestErr::Bounds), "NEG: an empty goal");
         let gold = s.p.gold;
         s.stats.kills = 42;
         s.quests_step();

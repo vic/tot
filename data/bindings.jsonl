@@ -121,7 +121,7 @@
 {"t":"bind","mode":"start","keys":["esc"],"action":"start_back","label":"back"}
 {"t":"bind","mode":"start","keys":["h"],"action":"start_back","label":"back"}
 {"t":"bind","mode":"start","keys":["q"],"action":"quit","label":"quit"}
-{"t":"bind","mode":"play","keys":["P"],"action":"prompt","label":"speak to agents"}
+{"t":"bind","mode":"play","keys":["P"],"action":"prompt","label":"agents"}
 {"t":"bind","mode":"play","keys":["L"],"action":"legacy","label":"legacy"}
 {"t":"bind","mode":"prompt","keys":["enter"],"action":"prompt_send","label":"send"}
 {"t":"bind","mode":"prompt","keys":["tab"],"action":"prompt_agent","label":"next agent"}
@@ -133,9 +133,11 @@
 {"t":"bind","mode":"legacy","keys":["enter"],"action":"legacy_buy","label":"buy rank"}
 {"t":"bind","mode":"legacy","keys":["esc"],"action":"back","label":"close"}
 {"t":"bind","mode":"legacy","keys":["L"],"action":"back","label":"close"}
-{"t":"bind","mode":"play","keys":["H"],"action":"bars","label":"health bars"}
+{"t":"bind","mode":"play","keys":["H"],"action":"bars","label":"bars"}
 {"t":"bind","mode":"scene","keys":["1"],"action":"scene_1","label":"choice 1"}
 {"t":"bind","mode":"scene","keys":["2"],"action":"scene_2","label":"choice 2"}
 {"t":"bind","mode":"scene","keys":["3"],"action":"scene_3","label":"choice 3"}
 {"t":"bind","mode":"scene","keys":["4"],"action":"scene_4","label":"choice 4"}
 {"t":"bind","mode":"scene","keys":["enter"],"action":"scene_close","label":"close"}
+{"t":"bind","mode":"play","keys":["o"],"action":"objective","label":"goal"}
+{"t":"bind","mode":"play","keys":["O"],"action":"objective_line","label":"path"}

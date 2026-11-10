@@ -23,7 +23,9 @@ pub enum Order {
     /// what a level is: its name, safe (town: no waves) or a dungeon, its danger, its look (agents make new dungeons)
     Place { level: crate::sim::Level, def: crate::sim::LevelDef },
     /// a goal for the hero with a reward the engine pays when it is done
-    Quest { key: Word, title: Word, goal: crate::sim::Goal, reward: crate::sim::Reward },
+    Quest { key: Word, title: Word, goal: crate::sim::Goal, reward: crate::sim::Reward, at: Option<crate::sim::Spot> },
+    /// move a quest's objective to a spot (no spot: back to the engine's pick)
+    QuestAt { key: Word, at: Option<crate::sim::Spot> },
     /// foes of an adventure family sent on the spawn ring (the sim's live cap holds)
     Spawn { family: Word, n: u16, tier: Word, form: Word },
     /// an adventure boss that is not on the script
@@ -115,6 +117,21 @@ fn colour(s: &str) -> Option<Rgb8> {
     Some(Rgb8(b(0)?, b(2)?, b(4)?))
 }
 
+
+/// An objective spot: {"dx": tiles, "dy": tiles, "level": "town" or a depth (optional)}; Null = none.
+fn spot(v: &serde_json::Value) -> std::result::Result<Option<crate::sim::Spot>, String> {
+    if v.is_null() {
+        return Ok(None);
+    }
+    let max = crate::sim::quest_caps::SPOT_MAX;
+    let tile = |f: &str| v[f].as_i64().and_then(|n| i32::try_from(n).ok()).filter(|n| n.abs() <= max).ok_or(format!("at.{f}: whole tiles, -{max}..={max}"));
+    let level = match &v["level"] {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) if s == "town" => Some(crate::sim::Level::Town),
+        n => Some(n.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(std::num::NonZeroU8::new).map(crate::sim::Level::Deep).ok_or("at.level: \"town\" or a depth 1-255")?),
+    };
+    crate::sim::Spot::new(level, tile("dx")?, tile("dy")?).map(Some).ok_or("at: out of range".into())
+}
 fn ability(v: &serde_json::Value, k: usize) -> std::result::Result<Feat, String> {
     let verb = v["verb"].as_str().and_then(Verb::parse).ok_or_else(|| format!("abilities[{k}].verb: one of {}", Verb::ALL.map(Verb::key).join(", ")))?;
     let n = |f: &str| milli(v, f).map_err(|e| format!("abilities[{k}]: {e}"));
@@ -218,7 +235,10 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
             n => n.as_u64().filter(|n| *n <= u64::from(max)).map(|n| n as u32).ok_or(format!("reward.{f}: 0-{max}")),
         };
         let reward = crate::sim::Reward { gold: cap("gold", crate::sim::quest_caps::GOLD_MAX)?, xp: cap("xp", crate::sim::quest_caps::XP_MAX)? };
-        return Ok(Some(Order::Quest { key: word("id")?, title: word("title")?, goal, reward }));
+        return Ok(Some(Order::Quest { key: word("id")?, title: word("title")?, goal, reward, at: spot(&v["at"])? }));
+    }
+    if t == "quest_at" {
+        return Ok(Some(Order::QuestAt { key: word("id")?, at: spot(&v["at"])? }));
     }
     if t == "person" {
         let glyph = s("glyph")?.chars().collect::<Vec<_>>();
@@ -313,7 +333,8 @@ fn apply_crew(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
         Order::Say { key, .. } => sim.crew.iter().any(|m| m.key == key).then_some(()).ok_or(CrewErr::NoSuchMate),
         Order::Chat { .. } | Order::Scene(_) => Ok(()),
         Order::Person { key, name, job, glyph, rgb, level, at, .. } => sim.add_person(crate::sim::PersonDef { key, name, job, glyph, rgb, level, at }),
-        Order::Quest { key, title, goal, reward } => sim.give_quest(key, title, goal, reward).map_err(|e| match e {
+        Order::QuestAt { key, at } => sim.quest_at(key, at).map_err(|_| CrewErr::NoSuchMate),
+        Order::Quest { key, title, goal, reward, at } => sim.give_quest(key, title, goal, reward, at).map_err(|e| match e {
             crate::sim::QuestErr::Full => CrewErr::Full,
             crate::sim::QuestErr::Taken | crate::sim::QuestErr::Bounds => CrewErr::Taken,
         }),
@@ -400,6 +421,7 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
   someone who lives on a level (dx/dy optional: tiles from its start). job: trade (sells), forge (sells, forges, upgrades), enchant (sells, enchants), heal (heals the hero to full), talk (its lines open as a card). Reports tell you when the hero meets someone.
 {"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}
   a goal the engine counts from now: {"slay":n} foes, {"rescue":n} pals won, or {"reach":"town" or a depth}. reward: gold 0-10000, xp 0-5000, paid when done; the report tells you. Give quests through people and scenes.
+  add "at":{"dx":12,"dy":-4,"level":2} (tiles from that level's start; level optional = the hero's now) and the player sees the objective: green on the map, a green arrow with metres in the task list, a line to the one followed. {"t":"quest_at","id":"rats","at":{...}} moves it any time (leave "at" out to clear it). A reach quest without a spot points at the stair toward its level.
 {"t":"spawn","family":"<foe family id of this adventure>","n":6,"tier":"elite","form":"ring"}   send the horde yourself: n 1-20, tier trash|elite|champion, form scatter|ring|wall|spiral (never in a safe level). The state line lists the families.
 {"t":"boss","family":"<boss family id>"}   a boss off the script, now
 {"t":"goblin"}   a treasure goblin runs past the hero (it drops gold as it flees)
@@ -619,6 +641,9 @@ mod tests {
             assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
         }
         let rats = r#"{"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}"#;
+        assert!(matches!(parse_line(&rats.replace(r#"}}"#, r#"},"at":{"dx":5,"dy":-3,"level":2}}"#)), Ok(Some(Order::Quest { at: Some(_), .. }))), "a quest may carry its spot");
+        assert!(matches!(parse_line(r#"{"t":"quest_at","id":"rats","at":{"dx":1,"dy":1}}"#), Ok(Some(Order::QuestAt { at: Some(_), .. }))));
+        assert!(parse_line(r#"{"t":"quest_at","id":"rats","at":{"dx":999,"dy":1}}"#).unwrap_err().contains("at.dx"), "NEG: spot out of range");
         assert!(matches!(parse_line(rats), Ok(Some(Order::Quest { goal: crate::sim::Goal::Slay(20), reward: crate::sim::Reward { gold: 150, xp: 40 }, .. }))));
         assert!(matches!(parse_line(&rats.replace(r#"{"slay":20}"#, r#"{"reach":"town"}"#)), Ok(Some(Order::Quest { goal: crate::sim::Goal::Reach(crate::sim::Level::Town), .. }))));
         assert!(matches!(parse_line(&rats.replace(r#"{"slay":20}"#, r#"{"rescue":2}"#)), Ok(Some(Order::Quest { goal: crate::sim::Goal::Rescue(2), .. }))));

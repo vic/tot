@@ -88,6 +88,11 @@ done. A scene is a card with the agent's words and up to four choices; the world
 goes back to the agent. The agent hears where you go, whom you meet and what you choose, and it acts on its own
 between your prompts. A dim line under the chat gives tips on playing with agents.
 
+The task list under the crew shows every open quest with its progress, and for each objective on your level an
+arrow and the metres to it. Objectives are green on the map and on the screen edge. You follow one at a time: `o`
+picks the next, and a dotted line leads you to it (`O` hides the line). Portals (the stairs between levels) are big
+cyan blocks with big cyan arrows; shops stand on stalls of their own colour.
+
 An agent can also make each level what it wants: a safe haven or a dungeon, how deadly it is, and the colours of its
 floor and walls. It can take the horde over: switch off the built-in waves, send foes of any family, call a boss,
 release a treasure goblin, and point a pal at the foe it should kill first. It can even write a whole new adventure
