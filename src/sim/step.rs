@@ -158,7 +158,7 @@ impl<'c> Sim<'c> {
         let fed = (1000 + LOOT_DMG_PER * i64::from(self.e.loot[i])).min(LOOT_DMG_CAP);
         let rage = if matches!(self.e.status[i], Status::Raging { .. }) { RAGE_DMG } else { 1000 };
         let d = d * rage / 1000;
-        self.world.foe_dmg(self.tick).apply((d * i64::from(tier) / 1000 * fed / 1000 * self.level.foe_pm() / 1000) as i32)
+        self.world.foe_dmg(self.tick).apply((d * i64::from(tier) / 1000 * fed / 1000 * self.level_pm() / 1000) as i32)
     }
 
     /// Analytic single-target build DPS, HP/s (the D of rho = H/D, design sec 11.4).

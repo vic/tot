@@ -149,7 +149,7 @@ impl World {
     }
 
     /// Removing an NPC keeps `shops` parallel and shifts `open_shop` with it.
-    fn remove_npc(&mut self, i: usize) {
+    pub(in crate::sim) fn remove_npc(&mut self, i: usize) {
         self.npcs.remove(i);
         self.shops.remove(i);
         self.open_shop = match self.open_shop {

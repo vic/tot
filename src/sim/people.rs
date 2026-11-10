@@ -111,6 +111,19 @@ impl Sim<'_> {
                 self.world.shops.push(Vec::new());
             }
         }
+        // a level with an agent's people is theirs: the engine's default keepers there leave
+        let spots: Vec<(i32, i32)> = self.people_here().map(|p| (p.x, p.y)).collect();
+        if !spots.is_empty() {
+            let mut i = 0;
+            while i < self.world.npcs.len() {
+                let n = self.world.npcs[i];
+                if n.npc.keeper_honest().is_some() && !spots.contains(&(n.x, n.y)) {
+                    self.world.remove_npc(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
         self.world.stock_shops(self.c);
     }
 
@@ -164,7 +177,8 @@ mod tests {
         assert_eq!(s.add_person(w("mae"), w("X"), Job::Talk, 'X', None, Level::Town, None), Err(crew::CrewErr::Taken));
         assert_eq!(s.people_here().count(), 2, "only this level's people stand here");
         let bran = *s.people.iter().find(|p| p.key == w("bran")).unwrap();
-        assert_eq!(s.world.npcs.len(), keepers + 1, "the smith keeps a shop, the healer does not");
+        assert!(keepers > 0, "control: the town had default keepers");
+        assert_eq!(s.world.npcs.len(), 1, "the agent's people replace the default keepers; the smith keeps a shop, the healer does not");
         assert!(s.world.npcs.iter().any(|n| (n.x, n.y) == (bran.x, bran.y) && n.npc == npc::Npc::Blacksmith { honest: true }));
         // the healer: walk up, met once, healed to full
         let mae = *s.people.iter().find(|p| p.key == w("mae")).unwrap();

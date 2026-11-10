@@ -20,8 +20,8 @@ pub enum Order {
     Chat { from: Word, text: Say },
     /// a scene card over the game (the world waits for the player)
     Scene(Scene),
-    /// the name a level shows (on the map, in messages and reports)
-    Place { level: crate::sim::Level, name: Word },
+    /// what a level is: its name, safe (town: no waves) or a dungeon, its danger, its look (agents make new dungeons)
+    Place { level: crate::sim::Level, def: crate::sim::LevelDef },
     /// a goal for the hero with a reward the engine pays when it is done
     Quest { key: Word, title: Word, goal: crate::sim::Goal, reward: crate::sim::Reward },
     /// someone on a level with a job (its shop, a healer, words); its lines show when the hero meets it
@@ -119,7 +119,31 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
         n => n.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(std::num::NonZeroU8::new).map(crate::sim::Level::Deep).ok_or("\"level\": \"town\" or a depth 1-255".to_string()),
     };
     if t == "place" {
-        return Ok(Some(Order::Place { level: level()?, name: word("name")? }));
+        let name = match v.get("name") {
+            None => None,
+            Some(_) => Some(word("name")?),
+        };
+        let safe = match v["kind"].as_str() {
+            None => None,
+            Some("town") => Some(true),
+            Some("dungeon") => Some(false),
+            Some(k) => return Err(format!("kind \"{k}\": town or dungeon")),
+        };
+        let danger = match &v["danger"] {
+            serde_json::Value::Null => None,
+            d => Some(d.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(crate::sim::Danger::new).ok_or(format!("\"danger\": 0-{}", crate::sim::DANGER_MAX))?),
+        };
+        let look = match &v["look"] {
+            serde_json::Value::Null => None,
+            l => Some(match (l["floor"].as_str().and_then(colour), l["wall"].as_str().and_then(colour)) {
+                (Some(f), Some(w)) => (f, w),
+                _ => return Err("\"look\": {\"floor\": \"#rrggbb\", \"wall\": \"#rrggbb\"}".into()),
+            }),
+        };
+        if (name, safe, danger, look) == (None, None, None, None) {
+            return Err("place needs a name, kind, danger or look".into());
+        }
+        return Ok(Some(Order::Place { level: level()?, def: crate::sim::LevelDef { name, safe, danger, look } }));
     }
     if t == "quest" {
         let g = &v["goal"];
@@ -217,8 +241,8 @@ pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
             crate::sim::QuestErr::Full => CrewErr::Full,
             crate::sim::QuestErr::Taken | crate::sim::QuestErr::Bounds => CrewErr::Taken,
         }),
-        Order::Place { level, name } => {
-            sim.name_level(level, name);
+        Order::Place { level, def } => {
+            sim.shape_level(level, def);
             Ok(())
         }
         Order::Leave { key } => sim.crew_leave(key),
@@ -254,7 +278,7 @@ pub fn snapshot(sim: &Sim) -> String {
         .collect();
     let near = (0..sim.e.len()).filter(|&i| crate::sim::dist2(sim.e.x[i] - sim.p.x, sim.e.y[i] - sim.p.y) <= i64::from(sim.c.view.view_r).pow(2)).count();
     serde_json::json!({
-        "t": "state", "time_s": sim.secs(), "place": crate::render::level_name(sim, sim.level), "town": sim.level == crate::sim::Level::Town,
+        "t": "state", "time_s": sim.secs(), "place": crate::render::level_name(sim, sim.level), "safe": sim.safe(sim.level),
         "hero": {"hp": sim.p.hp / 1000, "max": sim.p.max_hp / 1000, "level": sim.p.level, "gold": sim.p.gold},
         "foes_in_view": near, "foes_alive": sim.e.len(), "crew": crew,
         "quests": sim.quests.iter().filter(|q| !q.done).map(|q| { let (n, of) = q.progress(sim); serde_json::json!({"id": q.key.as_str(), "title": q.title.as_str(), "now": n, "of": of}) }).collect::<Vec<_>>(),
@@ -292,7 +316,8 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"chat","from":"captain","text":"Tank left, I heal."}   you speak in the chat without a body
 {"t":"scene","id":"gate","title":"The Iron Gate","lines":["A guard bars the road.","He wants coin."],"choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]}
   a card over the game: 1-8 lines, 0-4 choices; the world waits while the player reads; the report tells you the choice. Use scenes for story, talk, quests and choices between fights.
-{"t":"place","level":"town","name":"Emberhold"}   name a level as the player sees it: "town" (safe, keepers, no waves) or a depth 1-255 (the deeps, foes tougher each level). The hero takes stairs between them; reports tell you where it is.
+{"t":"place","level":3,"name":"Drowned Crypt","kind":"dungeon","danger":7,"look":{"floor":"#1a3040","wall":"#5a8aa0"}}
+  make and shape levels: "level" is "town" or a depth 1-255; all other fields optional. kind: town (safe: no waves, keepers) or dungeon. danger 0-10 sets foe toughness (unset: deeper is tougher). look: floor and wall colours. The hero takes stairs: the town leads down, each depth leads down and back to the town. Put people on a level and the default keepers there leave: it is yours.
 {"t":"person","id":"bran","name":"BRAN","level":"town","job":"forge","glyph":"B","color":"#ffaa55","lines":["Steel for coin, friend.","The deep forges are cold now."],"dx":3,"dy":0}
   someone who lives on a level (dx/dy optional: tiles from its start). job: trade (sells), forge (sells, forges, upgrades), enchant (sells, enchants), heal (heals the hero to full), talk (its lines open as a card). Reports tell you when the hero meets someone.
 {"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}
@@ -481,6 +506,11 @@ mod tests {
         assert!(matches!(parse_line(r#"{"t":"place","level":3,"name":"The Ossuary"}"#), Ok(Some(Order::Place { level: crate::sim::Level::Deep(d), .. })) if d.get() == 3));
         assert!(parse_line(r#"{"t":"place","level":0,"name":"x"}"#).unwrap_err().contains("\"level\""), "NEG: depth 0 is no level");
         assert!(parse_line(r#"{"t":"place","level":"heaven","name":"x"}"#).unwrap_err().contains("\"level\""));
+        let crypt = r##"{"t":"place","level":3,"name":"Drowned Crypt","kind":"dungeon","danger":7,"look":{"floor":"#1a3040","wall":"#5a8aa0"}}"##;
+        assert!(matches!(parse_line(crypt), Ok(Some(Order::Place { def: crate::sim::LevelDef { safe: Some(false), danger: Some(d), look: Some(_), name: Some(_) }, .. })) if d.get() == 7));
+        for (bad, why) in [(crypt.replace(r#""danger":7"#, r#""danger":11"#), "\"danger\""), (crypt.replace("dungeon", "castle"), "kind \"castle\""), (crypt.replace("#5a8aa0", "blue"), "\"look\""), (r#"{"t":"place","level":2}"#.into(), "place needs")] {
+            assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
+        }
         let rats = r#"{"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}"#;
         assert!(matches!(parse_line(rats), Ok(Some(Order::Quest { goal: crate::sim::Goal::Slay(20), reward: crate::sim::Reward { gold: 150, xp: 40 }, .. }))));
         assert!(matches!(parse_line(&rats.replace(r#"{"slay":20}"#, r#"{"reach":"town"}"#)), Ok(Some(Order::Quest { goal: crate::sim::Goal::Reach(crate::sim::Level::Town), .. }))));

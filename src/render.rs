@@ -393,6 +393,8 @@ impl Frame {
         let p = self.cam.proj(&c.view, v.now_ms);
         // camera shown at cell resolution: the grid origin is the camera's own cell
         self.eye = Eye { p, cx: self.cam.x, cy: self.cam.y, o: p.project(self.cam.x, self.cam.y) };
+        // a level an agent gave a look of its own paints its floor and walls in it
+        let (floor_rgb, _) = level_look(sim);
         // 1. floor: one glyph per world floor cell, at the cell its centre projects to
         for r in 0..i32::from(self.play_rows()) {
             for col in 0..i32::from(self.cols) {
@@ -405,8 +407,8 @@ impl Frame {
                 let ch = if anchor && (h % 1000) < u64::from(ar.density) { ar.glyphs[(h >> 20) as usize % ar.glyphs.len()] } else { Glyph::SPACE };
                 // blank cells keep one fg so camera motion only re-sends cells whose glyph moved
                 // a share of the floor glyphs wears the adventure's floor motif colour (blood, moss, neon)
-                let tint = if (h >> 40) % 1000 < u64::from(pal.floor_motif.1) { pal.floor_motif.0 } else { pal.floor };
-                let fg = if ch == Glyph::SPACE { pal.floor } else { self.fogged(c, tint, ax, ay) };
+                let tint = if (h >> 40) % 1000 < u64::from(pal.floor_motif.1) { pal.floor_motif.0 } else { floor_rgb };
+                let fg = if ch == Glyph::SPACE { floor_rgb } else { self.fogged(c, tint, ax, ay) };
                 self.cells[i] = Cell { ch, fg, bg: pal.bg };
                 self.z[i] = Prio::Floor;
                 self.zd[i] = i32::MIN;
@@ -531,6 +533,7 @@ impl Frame {
     fn blocks(&mut self, sim: &Sim, (fpx, fpy): (f64, f64)) {
         let c = sim.c;
         let (pal, v, ar) = (&c.pal, &c.view, sim.arena());
+        let (_, wall_rgb) = level_look(sim);
         let rows = match ar.template {
             Template::Open | Template::Pillars => v.block_rows[0],
             Template::Rubble => v.block_rows[1],
@@ -566,7 +569,7 @@ impl Frame {
             let (bc, br) = self.scr(bx, by);
             let cutaway = cut > 0 && d > pd && bc - hw <= pcol + cut && bc + hw >= pcol - cut && br - hh - hr <= prow + 1 && br + hh >= prow - n0 - 1;
             let hz = if cutaway { 0 } else { hr };
-            let base = self.fogged(c, pal.wall, bx, by);
+            let base = self.fogged(c, wall_rgb, bx, by);
             let ink = |k: usize| if cutaway { (pal.face[2], mix(base, pal.bg, 400)) } else { (pal.face[k], mix(base, pal.text, u32::from(v.face_pct[k]) * 10)) };
             for r in (br - hh - hz).max(0)..=(br + hh).min(pr - 1) {
                 for col in (bc - hw).max(0)..=(bc + hw).min(pc - 1) {
@@ -2513,6 +2516,12 @@ pub fn level_name(sim: &Sim, l: crate::sim::Level) -> String {
         crate::sim::Level::Town => c.texts.get(t::LEVEL_TOWN).to_string(),
         crate::sim::Level::Deep(d) => c.texts.fill(t::LEVEL_DEEP, [&d.get().to_string()]),
     }
+}
+
+/// The (floor, wall) colours of the level the hero is on: the agent's look, else the adventure's palette.
+fn level_look(sim: &Sim) -> (Rgb, Rgb) {
+    let rgb = |c: crate::sim::Rgb8| Rgb(c.0, c.1, c.2);
+    sim.look().map_or((sim.c.pal.floor, sim.c.pal.wall), |(f, w)| (rgb(f), rgb(w)))
 }
 
 /// The glyph of a stair by where it leads: up to the town, or down.

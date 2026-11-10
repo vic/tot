@@ -20,7 +20,7 @@ pub use crew::{Allegiance, Body, Feat, CrewErr, CrewEv, Kit, Mate, Rgb8, Stance,
 pub mod crew_ranges {
     pub use super::crew::{ABILITIES, EVERY_MS, HP_PM, PACE_PM, POWER_PM, RADIUS_MM, REACH_MM};
 }
-pub use level::{Level, Stair};
+pub use level::{DANGER_MAX, Danger, Level, LevelDef, Stair};
 pub use npc::Npc;
 pub use people::{Job, Person};
 pub use quest::{Goal, Quest, QuestErr, Reward};
@@ -1016,7 +1016,7 @@ pub struct Sim<'c> {
     pub stairs: Vec<Stair>,
     pub level_ev: Vec<Level>,
     /// names agents gave levels (the view shows them instead of the adventure's)
-    level_names: Vec<(Level, Word)>,
+    level_defs: Vec<(Level, level::LevelDef)>,
     /// people agents put on levels, and the ones the hero met since the play loop last looked
     pub people: Vec<Person>,
     pub people_ev: Vec<Word>,
@@ -1116,7 +1116,7 @@ impl<'c> Sim<'c> {
             level: Level::FIRST,
             stairs: Vec::with_capacity(2),
             level_ev: Vec::with_capacity(4),
-            level_names: Vec::new(),
+            level_defs: Vec::new(),
             people: Vec::with_capacity(people::PEOPLE_MAX),
             people_ev: Vec::with_capacity(people::PEOPLE_MAX),
             quests: Vec::with_capacity(quest::QUESTS_MAX),
@@ -1248,7 +1248,7 @@ impl<'c> Sim<'c> {
 
     pub fn validate(&self, cmd: &Cmd) -> Result<(), Reject> {
         let cap = self.c.spawn.live_cap;
-        if self.level == Level::Town && matches!(cmd, Cmd::Spawn { .. } | Cmd::Boss { .. } | Cmd::Wild { .. }) {
+        if self.safe(self.level) && matches!(cmd, Cmd::Spawn { .. } | Cmd::Boss { .. } | Cmd::Wild { .. }) {
             return Err(Reject::Town);
         }
         match *cmd {
@@ -1363,7 +1363,7 @@ impl<'c> Sim<'c> {
             }
             Tier::Champion => (sp.champion_hp, true, true),
         };
-        let hp = (hp * i64::from(mult) / 1000 * self.level.foe_pm() / 1000).clamp(1, i64::from(i32::MAX)) as i32;
+        let hp = (hp * i64::from(mult) / 1000 * self.level_pm() / 1000).clamp(1, i64::from(i32::MAX)) as i32;
         let hp = self.world.foe_hp(self.tick).apply(hp).max(1);
         self.stats.win_spawned += i64::from(hp);
         self.push_enemy(fam, tier, (x, y), hp, (purger, swift));

@@ -50,6 +50,33 @@ pub struct Stair {
 
 /// Each level deeper adds this permille to foe HP and contact damage.
 const DEPTH_STEP: i64 = 300;
+/// An agent's danger 0..=DANGER_MAX: foe toughness DANGER_BASE + DANGER_STEP per step, permille.
+const DANGER_BASE: i64 = 500;
+const DANGER_STEP: i64 = 250;
+pub const DANGER_MAX: u8 = 10;
+
+/// Danger an agent set: 0..=DANGER_MAX only.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Danger(u8);
+
+impl Danger {
+    pub fn new(d: u8) -> Option<Danger> {
+        (d <= DANGER_MAX).then_some(Danger(d))
+    }
+    pub fn get(self) -> u8 {
+        self.0
+    }
+}
+
+/// What an agent set for a level; None keeps the engine's default.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct LevelDef {
+    pub name: Option<crew::Word>,
+    pub safe: Option<bool>,
+    pub danger: Option<Danger>,
+    /// (floor, wall) colours
+    pub look: Option<(crew::Rgb8, crew::Rgb8)>,
+}
 /// Stairs stand this far from the level's start (mm), in seeded directions; the hero takes one within STAIR_R.
 const STAIR_FAR: i32 = 30_000;
 const STAIR_R: i32 = 900;
@@ -71,17 +98,45 @@ impl Sim<'_> {
         }
     }
 
-    /// An agent names `level` (the adventure's default name shows until one does; a later name replaces it).
-    pub fn name_level(&mut self, level: Level, name: crew::Word) {
-        match self.level_names.iter_mut().find(|(l, _)| *l == level) {
-            Some(slot) => slot.1 = name,
-            None => self.level_names.push((level, name)),
-        }
+    /// An agent shapes `level`: the fields it gives replace earlier ones (the rest keep the engine's defaults).
+    pub fn shape_level(&mut self, level: Level, d: LevelDef) {
+        let i = match self.level_defs.iter().position(|(l, _)| *l == level) {
+            Some(i) => i,
+            None => {
+                self.level_defs.push((level, LevelDef::default()));
+                self.level_defs.len() - 1
+            }
+        };
+        let cur = &mut self.level_defs[i].1;
+        cur.name = d.name.or(cur.name);
+        cur.safe = d.safe.or(cur.safe);
+        cur.danger = d.danger.or(cur.danger);
+        cur.look = d.look.or(cur.look);
+    }
+
+    fn def(&self, level: Level) -> LevelDef {
+        self.level_defs.iter().find(|(l, _)| *l == level).map_or(LevelDef::default(), |(_, d)| *d)
     }
 
     /// The name an agent gave `level`, if any.
     pub fn named(&self, level: Level) -> Option<&str> {
-        self.level_names.iter().find(|(l, _)| *l == level).map(|(_, n)| n.as_str())
+        self.level_defs.iter().find(|(l, _)| *l == level).and_then(|(_, d)| d.name.as_ref()).map(crew::Word::as_str)
+    }
+
+    /// A safe level has no waves and town-style people: the town by default, any level an agent makes safe.
+    pub fn safe(&self, level: Level) -> bool {
+        self.def(level).safe.unwrap_or(level == Level::Town)
+    }
+
+    /// Foe toughness here, permille: the agent's danger when it set one (0 = DANGER_BASE, each step DANGER_STEP
+    /// more), else the depth.
+    pub fn level_pm(&self) -> i64 {
+        self.def(self.level).danger.map_or(self.level.foe_pm(), |d| DANGER_BASE + DANGER_STEP * i64::from(d.get()))
+    }
+
+    /// The (floor, wall) colours an agent gave the level the hero is on.
+    pub fn look(&self) -> Option<(crew::Rgb8, crew::Rgb8)> {
+        self.def(self.level).look
     }
 
     /// Set up the level the run starts on.
@@ -122,7 +177,7 @@ impl Sim<'_> {
                 self.crew[k].body = crew::Body::Pal { x, y, hp, max };
             }
         }
-        let town = to == Level::Town;
+        let town = self.safe(to);
         self.world.enter(self.seed ^ u64::from(to.floor()).rotate_left(40), &self.arena, &self.c.world, town);
         self.world.stock_shops(self.c);
         if town {
@@ -172,5 +227,31 @@ mod tests {
         s.p.x += 5_000;
         s.stairs_step();
         assert_eq!(s.level, lvl);
+    }
+
+    #[test]
+    fn agents_shape_levels_safe_havens_deadly_dungeons_and_their_look() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let fam = c.fam_ids().find(|&f| matches!(c.fam(f).kind, FamKind::Mob(_))).unwrap();
+        let spawn = Cmd::Spawn { fam, n: NonZeroU16::MIN, tier: Tier::Trash, form: Formation::Scatter };
+        let deep3 = Level::Deep(NonZeroU8::new(3).unwrap());
+        let look = (crew::Rgb8(10, 20, 30), crew::Rgb8(200, 100, 50));
+        s.shape_level(deep3, LevelDef { safe: Some(true), look: Some(look), ..LevelDef::default() });
+        s.shape_level(deep3, LevelDef { name: crew::Word::parse("Haven"), ..LevelDef::default() });
+        assert_eq!(s.validate(&spawn), Ok(()), "control: the deeps take waves");
+        s.travel(deep3);
+        assert_eq!((s.validate(&spawn), s.look(), s.named(deep3)), (Err(Reject::Town), Some(look), Some("Haven")), "a safe haven an agent made deep down, the later field kept the earlier ones");
+        assert!(s.world.npcs.iter().all(|p| p.npc.keeper_honest() == Some(true)), "town-style people");
+        // danger: a deadly dungeon at depth 1, a gentle one at depth 5
+        let pm = |s: &mut Sim, l: Level, d: Option<u8>| {
+            s.shape_level(l, LevelDef { danger: d.and_then(Danger::new), ..LevelDef::default() });
+            s.travel(l);
+            s.level_pm()
+        };
+        let base1 = pm(&mut s, Level::FIRST, None);
+        assert_eq!(base1, Level::FIRST.foe_pm(), "control: no danger set, the depth decides");
+        assert!(pm(&mut s, Level::FIRST, Some(10)) > pm(&mut s, Level::Deep(NonZeroU8::new(5).unwrap()), Some(0)));
+        assert!(Danger::new(DANGER_MAX + 1).is_none(), "NEG: danger past the cap");
     }
 }
