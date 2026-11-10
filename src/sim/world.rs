@@ -97,6 +97,20 @@ impl World {
         World { schedule: Schedule::new(seed, seg), foe_key: mix(seed ^ FOE_SALT), chests: place_chests(seed, arena, def.chests), blasts: Vec::new(), goblins: Vec::new(), traps: Vec::new(), gold_piles: Vec::new(), goblins_spawned: 0, npcs, services: Vec::new(), shops, open_shop: None, pals: 0 }
     }
 
+    /// A new level's people and loot (the sky and the pals won stay): in town only honest keepers and no traps or
+    /// chests; in the deeps the usual mix.
+    pub fn enter(&mut self, seed: u64, arena: &Arena, def: &crate::data::WorldDef, town: bool) {
+        self.npcs = if town { super::npc::place_town(seed, arena, def.npcs) } else { place(seed, arena, def.npcs, def.bad) };
+        self.shops = vec![Vec::new(); self.npcs.len()];
+        self.open_shop = None;
+        self.chests = if town { Vec::new() } else { place_chests(seed, arena, def.chests) };
+        self.blasts.clear();
+        self.goblins.clear();
+        self.traps.clear();
+        self.gold_piles.clear();
+        self.foe_key = mix(seed ^ FOE_SALT);
+    }
+
     pub fn forecast(&self, tick: u32) -> Forecast {
         self.schedule.forecast(tick)
     }

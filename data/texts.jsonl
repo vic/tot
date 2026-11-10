@@ -343,3 +343,8 @@
 {"t":"text","id":"mode_scene","text":"FEED"}
 {"t":"text","id":"scene_choice","text":"{key}  {choice}"}
 {"t":"text","id":"scene_close","text":"enter: jack out"}
+{"t":"glyph","id":"stairs_down","glyph":"▣"}
+{"t":"glyph","id":"stairs_up","glyph":"□"}
+{"t":"text","id":"level_town","text":"SAFEHOUSE"}
+{"t":"text","id":"level_deep","text":"SUBLEVEL {depth}"}
+{"t":"text","id":"msg_entered","text":"Uplink moved: {level}."}

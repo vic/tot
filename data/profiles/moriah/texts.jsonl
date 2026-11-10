@@ -343,3 +343,8 @@
 {"t":"text","id":"mode_scene","text":"SAGA"}
 {"t":"text","id":"scene_choice","text":"{key}  {choice}"}
 {"t":"text","id":"scene_close","text":"enter: onward"}
+{"t":"glyph","id":"stairs_down","glyph":"╦"}
+{"t":"glyph","id":"stairs_up","glyph":"╩"}
+{"t":"text","id":"level_town","text":"THE HALL"}
+{"t":"text","id":"level_deep","text":"DEEP {depth}"}
+{"t":"text","id":"msg_entered","text":"Into {level}, by stone and stair."}

@@ -20,6 +20,8 @@ pub enum Order {
     Chat { from: Word, text: Say },
     /// a scene card over the game (the world waits for the player)
     Scene(Scene),
+    /// the name a level shows (on the map, in messages and reports)
+    Place { level: crate::sim::Level, name: Word },
     Leave { key: Word },
 }
 
@@ -108,6 +110,13 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
     if t == "chat" {
         return Ok(Some(Order::Chat { from: word("from")?, text: say("text")? }));
     }
+    if t == "place" {
+        let level = match &v["level"] {
+            serde_json::Value::String(s) if s == "town" => crate::sim::Level::Town,
+            n => crate::sim::Level::Deep(n.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(std::num::NonZeroU8::new).ok_or("\"level\": \"town\" or a depth 1-255")?),
+        };
+        return Ok(Some(Order::Place { level, name: word("name")? }));
+    }
     let key = word("id")?;
     Ok(Some(match t {
         "join" => {
@@ -148,6 +157,10 @@ pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
         Order::Move { key, dx, dy } => sim.crew_goal(key, dx, dy),
         Order::Say { key, .. } => sim.crew.iter().any(|m| m.key == key).then_some(()).ok_or(CrewErr::NoSuchMate),
         Order::Chat { .. } | Order::Scene(_) => Ok(()),
+        Order::Place { level, name } => {
+            sim.name_level(level, name);
+            Ok(())
+        }
         Order::Leave { key } => sim.crew_leave(key),
     }
 }
@@ -181,7 +194,7 @@ pub fn snapshot(sim: &Sim) -> String {
         .collect();
     let near = (0..sim.e.len()).filter(|&i| crate::sim::dist2(sim.e.x[i] - sim.p.x, sim.e.y[i] - sim.p.y) <= i64::from(sim.c.view.view_r).pow(2)).count();
     serde_json::json!({
-        "t": "state", "time_s": sim.secs(),
+        "t": "state", "time_s": sim.secs(), "level": crate::render::level_name(sim, sim.level), "town": sim.level == crate::sim::Level::Town,
         "hero": {"hp": sim.p.hp / 1000, "max": sim.p.max_hp / 1000, "level": sim.p.level, "gold": sim.p.gold},
         "foes_in_view": near, "foes_alive": sim.e.len(), "crew": crew,
     })
@@ -218,6 +231,7 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"chat","from":"captain","text":"Tank left, I heal."}   you speak in the chat without a body
 {"t":"scene","id":"gate","title":"The Iron Gate","lines":["A guard bars the road.","He wants coin."],"choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]}
   a card over the game: 1-8 lines, 0-4 choices; the world waits while the player reads; the report tells you the choice. Use scenes for story, talk, quests and choices between fights.
+{"t":"place","level":"town","name":"Emberhold"}   name a level as the player sees it: "town" (safe, keepers, no waves) or a depth 1-255 (the deeps, foes tougher each level). The hero takes stairs between them; reports tell you where it is.
 {"t":"leave","id":"mira"}
 ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). Answer with new orders when the fight calls for it; stay silent otherwise."##;
 
@@ -318,6 +332,11 @@ impl Link {
         out
     }
 
+    /// The hero took a stair to the level named `name` (in the adventure's words).
+    pub fn entered(&mut self, name: &str) {
+        self.news.push(format!("The hero entered {name}."));
+    }
+
     /// The player closed scene `scene` with `choice` (None: a scene with no choices, read and closed).
     pub fn chose(&mut self, scene: Word, choice: Option<Word>) {
         self.news.push(match choice {
@@ -383,6 +402,10 @@ mod tests {
         let Ok(Some(Order::Scene(s))) = parse_line(gate) else { panic!("scene") };
         assert!(s.key.as_str() == "gate" && s.lines.len() == 2 && s.choices[1].0.as_str() == "fight" && s.choices[1].1.as_str() == "Draw steel");
         assert!(matches!(parse_line(&gate.replace(r#","choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]"#, "")), Ok(Some(Order::Scene(s))) if s.choices.is_empty()), "choices are optional");
+        assert!(matches!(parse_line(r#"{"t":"place","level":"town","name":"Emberhold"}"#), Ok(Some(Order::Place { level: crate::sim::Level::Town, .. }))));
+        assert!(matches!(parse_line(r#"{"t":"place","level":3,"name":"The Ossuary"}"#), Ok(Some(Order::Place { level: crate::sim::Level::Deep(d), .. })) if d.get() == 3));
+        assert!(parse_line(r#"{"t":"place","level":0,"name":"x"}"#).unwrap_err().contains("\"level\""), "NEG: depth 0 is no level");
+        assert!(parse_line(r#"{"t":"place","level":"heaven","name":"x"}"#).unwrap_err().contains("\"level\""));
         for (bad, why) in [
             (gate.replace(r#""title":"The Iron Gate""#, r#""title":"  ""#), "\"title\""),
             (gate.replace(r#"["A gate bars the road.","A guard waits."]"#, "[]"), "\"lines\": a list of 1-8"),

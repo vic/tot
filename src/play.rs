@@ -342,6 +342,15 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
                     }))?;
                 }
                 sim.step(&inp);
+                // a stair taken: a new map to explore, the player and the agents told where the hero is now
+                for l in std::mem::take(&mut sim.level_ev) {
+                    let name = crate::render::level_name(&sim, l);
+                    frame.reset_level();
+                    ui.msg = c.texts.fill(t::MSG_ENTERED, [&name]);
+                    if let Some(link) = agents.link.as_mut() {
+                        link.entered(&name);
+                    }
+                }
                 if let Some(m) = agents.tick(c, &mut ui, &mut sim, now_ms()) {
                     ui.msg = m;
                 }

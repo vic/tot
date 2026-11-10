@@ -343,3 +343,8 @@
 {"t":"text","id":"mode_scene","text":"OMEN"}
 {"t":"text","id":"scene_choice","text":"{key}  {choice}"}
 {"t":"text","id":"scene_close","text":"enter: let it pass"}
+{"t":"glyph","id":"stairs_down","glyph":"▽"}
+{"t":"glyph","id":"stairs_up","glyph":"△"}
+{"t":"text","id":"level_town","text":"THE LAST CHAPEL"}
+{"t":"text","id":"level_deep","text":"CIRCLE {depth}"}
+{"t":"text","id":"msg_entered","text":"You descend into {level}."}

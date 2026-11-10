@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 238] = [
+pub const TXTS: [Spec; 241] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -132,6 +132,9 @@ pub const TXTS: [Spec; 238] = [
     line("mode_prompt", &[], "Status line, left: tag of the prompt popup (P: speak to the agents)."),
     line("mode_legacy", &[], "Status line, left: tag of the legacy popup (L)."),
     line("mode_scene", &[], "Status line, left: tag of a scene card an agent sent (the world waits)."),
+    line("level_town", &[], "Name of the town level (stats panel, first row; status message on arrival)."),
+    line("level_deep", &["depth"], "Name of a level under the town by its depth (stats panel, first row; status message on arrival)."),
+    line("msg_entered", &["level"], "Status message: the hero took a stair and arrived on a level (level_town or level_deep)."),
     line("scene_choice", &["key", "choice"], "Scene card: one choice line: its number key and the agent's text."),
     line("scene_close", &[], "Scene card with no choices: the key that closes it."),
     line("mode_start", &[], "Status line, left: tag of the start screen."),
@@ -530,6 +533,9 @@ pub mod t {
     pub const MODE_PROMPT: Txt<0> = Txt::named("mode_prompt");
     pub const MODE_LEGACY: Txt<0> = Txt::named("mode_legacy");
     pub const MODE_SCENE: Txt<0> = Txt::named("mode_scene");
+    pub const LEVEL_TOWN: Txt<0> = Txt::named("level_town");
+    pub const LEVEL_DEEP: Txt<1> = Txt::named("level_deep");
+    pub const MSG_ENTERED: Txt<1> = Txt::named("msg_entered");
     pub const SCENE_CHOICE: Txt<2> = Txt::named("scene_choice");
     pub const SCENE_CLOSE: Txt<0> = Txt::named("scene_close");
     pub const MODE_START: Txt<0> = Txt::named("mode_start");
@@ -680,7 +686,7 @@ const fn gl(id: &'static str, doc: &'static str) -> GlyphSpec {
     GlyphSpec { id, doc }
 }
 
-pub const GLYPHS: [GlyphSpec; 31] = [
+pub const GLYPHS: [GlyphSpec; 33] = [
     gl("hero_head", "The hero's head in the arena (top of its body column), on the ring colour."),
     gl("hero_armor", "The hero's torso when it wears armor, in the armor's rarity colour."),
     gl("ore", "Ore lying on the floor (the blacksmith forges with it)."),
@@ -693,6 +699,8 @@ pub const GLYPHS: [GlyphSpec; 31] = [
     gl("npc_merchant", "A merchant (arena and map)."),
     gl("npc_blacksmith", "A blacksmith (arena and map)."),
     gl("npc_jeweler", "A jeweler who sells trinkets and enchants worn pieces (arena and map)."),
+    gl("stairs_down", "A stair down to the next level (arena and map)."),
+    gl("stairs_up", "A stair up to the town (arena and map)."),
     gl("npc_neutral", "A neutral bystander (arena and map)."),
     gl("map_hero", "The hero on the map (top left box)."),
     gl("map_chest", "A treasure on the map."),
@@ -746,6 +754,8 @@ pub mod g {
     pub const NPC_MERCHANT: GlyphId = GlyphId::named("npc_merchant");
     pub const NPC_BLACKSMITH: GlyphId = GlyphId::named("npc_blacksmith");
     pub const NPC_JEWELER: GlyphId = GlyphId::named("npc_jeweler");
+    pub const STAIRS_DOWN: GlyphId = GlyphId::named("stairs_down");
+    pub const STAIRS_UP: GlyphId = GlyphId::named("stairs_up");
     pub const NPC_NEUTRAL: GlyphId = GlyphId::named("npc_neutral");
     pub const MAP_HERO: GlyphId = GlyphId::named("map_hero");
     pub const MAP_CHEST: GlyphId = GlyphId::named("map_chest");

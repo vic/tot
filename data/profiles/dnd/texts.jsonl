@@ -343,3 +343,8 @@
 {"t":"text","id":"mode_scene","text":"TALE"}
 {"t":"text","id":"scene_choice","text":"{key}  {choice}"}
 {"t":"text","id":"scene_close","text":"enter: turn the page"}
+{"t":"glyph","id":"stairs_down","glyph":">"}
+{"t":"glyph","id":"stairs_up","glyph":"<"}
+{"t":"text","id":"level_town","text":"THE VILLAGE"}
+{"t":"text","id":"level_deep","text":"DUNGEON LEVEL {depth}"}
+{"t":"text","id":"msg_entered","text":"You arrive at {level}."}

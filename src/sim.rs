@@ -7,6 +7,7 @@ use crate::rng::{mix, Stream, Xo};
 use std::num::{NonZeroU16, NonZeroU32};
 
 mod crew;
+mod level;
 mod npc;
 mod solid;
 mod step;
@@ -17,6 +18,7 @@ pub use crew::{Allegiance, Body, Feat, CrewErr, CrewEv, Kit, Mate, Rgb8, Stance,
 pub mod crew_ranges {
     pub use super::crew::{ABILITIES, EVERY_MS, HP_PM, PACE_PM, POWER_PM, RADIUS_MM, REACH_MM};
 }
+pub use level::{Level, Stair};
 pub use npc::Npc;
 #[cfg(test)]
 pub use npc::Placed;
@@ -102,6 +104,8 @@ pub enum Reject {
     NotBoss,
     BossTier,
     NoText,
+    /// the hero is in town: no foes are sent there
+    Town,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -997,6 +1001,14 @@ pub struct Sim<'c> {
     /// agentic NPCs (pals and foes an agent runs) and what they did since the play loop last looked
     pub crew: Vec<Mate>,
     pub crew_ev: Vec<CrewEv>,
+    /// the run's seed (each level's map and people come from it)
+    seed: u64,
+    /// the level the hero is on, its stairs, and the levels entered since the play loop last looked
+    pub level: Level,
+    pub stairs: Vec<Stair>,
+    pub level_ev: Vec<Level>,
+    /// names agents gave levels (the view shows them instead of the adventure's)
+    level_names: Vec<(Level, Word)>,
     /// spots pal taunters hold this tick and their radius (foes inside go for them)
     taunts: Vec<(i32, i32, i32)>,
     pub narration: Option<(usize, u32)>,
@@ -1086,6 +1098,11 @@ impl<'c> Sim<'c> {
             boons: crate::legacy::Boons::default(),
             crew: Vec::with_capacity(CREW_MAX),
             crew_ev: Vec::with_capacity(crew::CREW_EV_CAP),
+            seed,
+            level: Level::FIRST,
+            stairs: Vec::with_capacity(2),
+            level_ev: Vec::with_capacity(4),
+            level_names: Vec::new(),
             taunts: Vec::with_capacity(CREW_MAX * crew::ABILITIES),
             narration: None,
             barks: Vec::with_capacity(64),
@@ -1111,6 +1128,7 @@ impl<'c> Sim<'c> {
             s.owned.push(Owned { id, rank: 1, power: 1000, cd: 0, sp: 0, phase: 0 });
         }
         s.world.stock_shops(c);
+        s.first_level();
         // boss homes: seeded direction, fixed distance from the start
         // shortcut: distance = 4 x ring_max for every boss, upgrade to per-boss data when bosses.jsonl gets a home field
         let mut rng_map = Xo::stream(seed, Stream::Map);
@@ -1212,6 +1230,9 @@ impl<'c> Sim<'c> {
 
     pub fn validate(&self, cmd: &Cmd) -> Result<(), Reject> {
         let cap = self.c.spawn.live_cap;
+        if self.level == Level::Town && matches!(cmd, Cmd::Spawn { .. } | Cmd::Boss { .. } | Cmd::Wild { .. }) {
+            return Err(Reject::Town);
+        }
         match *cmd {
             Cmd::Spawn { fam, n, tier, .. } => {
                 if tier == Tier::Boss {
@@ -1324,7 +1345,7 @@ impl<'c> Sim<'c> {
             }
             Tier::Champion => (sp.champion_hp, true, true),
         };
-        let hp = (hp * i64::from(mult) / 1000).clamp(1, i64::from(i32::MAX)) as i32;
+        let hp = (hp * i64::from(mult) / 1000 * self.level.foe_pm() / 1000).clamp(1, i64::from(i32::MAX)) as i32;
         let hp = self.world.foe_hp(self.tick).apply(hp).max(1);
         self.stats.win_spawned += i64::from(hp);
         self.push_enemy(fam, tier, (x, y), hp, (purger, swift));

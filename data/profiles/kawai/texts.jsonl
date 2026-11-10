@@ -343,3 +343,8 @@
 {"t":"text","id":"mode_scene","text":"STORY"}
 {"t":"text","id":"scene_choice","text":"{key}  {choice}"}
 {"t":"text","id":"scene_close","text":"enter: okay!"}
+{"t":"glyph","id":"stairs_down","glyph":"◇"}
+{"t":"glyph","id":"stairs_up","glyph":"◆"}
+{"t":"text","id":"level_town","text":"CANDY TOWN"}
+{"t":"text","id":"level_deep","text":"CLOUD FLOOR {depth}"}
+{"t":"text","id":"msg_entered","text":"Hop! Welcome to {level}!"}

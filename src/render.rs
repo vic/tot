@@ -1564,6 +1564,14 @@ impl Frame {
         for g in &w.goblins {
             at(self, g.x, g.y, Prio::EliteBoss, sim.c.texts.glyph(g::GOBLIN), pal.chest);
         }
+        // stairs: two rows of the stair glyph on a glow, the way on to the next level reads from afar
+        for st in &sim.stairs {
+            let (x, y) = (f64::from(st.x), f64::from(st.y));
+            let Some(i) = self.cell_of(x, y) else { continue };
+            let fg = pal.role(Role::Legendary);
+            let ink = Ink { ch: stair_glyph(sim.c, st.to), fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
+            self.stand(i, self.vd(x, y), 1, Prio::EliteBoss, [ink, ink, ink]);
+        }
         // a persona stands as tall as an elite foe, its head on a glow of its own colour and its body glowing
         // fainter, so a pal or a keeper reads at a glance in a crowd
         let n = sim.c.view.actor_rows[2].max(1);
@@ -1824,6 +1832,9 @@ impl Frame {
         for &(x, y, _) in &t {
             self.pointer(sim, x, y, c.pal.alarm);
         }
+        for st in &sim.stairs {
+            self.pointer(sim, st.x, st.y, c.pal.role(Role::Legendary));
+        }
         for &(x, y) in &sim.treasures {
             self.pointer(sim, x, y, c.pal.chest);
         }
@@ -1835,6 +1846,11 @@ impl Frame {
         calls.sort_unstable_by_key(|&(d2, x, y, _)| (d2, x, y));
         for &(_, x, y, fg) in calls.iter().take(PAL_CALLS) {
             self.pointer(sim, x, y, fg);
+        }
+        // the level's name under the map, over the edge arrows
+        if self.cols >= MAP_W && self.play_rows() > MAP_H {
+            let s: String = level_name(sim, sim.level).chars().take(usize::from(MAP_W)).collect();
+            self.text(MAP_H, 1, &s, c.pal.role(Role::Legendary));
         }
         // shouts last: only the popups may cover them
         self.pal_calls(sim);
@@ -1869,6 +1885,8 @@ impl Frame {
                     (c.texts.glyph(g::MAP_BOSS), pal.alarm)
                 } else if sim.world.goblins.iter().any(|gb| (gb.x.div_euclid(unit), gb.y.div_euclid(unit)) == (cx, cy)) {
                     (c.texts.glyph(g::MAP_GOBLIN), pal.chest)
+                } else if let Some(st) = sim.stairs.iter().find(|s| (s.x.div_euclid(unit), s.y.div_euclid(unit)) == (cx, cy)) {
+                    (stair_glyph(c, st.to), pal.role(Role::Legendary))
                 } else if let Some(p) = sim.world.npcs.iter().find(|p| p.npc != crate::sim::Npc::Neutral && (p.x.div_euclid(unit), p.y.div_euclid(unit)) == (cx, cy)) {
                     npc_ink(c, p.npc)
                 } else if known && rock(sim.arena(), cx, cy) {
@@ -2430,6 +2448,11 @@ impl Frame {
         self.died_ms = None;
         (self.sky, self.sky_banner, self.shout_at) = (None, None, None);
     }
+
+    /// A new level: its map is unexplored (the run goes on: face, sky and death state stay).
+    pub fn reset_level(&mut self) {
+        self.seen.clear();
+    }
 }
 
 /// One icon per power kind for the picker: attacks are arrows and blasts, traits are solid marks.
@@ -2448,6 +2471,23 @@ fn kind_icon(k: crate::data::SkillKind) -> &'static str {
         K::Magnet => "◇",
         K::Regen => "◉",
     }
+}
+
+/// A level's name: the one an agent gave it, else the adventure's words.
+pub fn level_name(sim: &Sim, l: crate::sim::Level) -> String {
+    let c = sim.c;
+    if let Some(n) = sim.named(l) {
+        return n.to_string();
+    }
+    match l {
+        crate::sim::Level::Town => c.texts.get(t::LEVEL_TOWN).to_string(),
+        crate::sim::Level::Deep(d) => c.texts.fill(t::LEVEL_DEEP, [&d.get().to_string()]),
+    }
+}
+
+/// The glyph of a stair by where it leads: up to the town, or down.
+fn stair_glyph(c: &Content, to: crate::sim::Level) -> Glyph {
+    c.texts.glyph(if to == crate::sim::Level::Town { g::STAIRS_UP } else { g::STAIRS_DOWN })
 }
 
 /// A stat value as the player reads it: HP and regen in whole points, reach in metres, armour as is, the
@@ -3008,7 +3048,7 @@ mod tests {
         let view = |now_ms| View { ui: &ui, now_ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
         let text = |f: &Frame| f.cells.iter().map(|c| c.ch.ch()).collect::<String>();
         f.compose(&sim, &view(0));
-        assert!(!text(&f).contains("LEVEL"), "no flash before a level up");
+        assert!(!text(&f).contains(&level_line(&c, sim.p.level + 1)), "no flash before a level up");
         sim.p.level += 1;
         f.compose(&sim, &view(100));
         let t = text(&f);
@@ -3019,10 +3059,10 @@ mod tests {
         assert!(LEVEL_GLOW.iter().filter(|&&r| ring.contains(&c.pal.role(r))).count() >= 3, "several bright colours");
         assert!(ring.iter().all(|&fg| LEVEL_GLOW.iter().any(|&r| c.pal.role(r) == fg)), "only the bright roles");
         f.compose(&sim, &view(100 + LEVEL_FLASH_MS + 1));
-        assert!(!text(&f).contains("LEVEL"), "flash ends");
+        assert!(!text(&f).contains(&level_line(&c, sim.p.level)), "flash ends");
         // negative control: same level, no new flash
         f.compose(&sim, &view(5000));
-        assert!(!text(&f).contains("LEVEL"));
+        assert!(!text(&f).contains(&level_line(&c, sim.p.level)));
         assert!(ring_radius(LEVEL_FLASH_MS) > ring_radius(0));
     }
 
@@ -3915,7 +3955,8 @@ mod tests {
     // re-pinned 2026-11-09: the next-boss panel shows the mid boss at 300 s (was 450 s)
     // re-pinned 2026-11-10: key hints gain P (speak to agents) and L (legacy)
     // re-pinned 2026-11-10: a dim agent tip line at the bottom left
-    const GOLDEN: u64 = 0xb6f8_fe23_cd09_ad4b;
+    // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
+    const GOLDEN: u64 = 0x2a3f_938c_aed6_b67b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -4657,5 +4698,32 @@ mod tests {
         ui.sync_scene();
         ui.key(crate::input::KeyEv { key: crate::input::Key::Enter, kind: crate::input::Kind::Press, text: None }, &c, 0);
         assert_eq!(ui.scene_done.map(|(k, ch)| (k.as_str().to_string(), ch)), Some(("after".into(), None)));
+    }
+
+    #[test]
+    fn stairs_show_on_the_map_and_the_level_has_a_name_agents_can_change() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let shot = |f: &mut Frame, sim: &Sim| {
+            f.compose(sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let deep1 = c.texts.fill(t::LEVEL_DEEP, ["1"]);
+        let s0 = shot(&mut f, &sim);
+        assert!(s0.contains(&deep1), "the level's name under the map\n{}", s0.lines().take(14).collect::<Vec<_>>().join("\n"));
+        // a stair two tiles east is drawn in the arena with its glyph
+        let st = sim.stairs.iter_mut().find(|s| s.to != crate::sim::Level::Town).unwrap();
+        (st.x, st.y) = (sim.p.x + 4_000, sim.p.y);
+        let down = c.texts.glyph(g::STAIRS_DOWN);
+        let s = shot(&mut f, &sim);
+        assert!(s.contains(down.ch()), "the stair glyph\n{s}");
+        // an agent renames the level; the town keeps its own name until named too
+        crate::crew::apply(&mut sim, &crate::crew::parse_line(r#"{"t":"place","level":1,"name":"The Rust Pits"}"#).unwrap().unwrap()).unwrap();
+        let s = shot(&mut f, &sim);
+        assert!(s.contains("The Rust Pits") && !s.contains(&deep1), "agent name replaces the default\n{s}");
+        sim.travel(crate::sim::Level::Town);
+        assert!(shot(&mut f, &sim).contains(c.texts.get(t::LEVEL_TOWN)), "control: the town shows its adventure name");
     }
 }

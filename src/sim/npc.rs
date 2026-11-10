@@ -114,6 +114,12 @@ pub fn place(seed: u64, arena: &Arena, count: u32, bad_permille: u32) -> Vec<Pla
     out
 }
 
+/// A town's people: honest keepers only, the three trades in turn, placed like `place` does.
+pub fn place_town(seed: u64, arena: &Arena, count: u32) -> Vec<Placed> {
+    let trades = [Npc::Merchant { honest: true }, Npc::Blacksmith { honest: true }, Npc::Jeweler { honest: true }];
+    place(seed, arena, count, 0).into_iter().enumerate().map(|(k, p)| Placed { npc: trades[k % trades.len()], ..p }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
