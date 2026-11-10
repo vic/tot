@@ -427,11 +427,8 @@ impl Agents {
     /// report when one is due. Err = the status message of a failed report.
     fn tick(&mut self, c: &Content, ui: &mut Ui, sim: &mut Sim, now_ms: u64) -> Option<String> {
         use crate::input::Speaker;
-        let Some(link) = &mut self.link else {
-            sim.crew_ev.clear();
-            return None;
-        };
-        for heard in link.poll(sim) {
+        let heard = self.link.as_mut().map(|l| l.poll(sim)).unwrap_or_default();
+        for heard in heard {
             match heard {
                 crate::crew::Heard::Applied(o) => {
                     if let crate::crew::Order::Say { key, text } | crate::crew::Order::Join { key, say: Some(text), .. } = &o {
@@ -450,13 +447,25 @@ impl Agents {
                 crate::sim::CrewEv::Joined(k) => {
                     if let Some(m) = sim.crew.iter().find(|m| m.key == *k) {
                         ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_JOINED, [m.name.as_str(), m.kit.class.as_str()]));
+                        // a pal the hero rescued greets the party in its adventure's words
+                        if sim.is_rescued(m) {
+                            let hi = c.texts.pick(t::RESCUED_SAYS, k.as_str().len() + m.name.as_str().len()).to_string();
+                            ui.says.push((*k, hi.clone(), now_ms + SAY_MS));
+                            ui.push_chat(Speaker::Agent(m.name.as_str().to_string()), hi);
+                        }
                     }
                 }
                 crate::sim::CrewEv::Down(k) => ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_DOWN, [k.as_str()])),
                 _ => {}
             }
         }
-        link.tick(sim).err().map(|e| c.texts.fill(t::MSG_PROMPT_FAILED, [&e.to_string()]))
+        match &mut self.link {
+            Some(link) => link.tick(sim).err().map(|e| c.texts.fill(t::MSG_PROMPT_FAILED, [&e.to_string()])),
+            None => {
+                sim.crew_ev.clear();
+                None
+            }
+        }
     }
 }
 

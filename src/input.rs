@@ -187,6 +187,8 @@ pub enum Action {
     StartMove(i8),
     StartPick,
     StartBack,
+    /// H: show or hide the health bars over pals and bosses
+    ToggleBars,
     /// P / L: open the prompt or the legacy popup
     OpenPrompt,
     OpenLegacy,
@@ -267,6 +269,7 @@ impl Action {
             "start_next" => StartMove(1),
             "start_pick" => StartPick,
             "start_back" => StartBack,
+            "bars" => ToggleBars,
             "prompt" => OpenPrompt,
             "legacy" => OpenLegacy,
             "prompt_agent" => PromptAgent,
@@ -477,6 +480,8 @@ pub struct Ui {
     /// L: the cursor boon; `boon_buy` is the one-shot buy (taken by the play loop)
     pub boon_sel: usize,
     pub boon_buy: Option<crate::legacy::Boon>,
+    /// health bars over pals and bosses (H toggles)
+    pub bars: bool,
     /// the crew chat, oldest first, at most CHAT_KEEP lines
     pub chat: Vec<(Speaker, String)>,
     /// lines crew members say, shown over them until the clock (ms) passes the deadline
@@ -549,6 +554,7 @@ impl Ui {
             boon_buy: None,
             chat: Vec::new(),
             says: Vec::new(),
+            bars: true,
         }
     }
 
@@ -564,7 +570,7 @@ impl Ui {
         // a popup open at restart forced the toggles on: the player's own choice is the saved one
         let (walk, fire) = self.choice();
         // the crew chat and the agent picked carry over: the agents play on across runs
-        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), ..Ui::new(fire) }
+        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), bars: self.bars, agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), ..Ui::new(fire) }
     }
 
     /// Track the sim's power-up offer. It does not pop up by itself (that interrupts play): it waits until the
@@ -889,6 +895,7 @@ impl Ui {
                 Start::Agent { adv, .. } => self.start = Start::Describe { adv },
                 Start::Asking { adv, agent } => self.start = Start::Agent { adv, sel: agent },
             },
+            Action::ToggleBars => self.bars = !self.bars,
             Action::OpenPrompt => self.mode = Mode::Prompt,
             Action::OpenLegacy => self.mode = Mode::Legacy,
             Action::PromptAgent => self.agent_sel = (self.agent_sel + 1) % self.agent_names.len().max(1),
@@ -977,12 +984,17 @@ impl Ui {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::data::tests::content;
 
     fn press(c: char) -> KeyEv {
         KeyEv { key: Key::Char(c), kind: Kind::Press, text: Some(c) }
+    }
+
+    /// Type `ch` as the terminal sends it (a capital is its letter key with shift text) into `ui`.
+    pub(crate) fn press_key(ui: &mut Ui, c: &Content, ch: char) {
+        ui.key(KeyEv { key: Key::Char(ch.to_ascii_lowercase()), kind: Kind::Press, text: Some(ch) }, c, 0);
     }
 
     /// Real terminal bytes end to end: kitty shift+w and legacy W toggle auto-walk (and do not walk); space held

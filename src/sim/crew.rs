@@ -105,9 +105,10 @@ impl Kit {
         self.abilities.iter().flatten()
     }
 
-    /// Steps in to fight foes near the hero (it can hit up close or draws foes).
-    fn fighter(&self) -> bool {
-        self.abilities().any(|a| a.verb == Verb::Taunt || (a.verb == Verb::Strike && a.reach <= 2_500))
+    /// How near it goes to a foe to fight it: the shortest reach of its fighting abilities (a taunt fights up
+    /// close). None for a member that only heals: it keeps out of the fight.
+    fn engage(&self) -> Option<i32> {
+        self.abilities().filter(|a| a.verb != Verb::Heal).map(|a| if a.verb == Verb::Taunt { MELEE } else { a.reach }).min()
     }
 }
 
@@ -162,6 +163,12 @@ impl Word {
         let mut b = [0u8; 16];
         b.get_mut(..s.len())?.copy_from_slice(s.as_bytes());
         ok.then_some(Word { b, n: s.len() as u8 })
+    }
+
+    /// A word from shown text: only the chars a word may hold, at most 16; None when nothing is left.
+    pub fn lossy(s: &str) -> Option<Word> {
+        let t: String = s.chars().filter(|c| c.is_ascii_alphanumeric() || "_- ".contains(*c)).take(16).collect();
+        Word::parse(&t)
     }
 
     pub fn as_str(&self) -> &str {
@@ -223,9 +230,16 @@ pub enum CrewErr {
     NoBody,
 }
 
-/// Pals follow on a ring this far from the hero (mm), fighters step out to foes this near the hero.
+/// Following pals roam on their own: each picks its own spot within WANDER_R of the hero and a new one every
+/// WANDER_MS (staggered per member), hunts foes within HUNT_R of itself, and turns back past LEASH_R from the hero.
 const FOLLOW_R: i32 = 1_800;
-const GUARD_R: i32 = 6_000;
+const WANDER_R: i32 = 4_000;
+const WANDER_MS: u32 = 3_000;
+const HUNT_R: i32 = 8_000;
+const LEASH_R: i32 = 12_000;
+/// A fighter stops this share (permille) of its reach short of its foe; taunters close to MELEE.
+const ENGAGE_PM: i64 = 800;
+const MELEE: i32 = 1_200;
 const CHARGE_R: i32 = 12_000;
 const FLEE_R: i32 = 6_000;
 /// A pal farther than this from the hero is brought back beside it.
@@ -239,6 +253,8 @@ const HEAL_BELOW: i64 = 900;
 const SHOT_V: i32 = 350;
 const TELE_MS: u32 = 1_000;
 const RAISE_MAX: i32 = 5;
+/// Key prefix of rescued pals (rescued0, rescued1, ...): agents order them by it like their own members.
+const RESCUED: &str = "rescued";
 /// Events kept until the play loop drains them.
 pub const CREW_EV_CAP: usize = 256;
 
@@ -288,6 +304,36 @@ impl Sim<'_> {
         Ok(())
     }
 
+    /// A pal the hero rescued joins the party with features of its own, all drawn from `h` (hashed from the run and
+    /// the spot it stood on): a main ability and a strike or blast, their numbers, HP, pace and colour; its name and
+    /// class word come from the adventure's rescued_name / rescued_class pools. Err when the crew is full.
+    pub(in crate::sim) fn rescue_mate(&mut self, h: u64) -> Result<(), CrewErr> {
+        let n = self.world.pals;
+        let key = Word::parse(&format!("{RESCUED}{n}")).ok_or(CrewErr::Taken)?;
+        let word = |p: crate::text::Pool, k: u64| Word::lossy(self.c.texts.pick(p, k as usize));
+        let name = word(crate::text::t::RESCUED_NAMES, h).unwrap_or(key);
+        let class = word(crate::text::t::RESCUED_CLASSES, h >> 16).unwrap_or(key);
+        let glyph = name.as_str().chars().next().map_or('@', |c| c.to_ascii_uppercase());
+        let band = |s: u32, (lo, hi): (i32, i32)| lo + (mix(h ^ u64::from(s)) % (hi - lo + 1) as u64) as i32;
+        let main = Verb::ALL[(h % Verb::ALL.len() as u64) as usize];
+        let feat = |v: Verb, s: u32| {
+            let (every, reach, power, radius) = match v {
+                Verb::Heal => (band(s, (1_500, 3_500)), band(s + 1, (7_000, 11_000)), band(s + 2, (80, 180)), 0),
+                Verb::Strike => (band(s, (500, 1_500)), band(s + 1, (2_000, 11_000)), band(s + 2, (600, 1_600)), 0),
+                Verb::Blast => (band(s, (1_800, 3_500)), band(s + 1, (7_000, 10_000)), band(s + 2, (1_200, 2_500)), band(s + 3, (1_500, 3_500))),
+                Verb::Raise => (band(s, (2_500, 5_000)), band(s + 1, (6_000, 10_000)), band(s + 2, (400, 700)), 0),
+                Verb::Taunt => (1_000, MELEE, 0, band(s + 3, (3_000, 5_500))),
+            };
+            Feat::new(v, every as u32, reach, power, radius)
+        };
+        let second = if main == Verb::Strike { Verb::Blast } else { Verb::Strike };
+        let feats: Vec<Feat> = [feat(main, 1), feat(second, 11)].into_iter().flatten().collect();
+        let hp = if main == Verb::Taunt { band(21, (1_800, 2_800)) } else { band(21, (600, 1_200)) };
+        let rgb = Rgb8(band(31, (90, 255)) as u8, band(32, (90, 255)) as u8, band(33, (90, 255)) as u8);
+        let kit = Kit::new(class, glyph, Some(rgb), hp, band(22, (850, 1_200)), &feats).ok_or(CrewErr::NoBody)?;
+        self.crew_join(key, name, kit, Allegiance::Pal)
+    }
+
     pub fn crew_order(&mut self, key: Word, stance: Stance) -> Result<(), CrewErr> {
         let i = self.mate_ix(key)?;
         let at = self.mate_at(&self.crew[i]).map(|(x, y, ..)| (x, y));
@@ -304,6 +350,11 @@ impl Sim<'_> {
         let t = crate::floorgen::TILE_MM;
         self.crew[i].goal = Some((self.p.x + dx.clamp(-40, 40) * t, self.p.y + dy.clamp(-40, 40) * t));
         Ok(())
+    }
+
+    /// A member the hero rescued in the world (not one an agent made).
+    pub fn is_rescued(&self, m: &Mate) -> bool {
+        m.key.as_str().starts_with(RESCUED)
     }
 
     /// The member leaves the agent's hands: a pal walks off, a foe's body stays as a plain champion.
@@ -388,6 +439,18 @@ impl Sim<'_> {
         }
     }
 
+    /// The spot member `k` roams to now: its own point FOLLOW_R..WANDER_R from the hero, a new one every WANDER_MS
+    /// (the clock staggered by its key, so members do not move in step). Picked by hash, no RNG stream consumed.
+    fn wander_spot(&self, k: usize, key: Word) -> (i32, i32) {
+        let seed = key.as_str().bytes().fold(k as u64, |h, b| mix(h ^ u64::from(b)));
+        let period = u64::from(self.ticks(WANDER_MS));
+        let epoch = (u64::from(self.tick) + seed % period) / period;
+        let h = mix(seed ^ epoch.rotate_left(17));
+        let (ox, oy) = self.trig[(h % u64::from(TRIG_N)) as usize];
+        let r = FOLLOW_R + ((h >> 32) % (WANDER_R - FOLLOW_R) as u64) as i32;
+        (self.p.x + scale(ox, i64::from(r)), self.p.y + scale(oy, i64::from(r)))
+    }
+
     fn pal_move(&mut self, k: usize) {
         let m = self.crew[k];
         let Body::Pal { x, y, hp, max } = m.body else { return };
@@ -398,14 +461,23 @@ impl Sim<'_> {
             return;
         }
         let near_foe = |r: i32, cx: i32, cy: i32| self.nearest_hostile(cx, cy, r, &[]).map(|j| (self.e.x[j], self.e.y[j]));
-        let (ox, oy) = self.trig[(k as u32 * TRIG_N / CREW_MAX as u32) as usize];
-        let beside = (px + scale(ox, i64::from(FOLLOW_R)), py + scale(oy, i64::from(FOLLOW_R)));
+        let beside = self.wander_spot(k, m.key);
+        let leashed = dist2(px - x, py - y) > i64::from(LEASH_R).pow(2);
+        // a fighter walks up to its foe until the foe is inside its own reach, then fights from there
+        let hunt = || {
+            let reach = m.kit.engage()?;
+            let (fx, fy) = near_foe(HUNT_R, x, y)?;
+            let stop = (i64::from(reach) * ENGAGE_PM / 1000) as i32;
+            let d = dist(fx - x, fy - y);
+            Some(if d <= stop { (x, y) } else { (fx, fy) })
+        };
         let to = match (m.goal, m.stance) {
             (Some(g), _) => Some(g),
             (None, Stance::Hold) => None,
             (None, Stance::Charge) => near_foe(CHARGE_R, x, y).or(Some(beside)),
             (None, Stance::Flee) => near_foe(FLEE_R, x, y).map(|(fx, fy)| (x + (x - fx), y + (y - fy))).or(Some(beside)),
-            (None, Stance::Follow) => (if m.kit.fighter() { near_foe(GUARD_R, px, py) } else { None }).or(Some(beside)),
+            (None, Stance::Follow) if leashed => Some(beside),
+            (None, Stance::Follow) => hunt().or(Some(beside)),
         };
         let Some((tx, ty)) = to else { return };
         if dist2(tx - x, ty - y) <= i64::from(ARRIVE).pow(2) {
@@ -665,13 +737,61 @@ pub(crate) mod tests {
         s.p.x += 8_000;
         run(&mut s, 120);
         let (x, y, ..) = s.mate_at(&s.crew[0]).unwrap();
-        assert!(dist(s.p.x - x, s.p.y - y) < 4_000, "followed to {x},{y}");
+        assert!(dist(s.p.x - x, s.p.y - y) <= WANDER_R + ARRIVE, "followed to {x},{y}");
         // NEG: told to hold, it stays
         s.crew_order(w("doc"), Stance::Hold).unwrap();
         let at = s.mate_at(&s.crew[0]).map(|m| (m.0, m.1));
         s.p.x += 8_000;
         run(&mut s, 60);
         assert_eq!(s.mate_at(&s.crew[0]).map(|m| (m.0, m.1)), at, "held");
+    }
+
+    #[test]
+    fn following_pals_roam_on_their_own_hunt_near_themselves_and_keep_a_leash() {
+        let c = content();
+        let hz = c.hz().get();
+        // the hero stands still: each pal still walks between spots of its own, and no two walk the same path
+        let mut s = quiet(&c);
+        s.crew_join(w("a"), w("A"), kit(Verb::Heal), Allegiance::Pal).unwrap();
+        s.crew_join(w("b"), w("B"), kit(Verb::Heal), Allegiance::Pal).unwrap();
+        let mut spots: [Vec<(i32, i32)>; 2] = [Vec::new(), Vec::new()];
+        for _ in 0..12 {
+            run(&mut s, hz);
+            for (k, v) in spots.iter_mut().enumerate() {
+                let (x, y, ..) = s.mate_at(&s.crew[k]).unwrap();
+                if v.last() != Some(&(x, y)) {
+                    v.push((x, y));
+                }
+                assert!(dist(s.p.x - x, s.p.y - y) <= WANDER_R + ARRIVE, "stays near the hero");
+            }
+        }
+        assert!(spots.iter().all(|v| v.len() >= 3), "each one moves around: {spots:?}");
+        assert_ne!(spots[0], spots[1], "independent paths");
+        // a fighter hunts a foe near itself, not near the hero; a healer on the same spot keeps out (control)
+        let fam = c.fam_ids().find(|&f| matches!(c.fam(f).kind, FamKind::Mob(_))).unwrap();
+        let gap = |v: Verb| {
+            let mut s = quiet(&c);
+            s.crew_join(w("x"), w("X"), kit(v), Allegiance::Pal).unwrap();
+            let (tx, ty) = s.free_near(s.p.x + 3_000, s.p.y, MATE_R);
+            s.crew[0].body = Body::Pal { x: tx, y: ty, hp: 1_000_000, max: 1_000_000 };
+            s.push_enemy(fam, Tier::Trash, (tx + 6_000, ty), 1_000_000, (false, false));
+            let j = s.e.len() - 1;
+            s.e.status[j] = Status::Frozen { left: u16::MAX };
+            run(&mut s, 20);
+            let (x, y, ..) = s.mate_at(&s.crew[0]).unwrap();
+            dist(s.e.x[j] - x, s.e.y[j] - y)
+        };
+        assert!(gap(Verb::Taunt) + 2_000 < gap(Verb::Heal), "the taunter walks up to its foe: {} vs {}", gap(Verb::Taunt), gap(Verb::Heal));
+        // leash: a pal past LEASH_R from the hero turns back even with a foe beside it
+        let mut s = quiet(&c);
+        s.crew_join(w("x"), w("X"), kit(Verb::Taunt), Allegiance::Pal).unwrap();
+        let (tx, ty) = s.free_near(s.p.x + LEASH_R + 3_000, s.p.y, MATE_R);
+        s.crew[0].body = Body::Pal { x: tx, y: ty, hp: 1_000_000, max: 1_000_000 };
+        s.push_enemy(fam, Tier::Trash, (tx + 2_000, ty), 1_000_000, (false, false));
+        let d0 = dist(s.p.x - tx, s.p.y - ty);
+        run(&mut s, 10);
+        let (x, y, ..) = s.mate_at(&s.crew[0]).unwrap();
+        assert!(dist(s.p.x - x, s.p.y - y) < d0, "turned back to the hero");
     }
 
     #[test]

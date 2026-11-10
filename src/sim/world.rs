@@ -211,11 +211,14 @@ impl Sim<'_> {
 
     fn npc_outcome(&mut self, out: Outcome, x: i32, y: i32) {
         match out {
-            Outcome::Rescued => {
+            Outcome::Rescued | Outcome::TurnsPal => {
+                // a won pal joins the party (a full crew leaves it behind, its chests still drop)
+                let _ = self.rescue_mate(mix(self.world.foe_key ^ pos_key(x, y)));
                 self.world.pals += 1;
-                self.pending_chest += self.c.world.rescue_chests;
+                if out == Outcome::Rescued {
+                    self.pending_chest += self.c.world.rescue_chests;
+                }
             }
-            Outcome::TurnsPal => self.world.pals += 1,
             Outcome::TurnsFoe => {
                 if let Some(fam) = self.foe_fam(mix(self.world.foe_key ^ pos_key(x, y))) {
                     self.spawn_mob(fam, Tier::Trash, x, y);
@@ -452,6 +455,26 @@ mod tests {
         s.p.x += 4500;
         s.world_step();
         assert_eq!((s.pending_chest, s.world.pals, s.world.npcs.len()), (1, 1, 0));
+        // the rescued pal joins the party, named from the adventure's pool, with a kit of its own
+        assert_eq!(s.crew.len(), 1, "joined the party");
+        let m = s.crew[0];
+        assert!(s.is_rescued(&m) && c.texts.pool(crate::text::t::RESCUED_NAMES).iter().any(|n| n == m.name.as_str()), "{m:?}");
+        assert!(c.texts.pool(crate::text::t::RESCUED_CLASSES).iter().any(|n| n == m.kit.class.as_str()) && m.kit.abilities().count() == 2);
+        // a second pal elsewhere is its own person: another kit
+        s.world.npcs = vec![Placed { npc: Npc::Pal { traitor: false }, x: s.p.x + 9_000, y: s.p.y + 3_000 }];
+        s.p.x += 9_000;
+        s.p.y += 3_000;
+        s.world_step();
+        assert!(s.crew.len() == 2 && s.crew[1].key != m.key && s.crew[1].kit != m.kit, "unique features: {:?}", s.crew[1]);
+        // NEG: a full crew leaves a rescued pal behind, its chest still drops
+        while s.crew.len() < crate::sim::CREW_MAX {
+            let k = s.crew.len();
+            s.crew_join(crate::sim::Word::parse(&format!("x{k}")).unwrap(), m.name, m.kit, crate::sim::Allegiance::Pal).unwrap();
+        }
+        let chests = s.pending_chest;
+        s.world.npcs = vec![Placed { npc: Npc::Pal { traitor: false }, x: s.p.x + 500, y: s.p.y }];
+        s.world_step();
+        assert_eq!((s.crew.len(), s.pending_chest), (crate::sim::CREW_MAX, chests + 1));
 
         let mut s = sim_with(&c, Npc::Pal { traitor: true });
         let before = s.e.x.len();

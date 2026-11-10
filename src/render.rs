@@ -1604,14 +1604,50 @@ impl Frame {
         let pal = &sim.c.pal;
         let n = sim.c.view.actor_rows[2].max(1);
         for m in &sim.crew {
-            let Some((x, y, ..)) = sim.mate_at(m) else { continue };
+            let Some((x, y, hp, max)) = sim.mate_at(m) else { continue };
             let (fx, fy) = (f64::from(x), f64::from(y));
             let fg = Self::mate_ink(sim, m);
             let (col, row) = self.scr(fx, fy);
-            let top = row - i32::from(n) - 1;
+            let mut top = row - i32::from(n) - 1;
+            if ui.bars {
+                self.head_bar(sim, top, col, HEAD_BAR_W, (hp, max), fg);
+                top -= 1;
+            }
             self.label(top, col, m.name.as_str(), fg);
             if let Some((_, s, _)) = ui.says.iter().rev().find(|(k, _, until)| *k == m.key && *until > now_ms) {
                 self.label(top - 1, col, s, pal.text);
+            }
+        }
+        if !ui.bars {
+            return;
+        }
+        // every boss in sight: a bar as wide as its cloud, over its head
+        let view2 = i64::from(sim.c.view.fog_end).pow(2);
+        for k in (0..sim.e.len()).filter(|&k| sim.e.tier[k] == Tier::Boss && dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y) <= view2) {
+            let Some(def) = sim.c.boss_of(sim.e.fam[k]) else { continue };
+            let cls = BossClass::of_kind(Tier::Boss, &sim.c.fam(sim.e.fam[k]).kind).unwrap_or(BossClass::Mini);
+            let (w, h) = (cls.radius(i32::from(def.w)), cls.radius(i32::from(def.h)));
+            let lift = if sim.c.view.actor_rows[2] == 0 { h / 2 } else { h };
+            let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
+            self.head_bar(sim, row - lift - 1, col, w.max(HEAD_BAR_W), (sim.e.hp[k], sim.e.max[k]), pal.alarm);
+        }
+    }
+
+    /// A health bar `w` cells wide centred on `col` of play row `row`: the HP share filled in `fg`, the rest dim.
+    fn head_bar(&mut self, sim: &Sim, row: i32, col: i32, w: i32, (hp, max): (i32, i32), fg: Rgb) {
+        let full = (i64::from(hp.max(0)) * i64::from(w) + i64::from(max.max(1)) - 1) / i64::from(max.max(1));
+        let bar: String = (0..i64::from(w)).map(|i| if i < full { '█' } else { '░' }).collect();
+        let left = col - w / 2;
+        if !(0..i32::from(self.play_rows())).contains(&row) {
+            return;
+        }
+        let cols = i32::from(self.cols);
+        for (i, ch) in bar.chars().enumerate() {
+            let x = left + i as i32;
+            if (0..cols).contains(&x) {
+                let k = row as usize * usize::from(self.cols) + x as usize;
+                self.cells[k].ch = Glyph::of(ch).unwrap_or(Glyph::SPACE);
+                self.cells[k].fg = if ch == '█' { fg } else { sim.c.pal.dim };
             }
         }
     }
@@ -2661,6 +2697,8 @@ const LOOT_PANE_W: i32 = 16;
 /// Crew chat box (left edge, under the power-up panes): width and most rows.
 const CHAT_W: u16 = 48;
 const CHAT_ROWS: usize = 10;
+/// Health bar over a pal's head (cells); a boss's is as wide as its cloud, never narrower.
+const HEAD_BAR_W: i32 = 8;
 /// Power-up panes: their colour role and fill (permille toward the panel background; the top pane pulses to HI).
 const POWER_ROLE: Role = Role::Unique;
 const POWER_GLOW: u32 = 700;
@@ -4504,5 +4542,53 @@ mod tests {
         ui.legacy.souls = 75;
         let l = shot(&mut f, &sim, &ui);
         assert!(l.contains("souls 75") && l.contains("VITALITY  0/5  next 20 souls") && l.contains("needs VITALITY 2"), "legacy tree\n{l}");
+    }
+
+    #[test]
+    fn health_bars_over_pals_and_bosses_toggle_with_one_key() {
+        use crate::sim::{Allegiance, Feat, Kit, Verb, Word};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let w = |s: &str| Word::parse(s).unwrap();
+        let kit = Kit::new(w("mender"), 'Q', None, 800, 900, &[Feat::new(Verb::Heal, 2_000, 9_000, 150, 0).unwrap()]).unwrap();
+        sim.crew_join(w("q"), w("QUILL"), kit, Allegiance::Pal).unwrap();
+        let crate::sim::Body::Pal { x, y, max, .. } = sim.crew[0].body else { panic!("pal") };
+        sim.crew[0].body = crate::sim::Body::Pal { x, y, hp: max / 2, max };
+        let fam = c.fam_ids().find(|&f| matches!(c.fam(f).kind, crate::data::FamKind::Boss { .. })).unwrap();
+        sim.command(crate::sim::Src::Human, crate::sim::Cmd::Wild { fam }).unwrap();
+        let b = (0..sim.e.len()).find(|&k| sim.e.tier[k] == Tier::Boss).unwrap();
+        (sim.e.x[b], sim.e.y[b]) = (sim.p.x - 9_000, sim.p.y);
+        sim.e.hp[b] = sim.e.max[b] / 4;
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let rows = |f: &mut Frame, ui: &Ui| {
+            f.compose(&sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain().lines().map(String::from).collect::<Vec<_>>()
+        };
+        let on = rows(&mut f, &ui);
+        // the boss head bar: exactly its width (the cloud's, at least HEAD_BAR_W), a quarter filled, no bar cell on
+        // either side (the wider boss bar at the top of the screen never matches)
+        let def = c.boss_of(fam).unwrap();
+        let bw = BossClass::of_kind(Tier::Boss, &c.fam(fam).kind).unwrap().radius(i32::from(def.w)).max(HEAD_BAR_W) as usize;
+        let (bfull, bempty) = (bw.div_ceil(4), bw - bw.div_ceil(4));
+        let bar_of = |rows: &[String], full: usize, empty: usize| {
+            let pat: Vec<char> = "█".repeat(full).chars().chain("░".repeat(empty).chars()).collect();
+            rows.iter().any(|r| {
+                let cs: Vec<char> = r.chars().collect();
+                cs.windows(pat.len()).enumerate().any(|(i, win)| win == pat.as_slice() && (i == 0 || cs[i - 1] != '█') && cs.get(i + pat.len()) != Some(&'░'))
+            })
+        };
+        let pal_bar = |rows: &[String]| {
+            let i = rows.iter().position(|r| r.contains("QUILL")).unwrap();
+            rows[i + 1].contains("████░░░░")
+        };
+        assert!(pal_bar(&on), "half-health pal bar under its name\n{}", on.join("\n"));
+        assert!(bar_of(&on, bfull, bempty), "quarter-health boss bar over its cloud\n{}", on.join("\n"));
+        crate::input::tests::press_key(&mut ui, &c, 'H');
+        assert!(!ui.bars, "H turns them off");
+        let off = rows(&mut f, &ui);
+        assert!(!pal_bar(&off), "pal bar gone\n{}", off.join("\n"));
+        assert!(!bar_of(&off, bfull, bempty), "boss bar gone\n{}", off.join("\n"));
+        assert!(off.iter().any(|r| r.contains("QUILL")), "control: the name stays");
     }
 }

@@ -336,3 +336,6 @@
 {"t":"text","id":"crew_joined","text":"{name} the {class} joins."}
 {"t":"text","id":"mode_prompt","text":"SPEAK"}
 {"t":"text","id":"mode_legacy","text":"LEGACY"}
+{"t":"pool","id":"rescued_name","lines":["Elowen","Bramwick","Thessaly","Garrick","Isolde","Fenwick","Mirabel","Torvald"]}
+{"t":"pool","id":"rescued_class","lines":["cleric","paladin","bard","ranger","druid","sorcerer"]}
+{"t":"pool","id":"rescued_say","lines":["By my oath, I ride with you.","Roll for initiative, friend!","You freed me. My blade is yours.","The gods sent you. Lead on."]}

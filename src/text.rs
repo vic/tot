@@ -283,7 +283,7 @@ pub const TXTS: [Spec; 235] = [
     line("crew_joined", &["name", "class"], "Chat log, game line: a crew member joined."),
 ];
 
-pub const POOLS: [Spec; 10] = [
+pub const POOLS: [Spec; 13] = [
     line("thief_stole", &[], "Over a thief that ate loot: one picked per bite (then its power)."),
     line("level_taunt", &[], "Under the hero on level up: one picked per level."),
     big("roar_champion", "Over a champion that appears: one picked, in the big font."),
@@ -293,6 +293,9 @@ pub const POOLS: [Spec; 10] = [
     line("foe_quip", &[], "Look tooltip, after what a foe ate: one picked per foe."),
     line("cheer", &[], "Death screen: a short cheer hopping over every third foe of the crowd (keep it within 6 chars)."),
     line("death_taunt", &[], "Death screen: one taunt line picked per run, under slain_by."),
+    line("rescued_name", &[], "A pal the hero rescued (or won over) joins the party: one name picked per pal. Up to 16 letters, digits, spaces, - or _ (other chars are dropped); its first letter is its head glyph."),
+    line("rescued_class", &[], "A rescued pal's class word (crew pane, chat): one picked per pal. Up to 16 letters, digits, spaces, - or _."),
+    line("rescued_say", &[], "Over a rescued pal as it joins the party: one greeting picked per pal (60 chars)."),
     line("wall_lore", &[], "Engraved in the lit faces of the walls as shadow only, never shown as letters: one line per wall block, read left to right then row after row; every non-space char darkens that wall cell, a space leaves it bare. Write lore whose letter shapes and gaps make a pattern of the fantasy (runes, rows of script, circuit lines)."),
 ];
 
@@ -634,6 +637,9 @@ pub mod t {
     pub const FOE_QUIPS: Pool = Pool::named("foe_quip");
     pub const CHEERS: Pool = Pool::named("cheer");
     pub const DEATH_TAUNTS: Pool = Pool::named("death_taunt");
+    pub const RESCUED_NAMES: Pool = Pool::named("rescued_name");
+    pub const RESCUED_CLASSES: Pool = Pool::named("rescued_class");
+    pub const RESCUED_SAYS: Pool = Pool::named("rescued_say");
     pub const WALL_LORE: Pool = Pool::named("wall_lore");
 }
 

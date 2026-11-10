@@ -336,3 +336,6 @@
 {"t":"text","id":"crew_joined","text":"{name} the {class} joins."}
 {"t":"text","id":"mode_prompt","text":"SPEAK"}
 {"t":"text","id":"mode_legacy","text":"LEGACY"}
+{"t":"pool","id":"rescued_name","lines":["Ashka","Morrow","Cinderhand","Vesh","Grimm","Lazarae","Brandt","Ossa"]}
+{"t":"pool","id":"rescued_class","lines":["penitent","ashpriest","chainbreaker","pyre witch","bone reader","exile"]}
+{"t":"pool","id":"rescued_say","lines":["Out of the pit. I owe you my soul.","The flames did not take me. Now they burn for us.","Unchained. Point me at the damned.","I walk with you into the dark."]}

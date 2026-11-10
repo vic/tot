@@ -133,3 +133,4 @@
 {"t":"bind","mode":"legacy","keys":["enter"],"action":"legacy_buy","label":"buy rank"}
 {"t":"bind","mode":"legacy","keys":["esc"],"action":"back","label":"close"}
 {"t":"bind","mode":"legacy","keys":["L"],"action":"back","label":"close"}
+{"t":"bind","mode":"play","keys":["H"],"action":"bars","label":"health bars"}

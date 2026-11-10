@@ -336,3 +336,6 @@
 {"t":"text","id":"crew_joined","text":"{name} the {class} joins."}
 {"t":"text","id":"mode_prompt","text":"SPEAK"}
 {"t":"text","id":"mode_legacy","text":"LEGACY"}
+{"t":"pool","id":"rescued_name","lines":["Mochi","Pippa","Sakura","Bun-bun","Kiko","Momo","Taffy","Yuzu"]}
+{"t":"pool","id":"rescued_class","lines":["sparkle mage","pillow knight","candy healer","star archer","bubble tank","plush tamer"]}
+{"t":"pool","id":"rescued_say","lines":["Yay! Best friends forever!","Hugs first, then we fight!","I will sparkle them away!","Thank you thank you thank you!"]}

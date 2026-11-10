@@ -336,3 +336,6 @@
 {"t":"text","id":"crew_joined","text":"{name} the {class} joins."}
 {"t":"text","id":"mode_prompt","text":"SPEAK"}
 {"t":"text","id":"mode_legacy","text":"LEGACY"}
+{"t":"pool","id":"rescued_name","lines":["Durin","Helga","Brokk","Sigrun","Thrain","Gerda","Orik","Dagna"]}
+{"t":"pool","id":"rescued_class","lines":["runesmith","shieldmaiden","ironbeard","lorekeeper","tunneler","oathkeeper"]}
+{"t":"pool","id":"rescued_say","lines":["Free of the dark! My axe is yours.","Stone remembers. So will I.","To the deeps, together!","A debt of iron. I will pay it."]}

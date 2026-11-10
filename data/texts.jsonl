@@ -336,3 +336,6 @@
 {"t":"text","id":"crew_joined","text":"{name} the {class} joins."}
 {"t":"text","id":"mode_prompt","text":"SPEAK"}
 {"t":"text","id":"mode_legacy","text":"LEGACY"}
+{"t":"pool","id":"rescued_name","lines":["NYX-7","GLITCH","PATCH","ROOK","VOLTA","ZERO","CIPHER","KESTREL"]}
+{"t":"pool","id":"rescued_class","lines":["netrunner","street medic","chromeblade","drone jockey","ice breaker","fixer"]}
+{"t":"pool","id":"rescued_say","lines":["Owe you one, choom. I am in.","Jacked in. Let us burn the grid.","My rig is yours, runner.","Freed from the cage. Time to pay back."]}
