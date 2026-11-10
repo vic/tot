@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 241] = [
+pub const TXTS: [Spec; 243] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -135,6 +135,8 @@ pub const TXTS: [Spec; 241] = [
     line("level_town", &[], "Name of the town level (stats panel, first row; status message on arrival)."),
     line("level_deep", &["depth"], "Name of a level under the town by its depth (stats panel, first row; status message on arrival)."),
     line("msg_entered", &["level"], "Status message: the hero took a stair and arrived on a level (level_town or level_deep)."),
+    line("quest_row", &["title", "now", "of"], "Crew pane, under the crew: one open quest an agent gave: its title and progress."),
+    line("msg_quest_done", &["title"], "Status message: a quest was done and its reward paid."),
     line("scene_choice", &["key", "choice"], "Scene card: one choice line: its number key and the agent's text."),
     line("scene_close", &[], "Scene card with no choices: the key that closes it."),
     line("mode_start", &[], "Status line, left: tag of the start screen."),
@@ -536,6 +538,8 @@ pub mod t {
     pub const LEVEL_TOWN: Txt<0> = Txt::named("level_town");
     pub const LEVEL_DEEP: Txt<1> = Txt::named("level_deep");
     pub const MSG_ENTERED: Txt<1> = Txt::named("msg_entered");
+    pub const QUEST_ROW: Txt<3> = Txt::named("quest_row");
+    pub const MSG_QUEST_DONE: Txt<1> = Txt::named("msg_quest_done");
     pub const SCENE_CHOICE: Txt<2> = Txt::named("scene_choice");
     pub const SCENE_CLOSE: Txt<0> = Txt::named("scene_close");
     pub const MODE_START: Txt<0> = Txt::named("mode_start");

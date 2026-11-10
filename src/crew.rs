@@ -22,6 +22,8 @@ pub enum Order {
     Scene(Scene),
     /// the name a level shows (on the map, in messages and reports)
     Place { level: crate::sim::Level, name: Word },
+    /// a goal for the hero with a reward the engine pays when it is done
+    Quest { key: Word, title: Word, goal: crate::sim::Goal, reward: crate::sim::Reward },
     /// someone on a level with a job (its shop, a healer, words); its lines show when the hero meets it
     Person { key: Word, name: Word, job: crate::sim::Job, glyph: char, rgb: Option<Rgb8>, level: crate::sim::Level, at: Option<(i32, i32)>, lines: Vec<Say> },
     Leave { key: Word },
@@ -119,6 +121,30 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
     if t == "place" {
         return Ok(Some(Order::Place { level: level()?, name: word("name")? }));
     }
+    if t == "quest" {
+        let g = &v["goal"];
+        let count = |f: &str| g[f].as_u64().filter(|n| (1..=10_000).contains(n)).map(|n| n as u32);
+        let goal = if let Some(n) = count("slay") {
+            crate::sim::Goal::Slay(n)
+        } else if let Some(n) = count("rescue").filter(|n| *n <= 100) {
+            crate::sim::Goal::Rescue(n as u16)
+        } else if !g["reach"].is_null() {
+            let reach = &g["reach"];
+            crate::sim::Goal::Reach(match reach {
+                serde_json::Value::String(s) if s == "town" => crate::sim::Level::Town,
+                n => n.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(std::num::NonZeroU8::new).map(crate::sim::Level::Deep).ok_or("goal.reach: \"town\" or a depth 1-255")?,
+            })
+        } else {
+            return Err("\"goal\": {\"slay\": 1-10000} or {\"rescue\": 1-100} or {\"reach\": \"town\" or a depth}".into());
+        };
+        let r = &v["reward"];
+        let cap = |f: &str, max: u32| match &r[f] {
+            serde_json::Value::Null => Ok(0),
+            n => n.as_u64().filter(|n| *n <= u64::from(max)).map(|n| n as u32).ok_or(format!("reward.{f}: 0-{max}")),
+        };
+        let reward = crate::sim::Reward { gold: cap("gold", crate::sim::quest_caps::GOLD_MAX)?, xp: cap("xp", crate::sim::quest_caps::XP_MAX)? };
+        return Ok(Some(Order::Quest { key: word("id")?, title: word("title")?, goal, reward }));
+    }
     if t == "person" {
         let glyph = s("glyph")?.chars().collect::<Vec<_>>();
         let glyph = match glyph.as_slice() {
@@ -187,6 +213,10 @@ pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
         Order::Say { key, .. } => sim.crew.iter().any(|m| m.key == key).then_some(()).ok_or(CrewErr::NoSuchMate),
         Order::Chat { .. } | Order::Scene(_) => Ok(()),
         Order::Person { key, name, job, glyph, rgb, level, at, .. } => sim.add_person(key, name, job, glyph, rgb, level, at),
+        Order::Quest { key, title, goal, reward } => sim.give_quest(key, title, goal, reward).map_err(|e| match e {
+            crate::sim::QuestErr::Full => CrewErr::Full,
+            crate::sim::QuestErr::Taken | crate::sim::QuestErr::Bounds => CrewErr::Taken,
+        }),
         Order::Place { level, name } => {
             sim.name_level(level, name);
             Ok(())
@@ -227,6 +257,7 @@ pub fn snapshot(sim: &Sim) -> String {
         "t": "state", "time_s": sim.secs(), "level": crate::render::level_name(sim, sim.level), "town": sim.level == crate::sim::Level::Town,
         "hero": {"hp": sim.p.hp / 1000, "max": sim.p.max_hp / 1000, "level": sim.p.level, "gold": sim.p.gold},
         "foes_in_view": near, "foes_alive": sim.e.len(), "crew": crew,
+        "quests": sim.quests.iter().filter(|q| !q.done).map(|q| { let (n, of) = q.progress(sim); serde_json::json!({"id": q.key.as_str(), "title": q.title.as_str(), "now": n, "of": of}) }).collect::<Vec<_>>(),
     })
     .to_string()
 }
@@ -264,6 +295,8 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"place","level":"town","name":"Emberhold"}   name a level as the player sees it: "town" (safe, keepers, no waves) or a depth 1-255 (the deeps, foes tougher each level). The hero takes stairs between them; reports tell you where it is.
 {"t":"person","id":"bran","name":"BRAN","level":"town","job":"forge","glyph":"B","color":"#ffaa55","lines":["Steel for coin, friend.","The deep forges are cold now."],"dx":3,"dy":0}
   someone who lives on a level (dx/dy optional: tiles from its start). job: trade (sells), forge (sells, forges, upgrades), enchant (sells, enchants), heal (heals the hero to full), talk (its lines open as a card). Reports tell you when the hero meets someone.
+{"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}
+  a goal the engine counts from now: {"slay":n} foes, {"rescue":n} pals won, or {"reach":"town" or a depth}. reward: gold 0-10000, xp 0-5000, paid when done; the report tells you. Give quests through people and scenes.
 {"t":"leave","id":"mira"}
 ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). Answer with new orders when the fight calls for it; stay silent otherwise."##;
 
@@ -364,6 +397,11 @@ impl Link {
         out
     }
 
+    /// Quest `key` is done (the engine paid its reward).
+    pub fn quest_done(&mut self, key: &str, title: &str) {
+        self.news.push(format!("Quest {key} ({title}) is done; its reward is paid."));
+    }
+
     /// The hero walked up to the person named `name`.
     pub fn met(&mut self, name: &str) {
         self.news.push(format!("The hero met {name}."));
@@ -443,6 +481,13 @@ mod tests {
         assert!(matches!(parse_line(r#"{"t":"place","level":3,"name":"The Ossuary"}"#), Ok(Some(Order::Place { level: crate::sim::Level::Deep(d), .. })) if d.get() == 3));
         assert!(parse_line(r#"{"t":"place","level":0,"name":"x"}"#).unwrap_err().contains("\"level\""), "NEG: depth 0 is no level");
         assert!(parse_line(r#"{"t":"place","level":"heaven","name":"x"}"#).unwrap_err().contains("\"level\""));
+        let rats = r#"{"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}"#;
+        assert!(matches!(parse_line(rats), Ok(Some(Order::Quest { goal: crate::sim::Goal::Slay(20), reward: crate::sim::Reward { gold: 150, xp: 40 }, .. }))));
+        assert!(matches!(parse_line(&rats.replace(r#"{"slay":20}"#, r#"{"reach":"town"}"#)), Ok(Some(Order::Quest { goal: crate::sim::Goal::Reach(crate::sim::Level::Town), .. }))));
+        assert!(matches!(parse_line(&rats.replace(r#"{"slay":20}"#, r#"{"rescue":2}"#)), Ok(Some(Order::Quest { goal: crate::sim::Goal::Rescue(2), .. }))));
+        for (bad, why) in [(rats.replace(r#"{"slay":20}"#, r#"{"slay":0}"#), "\"goal\""), (rats.replace(r#"{"slay":20}"#, r#"{"dance":1}"#), "\"goal\""), (rats.replace("150", "99999"), "reward.gold"), (rats.replace(r#"{"slay":20}"#, r#"{"reach":"moon"}"#), "goal.reach")] {
+            assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
+        }
         let bran = r##"{"t":"person","id":"bran","name":"BRAN","level":"town","job":"forge","glyph":"B","color":"#ffaa55","lines":["Steel for coin."],"dx":3,"dy":0}"##;
         assert!(matches!(parse_line(bran), Ok(Some(Order::Person { job: crate::sim::Job::Forge, glyph: 'B', level: crate::sim::Level::Town, at: Some((3, 0)), .. }))));
         assert!(matches!(parse_line(&bran.replace(r#","dx":3,"dy":0"#, "")), Ok(Some(Order::Person { at: None, .. }))), "a spot is optional");

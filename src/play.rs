@@ -478,6 +478,14 @@ impl Agents {
                 _ => {}
             }
         }
+        // a quest done: the player sees it, the agents hear it (the sim paid the reward)
+        for key in std::mem::take(&mut sim.quest_ev) {
+            let Some(q) = sim.quests.iter().find(|q| q.key == key).copied() else { continue };
+            ui.msg = c.texts.fill(t::MSG_QUEST_DONE, [q.title.as_str()]);
+            if let Some(link) = self.link.as_mut() {
+                link.quest_done(key.as_str(), q.title.as_str());
+            }
+        }
         // the hero met someone: a talker opens its words as a card, the rest say their first line; the agents hear of it
         for key in std::mem::take(&mut sim.people_ev) {
             let Some(p) = sim.people.iter().find(|p| p.key == key).copied() else { continue };

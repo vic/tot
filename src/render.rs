@@ -1709,12 +1709,19 @@ impl Frame {
     /// Crew pane (right, under the stats): every member with its glyph, name, class word and HP.
     fn crew_pane(&mut self, sim: &Sim) {
         let pal = &sim.c.pal;
-        let h = 1 + sim.crew.len() as u16;
-        if sim.crew.is_empty() || self.cols < PANEL_W || self.play_rows() < PANEL_H + h {
+        let open: Vec<&crate::sim::Quest> = sim.quests.iter().filter(|q| !q.done).collect();
+        let h = 1 + sim.crew.len() as u16 + open.len() as u16;
+        if (sim.crew.is_empty() && open.is_empty()) || self.cols < PANEL_W || self.play_rows() < PANEL_H + h {
             return;
         }
         let (x0, y0) = (self.cols - PANEL_W, PANEL_H);
         self.plate(i32::from(x0), i32::from(y0), i32::from(PANEL_W), i32::from(h), pal.hud_bg);
+        // open quests at the foot of the pane, in the quest colour
+        for (k, q) in open.iter().enumerate() {
+            let (now, of) = q.progress(sim);
+            let line: String = sim.c.texts.fill(t::QUEST_ROW, [q.title.as_str(), &now.to_string(), &of.to_string()]).chars().take(usize::from(PANEL_W) - 2).collect();
+            self.text(y0 + 1 + sim.crew.len() as u16 + k as u16, x0 + 1, &line, pal.role(Role::Legendary));
+        }
         let title = sim.c.texts.fill(t::CREW_TITLE, [&sim.crew.len().to_string(), &crate::sim::CREW_MAX.to_string()]);
         self.text(y0, x0 + 1, &title, pal.role(Role::Legendary));
         for (k, m) in sim.crew.iter().enumerate() {
@@ -4768,5 +4775,21 @@ mod tests {
             let n = usize::from(c.view.actor_rows[2].max(1));
             assert_eq!(f.cells[i - n * usize::from(f.cols)].ch.ch(), ch, "{key}: its own glyph over the keeper");
         }
+    }
+
+    #[test]
+    fn open_quests_show_in_the_crew_pane_with_progress() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let w = |s: &str| crate::sim::Word::parse(s).unwrap();
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(!f.plain().contains("Rat Purge"), "control: no quest");
+        sim.give_quest(w("rats"), w("Rat Purge"), crate::sim::Goal::Slay(20), crate::sim::Reward::default()).unwrap();
+        sim.stats.kills += 7;
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let row = c.texts.fill(t::QUEST_ROW, ["Rat Purge", "7", "20"]);
+        assert!(f.plain().contains(&row), "{row}\n{}", f.plain());
     }
 }

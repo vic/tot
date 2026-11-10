@@ -348,3 +348,5 @@
 {"t":"text","id":"level_town","text":"THE LAST CHAPEL"}
 {"t":"text","id":"level_deep","text":"CIRCLE {depth}"}
 {"t":"text","id":"msg_entered","text":"You descend into {level}."}
+{"t":"text","id":"quest_row","text":"+ {title} {now}/{of}"}
+{"t":"text","id":"msg_quest_done","text":"The pact is kept: {title}."}

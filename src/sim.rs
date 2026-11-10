@@ -10,6 +10,7 @@ mod crew;
 mod level;
 mod npc;
 mod people;
+mod quest;
 mod solid;
 mod step;
 pub mod weather;
@@ -22,6 +23,11 @@ pub mod crew_ranges {
 pub use level::{Level, Stair};
 pub use npc::Npc;
 pub use people::{Job, Person};
+pub use quest::{Goal, Quest, QuestErr, Reward};
+/// The reward caps a quest must stay under (the agent protocol states them).
+pub mod quest_caps {
+    pub use super::quest::{GOLD_MAX, XP_MAX};
+}
 #[cfg(test)]
 pub use npc::Placed;
 pub use world::hazard::TrapState;
@@ -1014,6 +1020,9 @@ pub struct Sim<'c> {
     /// people agents put on levels, and the ones the hero met since the play loop last looked
     pub people: Vec<Person>,
     pub people_ev: Vec<Word>,
+    /// quests agents gave, and the ones finished since the play loop last looked
+    pub quests: Vec<Quest>,
+    pub quest_ev: Vec<Word>,
     /// spots pal taunters hold this tick and their radius (foes inside go for them)
     taunts: Vec<(i32, i32, i32)>,
     pub narration: Option<(usize, u32)>,
@@ -1110,6 +1119,8 @@ impl<'c> Sim<'c> {
             level_names: Vec::new(),
             people: Vec::with_capacity(people::PEOPLE_MAX),
             people_ev: Vec::with_capacity(people::PEOPLE_MAX),
+            quests: Vec::with_capacity(quest::QUESTS_MAX),
+            quest_ev: Vec::with_capacity(quest::QUESTS_MAX),
             taunts: Vec::with_capacity(CREW_MAX * crew::ABILITIES),
             narration: None,
             barks: Vec::with_capacity(64),
