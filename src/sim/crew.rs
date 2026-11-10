@@ -73,9 +73,6 @@ impl Feat {
     pub fn new(verb: Verb, every_ms: u32, reach: i32, power: i32, radius: i32) -> Option<Feat> {
         (within(every_ms, EVERY_MS) && within(reach, REACH_MM) && within(power, POWER_PM) && within(radius, RADIUS_MM)).then_some(Feat { verb, every_ms, reach, power, radius })
     }
-    pub fn verb(&self) -> Verb {
-        self.verb
-    }
 }
 
 /// A shown colour an agent picked.

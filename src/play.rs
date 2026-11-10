@@ -209,6 +209,15 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
     let mut dir = Director::new(seed);
     let mut ui = Ui::new(c.opt.autofire);
     ui.class = class;
+    // the legacy outlives every run; the demo (--auto) plays without it and never writes it
+    let legacy_path = crate::legacy::Legacy::default_path().filter(|_| auto.is_none());
+    match legacy_path.as_deref().map(crate::legacy::Legacy::load) {
+        Some(Ok(l)) => ui.legacy = l,
+        Some(Err(e)) => ui.msg = c.texts.fill(t::MSG_LEGACY_ERROR, [&e.to_string()]),
+        None => {}
+    }
+    sim.bless(ui.legacy.boons());
+    let mut agents = Agents::new();
     // demo: `--auto` plays itself, restarts a new run 4 s after each end
     let (auto_mv, auto_pk) = auto.unwrap_or((MoveBot::Kiter, PickBot::Skip));
     let mut pilot = Autopilot::new(seed, auto_mv, auto_pk);
@@ -237,8 +246,9 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
                 if ended && k.kind == crate::input::Kind::Press {
                     match k.key {
                         crate::input::Key::Char('r') => restart = true,
-                        crate::input::Key::Char('q') | crate::input::Key::Esc => ui.quit = true,
-                        _ => {}
+                        crate::input::Key::Char('q') | crate::input::Key::Esc if ui.mode == Mode::Play => ui.quit = true,
+                        // the legacy popup (L) stays open to spend the souls just earned
+                        _ => ui.key(k, c, now_ms()),
                     }
                 } else {
                     ui.key(k, c, now_ms());
@@ -252,6 +262,7 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
             sim = Sim::new(c, seed, None);
             dir = Director::new(seed);
             ui = ui.fresh();
+            sim.bless(ui.legacy.boons());
             pilot = Autopilot::new(seed, auto_mv, auto_pk);
             ended = false;
             frame.reset_run();
@@ -274,7 +285,14 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
             }
         }
         // shortcut: points = levels gained, owned nodes live in Ui until the sim holds them
-        ui.tree_earned = sim.p.level.saturating_sub(1);
+        ui.tree_earned = sim.p.level.saturating_sub(1) + sim.boons.points;
+        agents.list(&mut ui);
+        if let Some(b) = ui.boon_buy.take() {
+            ui.msg = buy_boon(c, &mut ui, b, legacy_path.as_deref());
+        }
+        if let Some(line) = ui.prompt_send.take() {
+            ui.msg = agents.send(c, &mut ui, &sim, line);
+        }
         ui.sync(sim.offer.is_some());
         // the demo (--auto) has nobody to leave a shop, so it never opens the (pausing) shop popup
         ui.sync_shop(sim.world.open_shop.filter(|_| auto.is_none()).and_then(|i| sim.world.shops.get(i)).map(Vec::len));
@@ -320,6 +338,9 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
                     }))?;
                 }
                 sim.step(&inp);
+                if let Some(m) = agents.tick(c, &mut ui, &mut sim, now_ms()) {
+                    ui.msg = m;
+                }
                 if sim.tick.is_multiple_of(c.hz().get() * 30) {
                     tel.line(&json!({"t": "alive", "run": run, "run_s": sim.secs(), "kills": sim.stats.kills, "level": sim.p.level, "hp": sim.p.hp / 1000}))?;
                 }
@@ -331,6 +352,10 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
                         Outcome::Win => c.texts.get(t::MSG_WIN).to_string(),
                         _ => c.texts.fill(t::MSG_DEAD, [&crate::render::cause_text(c, &o)]),
                     };
+                    if legacy_path.is_some() {
+                        let souls = bank(c, &mut ui, &sim, legacy_path.as_deref());
+                        ui.msg = format!("{} {souls}", ui.msg);
+                    }
                 }
             }
         }
@@ -350,6 +375,115 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
     drop(tty);
     println!("telemetry: {}", path.display());
     Ok(())
+}
+
+/// How long a line a crew member says stays over its head (ms).
+const SAY_MS: u64 = 5_000;
+/// The live sessions list is read again at most this often while the prompt is open.
+const LIST_EVERY: Duration = Duration::from_secs(1);
+
+/// The agents side of a run: the live local Claude sessions the player can speak to, and the crew link once a
+/// line went out.
+struct Agents {
+    dirs: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    sessions: Vec<crate::peer::Session>,
+    link: Option<crate::crew::Link>,
+    listed: Option<Instant>,
+}
+
+impl Agents {
+    fn new() -> Agents {
+        Agents { dirs: crate::peer::default_dirs(), sessions: Vec::new(), link: None, listed: None }
+    }
+
+    /// Re-read the live sessions while the prompt is open (their names go to the popup).
+    fn list(&mut self, ui: &mut Ui) {
+        if ui.mode != Mode::Prompt || self.listed.is_some_and(|t| t.elapsed() < LIST_EVERY) {
+            return;
+        }
+        self.listed = Some(Instant::now());
+        if let Some((reg, _)) = &self.dirs {
+            self.sessions = crate::peer::sessions(reg, Path::new("/proc"));
+        }
+        ui.agent_names = self.sessions.iter().map(|s| s.name.clone()).collect();
+    }
+
+    /// Send the player's line to the picked session; the status message.
+    fn send(&mut self, c: &Content, ui: &mut Ui, sim: &Sim, line: String) -> String {
+        let Some(to) = self.sessions.get(ui.agent_sel).cloned() else { return c.texts.get(t::PROMPT_NO_AGENTS).to_string() };
+        let Some((_, socks)) = &self.dirs else { return c.texts.get(t::PROMPT_NO_AGENTS).to_string() };
+        let sent = match &mut self.link {
+            Some(l) => l.prompt(&to, &line, sim),
+            None => crate::crew::Link::open(socks).and_then(|mut l| l.prompt(&to, &line, sim).map(|()| self.link = Some(l))),
+        };
+        ui.push_chat(crate::input::Speaker::You, line);
+        match sent {
+            Ok(()) => c.texts.fill(t::MSG_PROMPT_SENT, [&to.name]),
+            Err(e) => c.texts.fill(t::MSG_PROMPT_FAILED, [&e.to_string()]),
+        }
+    }
+
+    /// One tick: apply what the agents sent, put their chat and the crew's joins and falls in the chat log, send a
+    /// report when one is due. Err = the status message of a failed report.
+    fn tick(&mut self, c: &Content, ui: &mut Ui, sim: &mut Sim, now_ms: u64) -> Option<String> {
+        use crate::input::Speaker;
+        let Some(link) = &mut self.link else {
+            sim.crew_ev.clear();
+            return None;
+        };
+        for heard in link.poll(sim) {
+            match heard {
+                crate::crew::Heard::Applied(o) => {
+                    if let crate::crew::Order::Say { key, text } | crate::crew::Order::Join { key, say: Some(text), .. } = &o {
+                        ui.says.retain(|(_, _, until)| *until > now_ms);
+                        ui.says.push((*key, text.as_str().to_string(), now_ms + SAY_MS));
+                    }
+                    if let Some((who, text)) = crate::crew::chat_line(sim, &o) {
+                        ui.push_chat(Speaker::Agent(who), text);
+                    }
+                }
+                crate::crew::Heard::Refused(why) => ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_REFUSED, [&why])),
+            }
+        }
+        for e in &sim.crew_ev {
+            match e {
+                crate::sim::CrewEv::Joined(k) => {
+                    if let Some(m) = sim.crew.iter().find(|m| m.key == *k) {
+                        ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_JOINED, [m.name.as_str(), m.kit.class.as_str()]));
+                    }
+                }
+                crate::sim::CrewEv::Down(k) => ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_DOWN, [k.as_str()])),
+                _ => {}
+            }
+        }
+        link.tick(sim).err().map(|e| c.texts.fill(t::MSG_PROMPT_FAILED, [&e.to_string()]))
+    }
+}
+
+/// Bank a finished run in the legacy and save it; the status message (souls earned, or why the save failed).
+fn bank(c: &Content, ui: &mut Ui, sim: &Sim, path: Option<&Path>) -> String {
+    let run = crate::legacy::RunEnd { kills: sim.stats.kills, level: sim.p.level, bosses: sim.stats.boss_kill_ticks.len() as u32, won: sim.outcome == Some(Outcome::Win) };
+    let n = ui.legacy.award(&run);
+    match path.map(|p| ui.legacy.save(p)) {
+        Some(Err(e)) => c.texts.fill(t::MSG_LEGACY_ERROR, [&e.to_string()]),
+        _ => c.texts.fill(t::MSG_SOULS, [&n.to_string(), &ui.legacy.souls.to_string()]),
+    }
+}
+
+/// Buy the boon the legacy popup asked for, save; the status message.
+fn buy_boon(c: &Content, ui: &mut Ui, b: crate::legacy::Boon, path: Option<&Path>) -> String {
+    use crate::legacy::SpendErr;
+    let name = |b: crate::legacy::Boon| c.texts.get(t::BOON[b as usize]);
+    let msg = match ui.legacy.spend(b) {
+        Ok(r) => c.texts.fill(t::MSG_BOON_BOUGHT, [name(b), &r.to_string()]),
+        Err(SpendErr::Maxed) => return c.texts.get(t::MSG_BOON_MAXED).to_string(),
+        Err(SpendErr::Locked { needs, rank }) => return c.texts.fill(t::MSG_BOON_LOCKED, [name(needs), &rank.to_string()]),
+        Err(SpendErr::NeedSouls { cost, have }) => return c.texts.fill(t::MSG_BOON_POOR, [&cost.to_string(), &have.to_string()]),
+    };
+    match path.map(|p| ui.legacy.save(p)) {
+        Some(Err(e)) => c.texts.fill(t::MSG_LEGACY_ERROR, [&e.to_string()]),
+        _ => msg,
+    }
 }
 
 /// Openers tried in order: the desktop's default, then browsers by name.

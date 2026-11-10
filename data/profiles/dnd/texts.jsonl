@@ -276,3 +276,63 @@
 {"t":"text","id":"agent_failed","text":"Could not ask the agent: {error}"}
 {"t":"art","id":"agent_loading","rows":["▐██████▓▓░░░░░░░░░░░░░░░░▌","▐░▓▓██████▓▓░░░░░░░░░░░░░▌","▐░░░░▓▓██████▓▓░░░░░░░░░░▌","▐░░░░░░░▓▓██████▓▓░░░░░░░▌","▐░░░░░░░░░░▓▓██████▓▓░░░░▌","▐░░░░░░░░░░░░░▓▓██████▓▓░▌","▐░░░░░░░░░░░░░░░░▓▓██████▌","▐░░░░░░░░░░░░░░░░▓▓██████▌","▐░░░░░░░░░░░░░▓▓██████▓▓░▌","▐░░░░░░░░░░▓▓██████▓▓░░░░▌","▐░░░░░░░▓▓██████▓▓░░░░░░░▌","▐░░░░▓▓██████▓▓░░░░░░░░░░▌","▐░▓▓██████▓▓░░░░░░░░░░░░░▌","▐██████▓▓░░░░░░░░░░░░░░░░▌"]}
 {"t":"text","id":"agent_elapsed","text":"writing for {time}"}
+{"t":"text","id":"shop_piece","text":"TAB {slot}: {item} +{plus}"}
+{"t":"text","id":"shop_upgrade","text":"U upgrade: {gold}g {ore} ore"}
+{"t":"text","id":"shop_enchant","text":"E enchant: {gold}g"}
+{"t":"text","id":"shop_sell","text":"X sell {item}: {gold}g"}
+{"t":"text","id":"deed_sold","text":"Sold {item} for {gold} gold."}
+{"t":"text","id":"deed_upgraded","text":"{item} is now +{plus}."}
+{"t":"text","id":"deed_botched","text":"The smith botched {item} and kept your coin."}
+{"t":"text","id":"deed_enchanted","text":"{item} glows: {stat} {value}."}
+{"t":"text","id":"deed_no_piece","text":"Nothing there to work on."}
+{"t":"text","id":"deed_poor","text":"Costs {gold} gold and {ore} ore."}
+{"t":"text","id":"deed_maxed","text":"That piece cannot be raised further."}
+{"t":"text","id":"stat_max_hp","text":"life"}
+{"t":"text","id":"stat_regen","text":"regen"}
+{"t":"text","id":"stat_armour","text":"armour"}
+{"t":"text","id":"stat_pickup","text":"reach"}
+{"t":"text","id":"stat_speed","text":"speed"}
+{"t":"text","id":"stat_damage","text":"damage"}
+{"t":"text","id":"stat_haste","text":"haste"}
+{"t":"text","id":"stat_area","text":"area"}
+{"t":"text","id":"stat_crit","text":"crit"}
+{"t":"text","id":"legacy_title","text":"LEGACY  souls {souls}  runs {runs}  best level {best}"}
+{"t":"text","id":"legacy_row","text":"{name}  {rank}/{max}  next {cost} souls"}
+{"t":"text","id":"legacy_locked","text":"  needs {needs} {rank}"}
+{"t":"text","id":"legacy_keys","text":"up/down choose  enter buy  esc close"}
+{"t":"text","id":"boon_vitality","text":"VITALITY"}
+{"t":"text","id":"boon_might","text":"MIGHT"}
+{"t":"text","id":"boon_fortune","text":"FORTUNE"}
+{"t":"text","id":"boon_swiftness","text":"SWIFTNESS"}
+{"t":"text","id":"boon_kinship","text":"KINSHIP"}
+{"t":"text","id":"boon_wisdom","text":"WISDOM"}
+{"t":"text","id":"boon_insight","text":"INSIGHT"}
+{"t":"text","id":"boon_vitality_desc","text":"+10% life per rank"}
+{"t":"text","id":"boon_might_desc","text":"+8% damage per rank"}
+{"t":"text","id":"boon_fortune_desc","text":"+50 starting gold per rank"}
+{"t":"text","id":"boon_swiftness_desc","text":"+4% speed per rank"}
+{"t":"text","id":"boon_kinship_desc","text":"crew pals +15% power per rank"}
+{"t":"text","id":"boon_wisdom_desc","text":"+10% XP per rank"}
+{"t":"text","id":"boon_insight_desc","text":"+1 skill point at the start per rank"}
+{"t":"text","id":"msg_boon_bought","text":"{boon} rank {rank}. It holds from the next run."}
+{"t":"text","id":"msg_boon_locked","text":"Needs {boon} rank {rank} first."}
+{"t":"text","id":"msg_boon_poor","text":"Needs {cost} souls, you have {have}."}
+{"t":"text","id":"msg_boon_maxed","text":"That boon is at its last rank."}
+{"t":"text","id":"msg_souls","text":"+{earned} souls ({total}). L opens the legacy."}
+{"t":"text","id":"msg_legacy_error","text":"Legacy not saved: {error}"}
+{"t":"text","id":"prompt_title","text":"SPEAK TO YOUR AGENTS"}
+{"t":"text","id":"prompt_placeholder","text":"summon a healer and a tank; send a rival necromancer"}
+{"t":"text","id":"prompt_to","text":"to: {agent}  (tab: next agent)"}
+{"t":"text","id":"prompt_no_agents","text":"No local Claude session runs. Start one, then press tab."}
+{"t":"text","id":"prompt_keys","text":"enter send  tab agent  esc close"}
+{"t":"text","id":"msg_prompt_sent","text":"Sent to {agent}. Accept it there if it asks."}
+{"t":"text","id":"msg_prompt_failed","text":"Not sent: {error}"}
+{"t":"text","id":"chat_you","text":"YOU"}
+{"t":"text","id":"chat_game","text":"GAME"}
+{"t":"text","id":"crew_title","text":"CREW {n}/{max}"}
+{"t":"text","id":"crew_row","text":"{name} {class} {hp}/{max}"}
+{"t":"text","id":"crew_refused","text":"refused: {error}"}
+{"t":"text","id":"crew_down","text":"{name} has fallen."}
+{"t":"text","id":"crew_joined","text":"{name} the {class} joins."}
+{"t":"text","id":"mode_prompt","text":"SPEAK"}
+{"t":"text","id":"mode_legacy","text":"LEGACY"}

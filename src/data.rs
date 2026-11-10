@@ -2637,7 +2637,7 @@ fn waves(recs: &[(String, Rec)], hz: Hz, fam_id: &dyn Fn(&Rec, &str) -> Result<F
 fn binds(recs: &[(String, Rec)]) -> Result<(Vec<Bind>, Vec<Group>)> {
     let (mut bs, mut gs) = (Vec::new(), Vec::new());
     for (t, r) in recs {
-        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start)])?;
+        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start), ("prompt", Mode::Prompt), ("legacy", Mode::Legacy)])?;
         let keys = r.strs("keys")?.iter().map(|k| Key::parse(k).ok_or_else(|| r.err("keys", format!("unknown key '{k}'")))).collect::<Result<Vec<_>>>()?;
         if keys.is_empty() {
             return Err(r.err("keys", "empty"));
@@ -2784,8 +2784,10 @@ pub mod tests {
         let short = t.replacen("  base17:", "  #base17:", 1);
         assert_eq!(Scheme::parse("d.yaml", &short).err().map(|e| e.to_string()), Some("d.yaml:0 .palette: need exactly 24 slots, got 23".into()));
         let dup = t.replacen("  base17:", "  base16:", 1);
-        assert!(Scheme::parse("d.yaml", &dup).unwrap_err().to_string().contains("d.yaml:37 .palette.base16: duplicate slot"));
-        assert!(Scheme::parse("d.yaml", &t.replacen("#282a36", "#28", 1)).unwrap_err().to_string().contains(".palette.base00: need #rrggbb"));
+        // the duplicate is the second base16 line of the fixture (1-based)
+        let at = dup.lines().enumerate().filter(|(_, l)| l.starts_with("  base16:")).last().map_or(0, |(i, _)| i + 1);
+        assert!(Scheme::parse("d.yaml", &dup).unwrap_err().to_string().contains(&format!("d.yaml:{at} .palette.base16: duplicate slot")));
+        assert!(Scheme::parse("d.yaml", &t.replacen("#1a1b26", "#28", 1)).unwrap_err().to_string().contains(".palette.base00: need #rrggbb"));
         assert!(Scheme::parse("d.yaml", &t.replacen("base08", "base18", 1)).unwrap_err().to_string().contains("slot is base00..base17"));
         assert!(Scheme::parse("d.yaml", &t.replacen("\"dark\"", "\"dim\"", 1)).unwrap_err().to_string().contains(".variant"));
     }

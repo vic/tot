@@ -74,6 +74,7 @@ tot schema   (adventure schema docs: every shown message, art and field, where i
 tot skill [--data DIR]   (agent skill: write and update adventures; schema + every shipped adventure as examples)
 tot agentic [--to PID --brief TEXT --wait-s S]   (no --to: list live local Claude sessions; else ask one for an adventure)
 tot batch --to PID --briefs FILE --wait-s S   (ask the session for one adventure per line of FILE, one at a time; nothing is played)
+tot crew --to PID --say TEXT [--secs S] [--seed N] [--ansi FILE]   (headless run: your line goes to a live Claude session, its crew of pals and foes joins the fight)
 tot snapshot [--seed N] [--secs S] [--cols C] [--rows R] [--ansi FILE] [--pick]
 tot bot --seeds N --move kiter|oracle|still|random --pick tag|dps|random|none [--mutant zero_tele|plus500:<skill>|double_hp] [--cmds FILE --src mcp:NAME] [--quiet] [--data DIR]
 tot controls --seeds N [--data DIR]";
@@ -140,6 +141,7 @@ fn run() -> Result<()> {
             play::play(&c, &lib, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
         }
         Some("agentic" | "batch") => agentic_cli(&lib, &args),
+        Some("crew") => crew_cli(&c, &args),
         Some("skill") => {
             print!("{}", skill::skill(&dir)?);
             Ok(())
@@ -204,6 +206,55 @@ fn main() {
 
 /// `agentic`: list the live local Claude sessions, or ask one (`--to PID --brief TEXT --wait-s S`) for an
 /// adventure and wait for it, as the start screen does.
+/// `tot crew --to PID --say TEXT --secs S [--seed N] [--ansi FILE]`: a headless run (the autopilot plays the hero in
+/// real time) where the player's line goes to a live local Claude session and its crew joins the fight. Prints the
+/// chat and the crew as it goes; --ansi writes the last frame.
+fn crew_cli(c: &data::Content, args: &Args) -> Result<()> {
+    let (reg, socks) = peer::default_dirs().ok_or_else(|| Error::Usage("HOME and XDG_RUNTIME_DIR must be set".into()))?;
+    let pid = args.val("--to").ok_or_else(|| Error::Usage("--to PID (tot agentic lists the live sessions)".into()))?;
+    let to = peer::sessions(&reg, std::path::Path::new("/proc")).into_iter().find(|s| s.pid.to_string() == pid).ok_or_else(|| Error::Usage(format!("no live Claude session with pid {pid}")))?;
+    let say = args.val("--say").ok_or_else(|| Error::Usage("--say TEXT".into()))?;
+    let seed = args.num("--seed", 1)?;
+    let (mut sim, mut dir) = bot::sim_at(c, seed, 0);
+    let mut pilot = bot::Autopilot::new(seed, bot::MoveBot::Kiter, bot::PickBot::Tag);
+    let mut link = crew::Link::open(&socks)?;
+    link.prompt(&to, say, &sim)?;
+    println!("you: {say}");
+    let tick = std::time::Duration::from_micros(1_000_000 / u64::from(c.hz().get()));
+    let end = sim.secs() + args.num("--secs", 120)? as u32;
+    while sim.secs() < end && sim.outcome.is_none() {
+        dir.tick(&mut sim);
+        let (mv, dodge) = pilot.walk(&sim);
+        let pick = sim.offer.map(|_| pilot.choose(&sim));
+        sim.step(&sim::Input { mv, dodge, autofire: true, pick, ..sim::Input::default() });
+        for h in link.poll(&mut sim) {
+            match h {
+                crew::Heard::Applied(o) => match crew::chat_line(&sim, &o) {
+                    Some((who, text)) => println!("{who}: {text}"),
+                    None => println!("applied: {o:?}"),
+                },
+                crew::Heard::Refused(r) => println!("refused: {r}"),
+            }
+        }
+        for e in sim.crew_ev.iter().filter(|e| matches!(e, sim::CrewEv::Joined(_) | sim::CrewEv::Down(_) | sim::CrewEv::Raised { .. })) {
+            println!("[{}s] {e:?}", sim.secs());
+        }
+        if link.tick(&mut sim)? {
+            println!("[{}s] report sent: {}", sim.secs(), crew::snapshot(&sim));
+        }
+        std::thread::sleep(tick);
+    }
+    println!("end at {}s: {:?} kills {} crew {}", sim.secs(), sim.outcome, sim.stats.kills, crew::snapshot(&sim));
+    if let Some(p) = args.val("--ansi") {
+        let ui = input::Ui::new(true);
+        let mut f = render::Frame::new(c, 160, 45);
+        f.compose(&sim, &render::View { ui: &ui, now_ms: 0, alpha: 1.0, phase: dir.phase_name(), last_bytes: 0 });
+        f.emit();
+        std::fs::write(p, &f.out)?;
+    }
+    Ok(())
+}
+
 fn agentic_cli(lib: &data::Library, args: &Args) -> Result<()> {
     let (reg, socks) = peer::default_dirs().ok_or_else(|| Error::Usage("HOME and XDG_RUNTIME_DIR must be set".into()))?;
     let live = peer::sessions(&reg, std::path::Path::new("/proc"));

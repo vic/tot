@@ -467,6 +467,7 @@ impl Frame {
         self.enemies(sim);
         self.fed(sim);
         self.sound_fx(sim);
+        self.crew_layer(sim);
         // 6. enemy shots (no id: drawn at the current tick)
         for k in 0..sim.shots.x.len() {
             let (x, y) = (f64::from(sim.shots.x[k]), f64::from(sim.shots.y[k]));
@@ -943,7 +944,41 @@ impl Frame {
                 let rows = deals.iter().zip(1..).filter_map(|(d, k)| c.items.get(usize::from(d.item.0)).map(|it| (c.texts.fill(t::SHOP_ROW, [&k.to_string(), &it.glyph.ch().to_string(), &it.name, &d.price.to_string()]), pal.role(it.rarity.role()))));
                 let smith = sim.world.open_shop.and_then(|i| sim.world.npcs.get(i)).is_some_and(|p| matches!(p.npc, crate::sim::Npc::Blacksmith { .. }));
                 let forge = if smith { c.texts.fill(t::SHOP_FORGE, [&sim.p.ore.to_string(), &crate::sim::FORGE_ORE.to_string()]) } else { String::new() };
-                (c.texts.fill(t::SHOP_TITLE, [&sim.p.gold.to_string(), &forge]), rows.collect(), None)
+                let mut rows: Vec<(String, Rgb)> = rows.collect();
+                rows.push((String::new(), pal.text));
+                rows.extend(service_rows(sim, ui));
+                (c.texts.fill(t::SHOP_TITLE, [&sim.p.gold.to_string(), &forge]), rows, None)
+            }
+            Mode::Prompt => {
+                let line = if ui.prompt.is_empty() { (c.texts.get(t::PROMPT_PLACEHOLDER).to_string(), pal.dim) } else { (format!("{}_", ui.prompt), pal.player) };
+                // a long line keeps its end in view
+                let fit = usize::from(POPUP_W) - 6;
+                let tail: String = line.0.chars().skip(line.0.chars().count().saturating_sub(fit)).collect();
+                let to = match ui.agent_names.get(ui.agent_sel) {
+                    Some(a) => (c.texts.fill(t::PROMPT_TO, [a]), pal.of(Hue::Code)),
+                    None => (c.texts.get(t::PROMPT_NO_AGENTS).to_string(), pal.alarm),
+                };
+                (c.texts.get(t::PROMPT_TITLE).to_string(), vec![(tail, line.1), (String::new(), pal.text), to, (String::new(), pal.text), (c.texts.get(t::PROMPT_KEYS).to_string(), pal.dim)], None)
+            }
+            Mode::Legacy => {
+                use crate::legacy::{Boon, MAX_RANK};
+                let l = &ui.legacy;
+                let mut rows: Vec<(String, Rgb)> = Boon::ALL
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &b)| {
+                        let mut s = c.texts.fill(t::LEGACY_ROW, [c.texts.get(t::BOON[k]), &l.rank(b).to_string(), &MAX_RANK.to_string(), &b.cost(l.rank(b)).to_string()]);
+                        let shut = b.needs().filter(|(n, r)| l.rank(*n) < *r);
+                        if let Some((n, r)) = shut {
+                            s += &c.texts.fill(t::LEGACY_LOCKED, [c.texts.get(t::BOON[n as usize]), &r.to_string()]);
+                        }
+                        (s, if shut.is_some() { pal.dim } else { pal.role(Role::Legendary) })
+                    })
+                    .collect();
+                rows.push((String::new(), pal.text));
+                rows.push((c.texts.get(t::BOON_DESC[ui.boon_sel.min(Boon::ALL.len() - 1)]).to_string(), pal.text));
+                rows.push((c.texts.get(t::LEGACY_KEYS).to_string(), pal.dim));
+                (c.texts.fill(t::LEGACY_TITLE, [&l.souls.to_string(), &l.runs.to_string(), &l.best_level.to_string()]), rows, Some(ui.boon_sel))
             }
             // the skill tree and the gear live in the hero pane, not in a popup
             Mode::Play | Mode::Pick | Mode::Look | Mode::Cmd | Mode::Tree | Mode::Gear | Mode::Bags | Mode::Start => return,
@@ -1532,6 +1567,128 @@ impl Frame {
         }
     }
 
+    /// The colour an agent gave a crew member, else its side's (pals the hero's, foes the alarm).
+    fn mate_ink(sim: &Sim, m: &crate::sim::Mate) -> Rgb {
+        let pal = &sim.c.pal;
+        m.kit.rgb.map_or(
+            match m.side() {
+                crate::sim::Allegiance::Pal => pal.player,
+                crate::sim::Allegiance::Foe => pal.alarm,
+            },
+            |c| Rgb(c.0, c.1, c.2),
+        )
+    }
+
+    /// Crew members (agentic NPCs): a pal stands on its own body with its agent's glyph and colour (a foe's body is
+    /// drawn as the enemy it is).
+    fn crew_layer(&mut self, sim: &Sim) {
+        let pal = &sim.c.pal;
+        let n = sim.c.view.actor_rows[2].max(1);
+        for m in &sim.crew {
+            let Some((x, y, ..)) = sim.mate_at(m) else { continue };
+            let (fx, fy) = (f64::from(x), f64::from(y));
+            let Some(i) = self.cell_of(fx, fy) else { continue };
+            let fg = Self::mate_ink(sim, m);
+            if let crate::sim::Body::Pal { .. } = m.body {
+                let head = Ink { ch: Glyph::of(m.kit.glyph).unwrap_or(pal.body), fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
+                let body = Ink { ch: pal.body, fg, bg: Some(mix(fg, pal.bg, NPC_BODY_GLOW)) };
+                let shadow = Ink { ch: pal.shadow, fg: mix(pal.floor, pal.bg, 300), bg: None };
+                self.stand(i, self.vd(fx, fy), n, Prio::EliteBoss, [head, body, shadow]);
+            }
+        }
+    }
+
+    /// Every crew member's name over its head, and over that the last line it said (drawn over the arena, under
+    /// the panes and popups).
+    fn crew_labels(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
+        let pal = &sim.c.pal;
+        let n = sim.c.view.actor_rows[2].max(1);
+        for m in &sim.crew {
+            let Some((x, y, ..)) = sim.mate_at(m) else { continue };
+            let (fx, fy) = (f64::from(x), f64::from(y));
+            let fg = Self::mate_ink(sim, m);
+            let (col, row) = self.scr(fx, fy);
+            let top = row - i32::from(n) - 1;
+            self.label(top, col, m.name.as_str(), fg);
+            if let Some((_, s, _)) = ui.says.iter().rev().find(|(k, _, until)| *k == m.key && *until > now_ms) {
+                self.label(top - 1, col, s, pal.text);
+            }
+        }
+    }
+
+    /// `s` centred on column `col` of play row `row`, cut at the screen edges; nothing when the row is off screen.
+    fn label(&mut self, row: i32, col: i32, s: &str, fg: Rgb) {
+        if !(0..i32::from(self.play_rows())).contains(&row) {
+            return;
+        }
+        let w = s.chars().count() as i32;
+        let left = col - w / 2;
+        let skip = (-left).max(0) as usize;
+        let shown: String = s.chars().skip(skip).collect();
+        self.text(row as u16, left.max(0) as u16, &shown, fg);
+    }
+
+    /// Crew pane (right, under the stats): every member with its glyph, name, class word and HP.
+    fn crew_pane(&mut self, sim: &Sim) {
+        let pal = &sim.c.pal;
+        let h = 1 + sim.crew.len() as u16;
+        if sim.crew.is_empty() || self.cols < PANEL_W || self.play_rows() < PANEL_H + h {
+            return;
+        }
+        let (x0, y0) = (self.cols - PANEL_W, PANEL_H);
+        self.plate(i32::from(x0), i32::from(y0), i32::from(PANEL_W), i32::from(h), pal.hud_bg);
+        let title = sim.c.texts.fill(t::CREW_TITLE, [&sim.crew.len().to_string(), &crate::sim::CREW_MAX.to_string()]);
+        self.text(y0, x0 + 1, &title, pal.role(Role::Legendary));
+        for (k, m) in sim.crew.iter().enumerate() {
+            let (hp, max) = sim.mate_at(m).map_or((0, 0), |(_, _, hp, max)| (hp.max(0) / 1000, max / 1000));
+            let fg = Self::mate_ink(sim, m);
+            let row = y0 + 1 + k as u16;
+            let x = self.text(row, x0 + 1, &m.kit.glyph.to_string(), fg);
+            let line: String = sim.c.texts.fill(t::CREW_ROW, [m.name.as_str(), m.kit.class.as_str(), &hp.to_string(), &max.to_string()]).chars().take(usize::from(PANEL_W) - 4).collect();
+            self.text(row, x + 1, &line, fg);
+        }
+    }
+
+    /// Crew chat (left, under the power-up panes): the newest lines that fit, wrapped, speaker in its colour.
+    fn chat_pane(&mut self, sim: &Sim, ui: &Ui) {
+        let pal = &sim.c.pal;
+        let top = MAP_H + 1 + LOOT_PANES * 3;
+        let bottom = match self.bar_origin() {
+            Some((bx, by)) if bx < CHAT_W => by,
+            _ => self.play_rows(),
+        };
+        let rows = usize::from(bottom.saturating_sub(top)).min(CHAT_ROWS);
+        if ui.chat.is_empty() || rows == 0 || self.cols < CHAT_W * 2 {
+            return;
+        }
+        let w = usize::from(CHAT_W) - 2;
+        // (speaker or "", its colour, text) per screen row, newest last
+        let mut lines: Vec<(String, Rgb, String)> = Vec::new();
+        for (who, text) in ui.chat.iter().rev() {
+            let (name, fg) = match who {
+                crate::input::Speaker::You => (sim.c.texts.get(t::CHAT_YOU).to_string(), pal.player),
+                crate::input::Speaker::Game => (sim.c.texts.get(t::CHAT_GAME).to_string(), pal.dim),
+                crate::input::Speaker::Agent(n) => (n.clone(), sim.crew.iter().find(|m| m.name.as_str() == n).map_or(pal.of(Hue::Code), |m| Self::mate_ink(sim, m))),
+            };
+            let head = format!("{name}: ");
+            let chars: Vec<char> = text.chars().collect();
+            let first = w.saturating_sub(head.chars().count()).max(1);
+            let mut parts = vec![(head, fg, chars.iter().take(first).collect::<String>())];
+            parts.extend(chars[first.min(chars.len())..].chunks(w - 2).map(|c| (String::from("  "), fg, c.iter().collect())));
+            lines.splice(0..0, parts);
+            if lines.len() >= rows {
+                break;
+            }
+        }
+        let shown = &lines[lines.len().saturating_sub(rows)..];
+        let y0 = bottom - shown.len() as u16;
+        self.plate(0, i32::from(y0), i32::from(CHAT_W), shown.len() as i32, pal.hud_bg);
+        for (k, (head, fg, text)) in shown.iter().enumerate() {
+            let x = self.text(y0 + k as u16, 1, head, *fg);
+            self.text(y0 + k as u16, x, text, pal.text);
+        }
+    }
+
     /// An item on the floor, Diablo style: its glyph in its rarity colour on a glow of that colour, and a light
     /// beam rising above it, taller the rarer it is (common none, unique LOOT_BEAM_MAX rows, pulsing).
     fn loot(&mut self, sim: &Sim, x: f64, y: f64, id: crate::sim::ItemId) {
@@ -1602,7 +1759,10 @@ impl Frame {
         }
         self.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures);
         self.loot_panes(sim, ui);
+        self.crew_labels(sim, ui, now_ms);
         self.panel(sim, v.phase, v.last_bytes);
+        self.crew_pane(sim);
+        self.chat_pane(sim, ui);
         self.hero_pane(sim, ui);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
@@ -2234,6 +2394,59 @@ fn kind_icon(k: crate::data::SkillKind) -> &'static str {
     }
 }
 
+/// A stat value as the player reads it: HP and regen in whole points, reach in metres, armour as is, the
+/// permille stats in percent; signed.
+fn stat_value(s: crate::data::Stat, v: i32) -> String {
+    use crate::data::Stat::*;
+    match s {
+        MaxHp | Regen | Pickup => format!("{:+}", v / 1000),
+        Armour => format!("{v:+}"),
+        Speed | Damage | Haste | Area | Crit => format!("{:+}%", v / 10),
+    }
+}
+
+/// The service lines of the shop popup: what the keeper offers besides its stock, then what the last service did.
+fn service_rows(sim: &Sim, ui: &Ui) -> Vec<(String, Rgb)> {
+    use crate::sim::{Deed, Npc};
+    let (c, pal) = (sim.c, &sim.c.pal);
+    let name = |id: crate::sim::ItemId| c.items.get(usize::from(id.0)).map_or("", |it| it.name.as_str());
+    let slot = Slot::ALL[ui.gear_sel.min(Slot::ALL.len() - 1)];
+    let piece = sim.gear.piece(slot);
+    let piece_row = || (c.texts.fill(t::SHOP_PIECE, [c.texts.get(t::SLOT[slot as usize]), piece.map_or("-", |p| name(p.id)), &piece.map_or(0, |p| p.plus.get()).to_string()]), pal.text);
+    let mut rows = Vec::new();
+    match sim.world.open_shop.and_then(|i| sim.world.npcs.get(i)).map(|p| p.npc) {
+        Some(Npc::Blacksmith { .. }) => {
+            let step = u32::from(piece.map_or(0, |p| p.plus.get())) + 1;
+            rows.push(piece_row());
+            rows.push((c.texts.fill(t::SHOP_UPGRADE, [&(crate::sim::UPGRADE_GOLD * step).to_string(), &step.to_string()]), pal.role(Role::Legendary)));
+        }
+        Some(Npc::Jeweler { .. }) => {
+            rows.push(piece_row());
+            rows.push((c.texts.fill(t::SHOP_ENCHANT, [&crate::sim::ENCHANT_GOLD.to_string()]), pal.role(Role::Magic)));
+        }
+        Some(Npc::Merchant { .. }) => {
+            if let Some(&id) = sim.bag.first() {
+                rows.push((c.texts.fill(t::SHOP_SELL, [name(id), &crate::sim::resale(c, id).to_string()]), pal.chest));
+            }
+        }
+        Some(Npc::Pal { .. } | Npc::Neutral) | None => {}
+    }
+    let slot_item = |s: Slot| sim.gear.worn(s).map_or("", name);
+    if let Some((d, _)) = sim.deed {
+        let s = match d {
+            Deed::Sold { item, gold } => c.texts.fill(t::DEED_SOLD, [name(item), &gold.to_string()]),
+            Deed::Upgraded { slot, plus } => c.texts.fill(t::DEED_UPGRADED, [slot_item(slot), &plus.get().to_string()]),
+            Deed::Botched { slot } => c.texts.fill(t::DEED_BOTCHED, [slot_item(slot)]),
+            Deed::Enchanted { slot, m } => c.texts.fill(t::DEED_ENCHANTED, [slot_item(slot), c.texts.get(t::STAT[m.stat as usize]), &stat_value(m.stat, m.value)]),
+            Deed::NoPiece => c.texts.get(t::DEED_NO_PIECE).to_string(),
+            Deed::Poor { gold, ore } => c.texts.fill(t::DEED_POOR, [&gold.to_string(), &ore.to_string()]),
+            Deed::Maxed => c.texts.get(t::DEED_MAXED).to_string(),
+        };
+        rows.push((s, pal.alarm));
+    }
+    rows
+}
+
 /// Letter and colour of an NPC, on the arena and on the map: pals in the hero colour, keepers in gold.
 fn npc_ink(c: &Content, npc: crate::sim::Npc) -> (Glyph, Rgb) {
     use crate::sim::Npc;
@@ -2445,6 +2658,9 @@ const ROSE_C: f64 = 1.0;
 /// Waiting power-up panes: most shown, and their width.
 const LOOT_PANES: u16 = 4;
 const LOOT_PANE_W: i32 = 16;
+/// Crew chat box (left edge, under the power-up panes): width and most rows.
+const CHAT_W: u16 = 48;
+const CHAT_ROWS: usize = 10;
 /// Power-up panes: their colour role and fill (permille toward the panel background; the top pane pulses to HI).
 const POWER_ROLE: Role = Role::Unique;
 const POWER_GLOW: u32 = 700;
@@ -2512,6 +2728,8 @@ fn mode_tag(mode: Mode, ended: bool) -> (crate::text::Txt<0>, ModeInk) {
         (_, Mode::Shop) => (t::MODE_SHOP, ModeInk::Role(Role::Legendary)),
         (_, Mode::Bags) => (t::MODE_BAGS, ModeInk::Role(Role::Rare)),
         (_, Mode::Start) => (t::MODE_START, ModeInk::Player),
+        (_, Mode::Prompt) => (t::MODE_PROMPT, ModeInk::Code),
+        (_, Mode::Legacy) => (t::MODE_LEGACY, ModeInk::Role(Role::Legendary)),
     }
 }
 
@@ -3634,7 +3852,8 @@ mod tests {
     // re-pinned 2026-11-09: cyberpunk neon base24 and wall lore (neon signs on lit wall faces)
     // re-pinned 2026-11-09: cyberpunk cyan-purple neon, wall lore as shadow only
     // re-pinned 2026-11-09: the next-boss panel shows the mid boss at 300 s (was 450 s)
-    const GOLDEN: u64 = 0x9e03_d887_8d1c_4e06;
+    // re-pinned 2026-11-10: key hints gain P (speak to agents) and L (legacy)
+    const GOLDEN: u64 = 0x7a08_52f5_044e_53fa;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -4243,5 +4462,47 @@ mod tests {
         t[1] = t[1].replacen("\"cut_cols\":10", "\"cut_cols\":0", 1);
         let (tall, _) = window_faces(&Content::parse(&t).unwrap());
         assert!(tall > 0, "negative control: without cutaway the pillar covers the player window");
+    }
+
+    #[test]
+    fn crew_chat_prompt_and_legacy_show_on_screen() {
+        use crate::sim::{Allegiance, Feat, Kit, Verb, Word};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let w = |s: &str| Word::parse(s).unwrap();
+        let heal = Feat::new(Verb::Heal, 2_000, 9_000, 150, 0).unwrap();
+        let kit = Kit::new(w("lifebinder"), 'Q', Some(crate::sim::Rgb8(0x66, 0xff, 0xcc)), 800, 900, &[heal]).unwrap();
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let shot = |f: &mut Frame, sim: &Sim, ui: &Ui| {
+            f.compose(sim, &View { ui, now_ms: 1_000, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let bare = shot(&mut f, &sim, &ui);
+        assert!(!bare.contains("MIRA") && !bare.contains("CREW"), "control: no crew, no pane");
+        sim.crew_join(w("mira"), w("MIRA"), kit, Allegiance::Pal).unwrap();
+        sim.crew_join(w("bow"), w("RIVAL"), kit, Allegiance::Foe).unwrap();
+        ui.says.push((w("mira"), "I have you!".into(), 5_000));
+        ui.push_chat(crate::input::Speaker::You, "send me a healer".into());
+        ui.push_chat(crate::input::Speaker::Agent("MIRA".into()), "on my way".into());
+        let s = shot(&mut f, &sim, &ui);
+        assert!(s.contains("CREW 2/6") && s.contains("MIRA lifebinder") && s.contains("RIVAL lifebinder"), "crew pane\n{s}");
+        assert!(s.contains("I have you!") && s.contains("YOU: send me a healer") && s.contains("MIRA: on my way"), "say over the head and the chat\n{s}");
+        // the pal stands on the screen with its agent's glyph
+        let (x, y, ..) = sim.mate_at(&sim.crew[0]).unwrap();
+        let i = f.cell_of(f64::from(x), f64::from(y)).unwrap();
+        let n = usize::from(c.view.actor_rows[2].max(1));
+        assert_eq!(f.cells[i - n * usize::from(f.cols)].ch, Glyph::of('Q').unwrap(), "head glyph from the kit");
+        ui.mode = Mode::Prompt;
+        let p = shot(&mut f, &sim, &ui);
+        assert!(p.contains(c.texts.get(t::PROMPT_TITLE)) && p.contains(c.texts.get(t::PROMPT_NO_AGENTS)), "prompt popup, no agents\n{p}");
+        ui.agent_names = vec!["tot-bf".into()];
+        ui.prompt = "a rival band".into();
+        let p = shot(&mut f, &sim, &ui);
+        assert!(p.contains("a rival band_") && p.contains("to: tot-bf"), "typed line and its agent\n{p}");
+        ui.mode = Mode::Legacy;
+        ui.legacy.souls = 75;
+        let l = shot(&mut f, &sim, &ui);
+        assert!(l.contains("souls 75") && l.contains("VITALITY  0/5  next 20 souls") && l.contains("needs VITALITY 2"), "legacy tree\n{l}");
     }
 }

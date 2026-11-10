@@ -121,3 +121,15 @@
 {"t":"bind","mode":"start","keys":["esc"],"action":"start_back","label":"back"}
 {"t":"bind","mode":"start","keys":["h"],"action":"start_back","label":"back"}
 {"t":"bind","mode":"start","keys":["q"],"action":"quit","label":"quit"}
+{"t":"bind","mode":"play","keys":["P"],"action":"prompt","label":"speak to agents"}
+{"t":"bind","mode":"play","keys":["L"],"action":"legacy","label":"legacy"}
+{"t":"bind","mode":"prompt","keys":["enter"],"action":"prompt_send","label":"send"}
+{"t":"bind","mode":"prompt","keys":["tab"],"action":"prompt_agent","label":"next agent"}
+{"t":"bind","mode":"prompt","keys":["esc"],"action":"back","label":"close"}
+{"t":"bind","mode":"legacy","keys":["up"],"action":"legacy_up","label":"up"}
+{"t":"bind","mode":"legacy","keys":["k"],"action":"legacy_up","label":"up"}
+{"t":"bind","mode":"legacy","keys":["down"],"action":"legacy_down","label":"down"}
+{"t":"bind","mode":"legacy","keys":["j"],"action":"legacy_down","label":"down"}
+{"t":"bind","mode":"legacy","keys":["enter"],"action":"legacy_buy","label":"buy rank"}
+{"t":"bind","mode":"legacy","keys":["esc"],"action":"back","label":"close"}
+{"t":"bind","mode":"legacy","keys":["L"],"action":"back","label":"close"}

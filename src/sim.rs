@@ -21,7 +21,7 @@ pub use npc::Npc;
 #[cfg(test)]
 pub use npc::Placed;
 pub use world::hazard::TrapState;
-pub use world::shop::ItemId;
+pub use world::shop::{resale, ItemId};
 #[cfg(test)]
 pub use world::goblin::{Goblin, GoldPile};
 pub use weather::Weather;
@@ -436,7 +436,7 @@ pub const BAG_SLOTS: usize = 12;
 const ORE_1_IN: u64 = 8;
 pub const FORGE_ORE: u32 = 5;
 /// Blacksmith upgrade to plus n costs UPGRADE_GOLD x n gold and n ore; a deceiving smith botches one in BOTCH_1_IN.
-const UPGRADE_GOLD: u32 = 60;
+pub const UPGRADE_GOLD: u32 = 60;
 const BOTCH_1_IN: u64 = 3;
 /// Jeweler: one enchantment costs ENCHANT_GOLD; it is one of these (stat, value in the stat's data units).
 pub const ENCHANT_GOLD: u32 = 100;

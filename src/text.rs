@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 175] = [
+pub const TXTS: [Spec; 235] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -129,6 +129,8 @@ pub const TXTS: [Spec; 175] = [
     line("mode_gear", &[], "Status line, left: tag of the worn gear pane."),
     line("mode_shop", &[], "Status line, left: tag of the shop popup."),
     line("mode_bags", &[], "Status line, left: tag of the bags pane."),
+    line("mode_prompt", &[], "Status line, left: tag of the prompt popup (P: speak to the agents)."),
+    line("mode_legacy", &[], "Status line, left: tag of the legacy popup (L)."),
     line("mode_start", &[], "Status line, left: tag of the start screen."),
     // key hints (status line rows, after each key)
     line("hint_move", &[], "Key hints: what the move keys do."),
@@ -221,6 +223,64 @@ pub const TXTS: [Spec; 175] = [
     line("msg_opening", &["url"], "Status message: the sponsor link is opening."),
     line("msg_open_failed", &["url", "error"], "Status message: the browser did not start."),
     line("whichkey_more", &[], "Which-key popup: the label of a key that opens a further group."),
+    line("shop_piece", &["slot", "item", "plus"], "Shop popup, smith and jeweler: the piece the next upgrade or enchant works on (tab picks the slot)."),
+    line("shop_upgrade", &["gold", "ore"], "Shop popup, blacksmith: the upgrade key and what the next plus costs."),
+    line("shop_enchant", &["gold"], "Shop popup, jeweler: the enchant key and its price."),
+    line("shop_sell", &["item", "gold"], "Shop popup, merchant: the sell key, the first bag item and what it fetches."),
+    line("deed_sold", &["item", "gold"], "Shop popup, last line: a sale went through."),
+    line("deed_upgraded", &["item", "plus"], "Shop popup, last line: the smith raised a piece."),
+    line("deed_botched", &["item"], "Shop popup, last line: a deceiving smith took the pay and failed."),
+    line("deed_enchanted", &["item", "stat", "value"], "Shop popup, last line: the jeweler enchanted a piece (stat_* name, signed value)."),
+    line("deed_no_piece", &[], "Shop popup, last line: no piece worn in that slot, or nothing in the bag to sell."),
+    line("deed_poor", &["gold", "ore"], "Shop popup, last line: the hero cannot pay for the service."),
+    line("deed_maxed", &[], "Shop popup, last line: the piece is at its last plus."),
+    line("stat_max_hp", &[], "Name of the max HP stat (enchantments)."),
+    line("stat_regen", &[], "Name of the regeneration stat."),
+    line("stat_armour", &[], "Name of the armour stat."),
+    line("stat_pickup", &[], "Name of the pickup radius stat."),
+    line("stat_speed", &[], "Name of the speed stat."),
+    line("stat_damage", &[], "Name of the damage stat."),
+    line("stat_haste", &[], "Name of the haste stat."),
+    line("stat_area", &[], "Name of the area stat."),
+    line("stat_crit", &[], "Name of the critical chance stat."),
+    line("legacy_title", &["souls", "runs", "best"], "Legacy popup, top line: souls to spend, runs played, best level reached."),
+    line("legacy_row", &["name", "rank", "max", "cost"], "Legacy popup: one boon line: its name (boon_*), rank, last rank, price of the next rank."),
+    line("legacy_locked", &["needs", "rank"], "Legacy popup: after a boon line whose branch is still shut: the boon and rank it needs."),
+    line("legacy_keys", &[], "Legacy popup, last line: the keys."),
+    line("boon_vitality", &[], "Name of the boon that adds max HP."),
+    line("boon_might", &[], "Name of the boon that adds damage."),
+    line("boon_fortune", &[], "Name of the boon that adds starting gold."),
+    line("boon_swiftness", &[], "Name of the boon that adds speed (needs Vitality)."),
+    line("boon_kinship", &[], "Name of the boon that strengthens crew pals (needs Might)."),
+    line("boon_wisdom", &[], "Name of the boon that adds XP (needs Fortune)."),
+    line("boon_insight", &[], "Name of the crown boon that adds skill points at the start (needs Wisdom)."),
+    line("boon_vitality_desc", &[], "Legacy popup: under the cursor boon: what one rank of Vitality gives."),
+    line("boon_might_desc", &[], "Legacy popup: what one rank of Might gives."),
+    line("boon_fortune_desc", &[], "Legacy popup: what one rank of Fortune gives."),
+    line("boon_swiftness_desc", &[], "Legacy popup: what one rank of Swiftness gives."),
+    line("boon_kinship_desc", &[], "Legacy popup: what one rank of Kinship gives."),
+    line("boon_wisdom_desc", &[], "Legacy popup: what one rank of Wisdom gives."),
+    line("boon_insight_desc", &[], "Legacy popup: what one rank of Insight gives."),
+    line("msg_boon_bought", &["boon", "rank"], "Status message: a boon rank was bought."),
+    line("msg_boon_locked", &["boon", "rank"], "Status message: the boon's branch is still shut."),
+    line("msg_boon_poor", &["cost", "have"], "Status message: not enough souls."),
+    line("msg_boon_maxed", &[], "Status message: the boon is at its last rank."),
+    line("msg_souls", &["earned", "total"], "Status message at the end of a run: souls earned and the total."),
+    line("msg_legacy_error", &["error"], "Status message: the legacy file could not be read or written."),
+    line("prompt_title", &[], "Prompt popup (P), top line."),
+    line("prompt_placeholder", &[], "Prompt popup: the dim example in the empty line."),
+    line("prompt_to", &["agent"], "Prompt popup: the live local Claude session the line goes to."),
+    line("prompt_no_agents", &[], "Prompt popup: shown when no local Claude session runs."),
+    line("prompt_keys", &[], "Prompt popup, last line: the keys."),
+    line("msg_prompt_sent", &["agent"], "Status message: the line went to an agent."),
+    line("msg_prompt_failed", &["error"], "Status message: the line could not be sent."),
+    line("chat_you", &[], "Chat log: the speaker name of the player."),
+    line("chat_game", &[], "Chat log: the speaker name of the game itself (joins, falls, refusals)."),
+    line("crew_title", &["n", "max"], "Crew pane (right, under the stats): its title with members and the cap."),
+    line("crew_row", &["name", "class", "hp", "max"], "Crew pane: one member: name, class word, HP and max HP (all from its agent)."),
+    line("crew_refused", &["error"], "Chat log, game line: an agent's line the game refused."),
+    line("crew_down", &["name"], "Chat log, game line: a crew member fell."),
+    line("crew_joined", &["name", "class"], "Chat log, game line: a crew member joined."),
 ];
 
 pub const POOLS: [Spec; 10] = [
@@ -460,6 +520,8 @@ pub mod t {
     pub const MODE_GEAR: Txt<0> = Txt::named("mode_gear");
     pub const MODE_SHOP: Txt<0> = Txt::named("mode_shop");
     pub const MODE_BAGS: Txt<0> = Txt::named("mode_bags");
+    pub const MODE_PROMPT: Txt<0> = Txt::named("mode_prompt");
+    pub const MODE_LEGACY: Txt<0> = Txt::named("mode_legacy");
     pub const MODE_START: Txt<0> = Txt::named("mode_start");
     pub const HINT_MOVE: Txt<0> = Txt::named("hint_move");
     pub const HINT_TURN: Txt<0> = Txt::named("hint_turn");
@@ -522,6 +584,46 @@ pub mod t {
     pub const MSG_OPENING: Txt<1> = Txt::named("msg_opening");
     pub const MSG_OPEN_FAILED: Txt<2> = Txt::named("msg_open_failed");
     pub const WHICHKEY_MORE: Txt<0> = Txt::named("whichkey_more");
+    pub const SHOP_PIECE: Txt<3> = Txt::named("shop_piece");
+    pub const SHOP_UPGRADE: Txt<2> = Txt::named("shop_upgrade");
+    pub const SHOP_ENCHANT: Txt<1> = Txt::named("shop_enchant");
+    pub const SHOP_SELL: Txt<2> = Txt::named("shop_sell");
+    pub const DEED_SOLD: Txt<2> = Txt::named("deed_sold");
+    pub const DEED_UPGRADED: Txt<2> = Txt::named("deed_upgraded");
+    pub const DEED_BOTCHED: Txt<1> = Txt::named("deed_botched");
+    pub const DEED_ENCHANTED: Txt<3> = Txt::named("deed_enchanted");
+    pub const DEED_NO_PIECE: Txt<0> = Txt::named("deed_no_piece");
+    pub const DEED_POOR: Txt<2> = Txt::named("deed_poor");
+    pub const DEED_MAXED: Txt<0> = Txt::named("deed_maxed");
+    pub const LEGACY_TITLE: Txt<3> = Txt::named("legacy_title");
+    pub const LEGACY_ROW: Txt<4> = Txt::named("legacy_row");
+    pub const LEGACY_LOCKED: Txt<2> = Txt::named("legacy_locked");
+    pub const LEGACY_KEYS: Txt<0> = Txt::named("legacy_keys");
+    pub const MSG_BOON_BOUGHT: Txt<2> = Txt::named("msg_boon_bought");
+    pub const MSG_BOON_LOCKED: Txt<2> = Txt::named("msg_boon_locked");
+    pub const MSG_BOON_POOR: Txt<2> = Txt::named("msg_boon_poor");
+    pub const MSG_BOON_MAXED: Txt<0> = Txt::named("msg_boon_maxed");
+    pub const MSG_SOULS: Txt<2> = Txt::named("msg_souls");
+    pub const MSG_LEGACY_ERROR: Txt<1> = Txt::named("msg_legacy_error");
+    pub const PROMPT_TITLE: Txt<0> = Txt::named("prompt_title");
+    pub const PROMPT_PLACEHOLDER: Txt<0> = Txt::named("prompt_placeholder");
+    pub const PROMPT_TO: Txt<1> = Txt::named("prompt_to");
+    pub const PROMPT_NO_AGENTS: Txt<0> = Txt::named("prompt_no_agents");
+    pub const PROMPT_KEYS: Txt<0> = Txt::named("prompt_keys");
+    pub const MSG_PROMPT_SENT: Txt<1> = Txt::named("msg_prompt_sent");
+    pub const MSG_PROMPT_FAILED: Txt<1> = Txt::named("msg_prompt_failed");
+    pub const CHAT_YOU: Txt<0> = Txt::named("chat_you");
+    pub const CHAT_GAME: Txt<0> = Txt::named("chat_game");
+    pub const CREW_TITLE: Txt<2> = Txt::named("crew_title");
+    pub const CREW_ROW: Txt<4> = Txt::named("crew_row");
+    pub const CREW_REFUSED: Txt<1> = Txt::named("crew_refused");
+    pub const CREW_DOWN: Txt<1> = Txt::named("crew_down");
+    pub const CREW_JOINED: Txt<2> = Txt::named("crew_joined");
+    /// stat names in `Stat` order: max_hp, regen, armour, pickup, speed, damage, haste, area, crit
+    pub const STAT: [Txt<0>; 9] = [Txt::named("stat_max_hp"), Txt::named("stat_regen"), Txt::named("stat_armour"), Txt::named("stat_pickup"), Txt::named("stat_speed"), Txt::named("stat_damage"), Txt::named("stat_haste"), Txt::named("stat_area"), Txt::named("stat_crit")];
+    /// boon names and what one rank gives, in `Boon::ALL` order
+    pub const BOON: [Txt<0>; 7] = [Txt::named("boon_vitality"), Txt::named("boon_might"), Txt::named("boon_fortune"), Txt::named("boon_swiftness"), Txt::named("boon_kinship"), Txt::named("boon_wisdom"), Txt::named("boon_insight")];
+    pub const BOON_DESC: [Txt<0>; 7] = [Txt::named("boon_vitality_desc"), Txt::named("boon_might_desc"), Txt::named("boon_fortune_desc"), Txt::named("boon_swiftness_desc"), Txt::named("boon_kinship_desc"), Txt::named("boon_wisdom_desc"), Txt::named("boon_insight_desc")];
 
     pub const STOLE_LINES: Pool = Pool::named("thief_stole");
     pub const LEVEL_TAUNTS: Pool = Pool::named("level_taunt");

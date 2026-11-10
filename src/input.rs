@@ -125,6 +125,10 @@ pub enum Mode {
     Shop,
     /// start screen: pick an adventure, then a class
     Start,
+    /// P: a line to the live agents (the crew chat)
+    Prompt,
+    /// L: spend souls on boons
+    Legacy,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -183,6 +187,15 @@ pub enum Action {
     StartMove(i8),
     StartPick,
     StartBack,
+    /// P / L: open the prompt or the legacy popup
+    OpenPrompt,
+    OpenLegacy,
+    /// prompt: next live agent, send the line
+    PromptAgent,
+    PromptSend,
+    /// legacy: cursor step, buy the next rank of the cursor boon
+    LegacyMove(i8),
+    LegacyBuy,
 }
 
 impl Action {
@@ -254,6 +267,13 @@ impl Action {
             "start_next" => StartMove(1),
             "start_pick" => StartPick,
             "start_back" => StartBack,
+            "prompt" => OpenPrompt,
+            "legacy" => OpenLegacy,
+            "prompt_agent" => PromptAgent,
+            "prompt_send" => PromptSend,
+            "legacy_up" => LegacyMove(-1),
+            "legacy_down" => LegacyMove(1),
+            "legacy_buy" => LegacyBuy,
             _ => return None,
         })
     }
@@ -446,7 +466,35 @@ pub struct Ui {
     pub brief: String,
     /// the class the hero plays (picked on the start screen)
     pub class: ClassId,
+    /// P: the line being typed, the agent it goes to (index into the live sessions the play loop lists) and how
+    /// many there are; `prompt_send` is the one-shot line to send (taken by the play loop)
+    pub prompt: String,
+    pub agent_sel: usize,
+    pub agent_names: Vec<String>,
+    /// the souls and boons that outlive every run (loaded and saved by the play loop)
+    pub legacy: crate::legacy::Legacy,
+    pub prompt_send: Option<String>,
+    /// L: the cursor boon; `boon_buy` is the one-shot buy (taken by the play loop)
+    pub boon_sel: usize,
+    pub boon_buy: Option<crate::legacy::Boon>,
+    /// the crew chat, oldest first, at most CHAT_KEEP lines
+    pub chat: Vec<(Speaker, String)>,
+    /// lines crew members say, shown over them until the clock (ms) passes the deadline
+    pub says: Vec<(crate::sim::Word, String, u64)>,
 }
+
+/// Who said a chat line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Speaker {
+    You,
+    Game,
+    /// an agent or one of its crew, by the name it gave
+    Agent(String),
+}
+
+/// Chat lines kept; longest prompt line.
+const CHAT_KEEP: usize = 40;
+const PROMPT_MAX: usize = 120;
 
 impl Ui {
     pub fn new(autofire: bool) -> Ui {
@@ -492,14 +540,31 @@ impl Ui {
             start_len: 0,
             brief: String::new(),
             class: ClassId::FIRST,
+            prompt: String::new(),
+            agent_sel: 0,
+            agent_names: Vec::new(),
+            legacy: crate::legacy::Legacy::default(),
+            prompt_send: None,
+            boon_sel: 0,
+            boon_buy: None,
+            chat: Vec::new(),
+            says: Vec::new(),
         }
+    }
+
+    pub fn push_chat(&mut self, who: Speaker, line: String) {
+        if self.chat.len() >= CHAT_KEEP {
+            self.chat.remove(0);
+        }
+        self.chat.push((who, line));
     }
 
     /// New run: clean state, same settings (the toggles).
     pub fn fresh(&self) -> Ui {
         // a popup open at restart forced the toggles on: the player's own choice is the saved one
         let (walk, fire) = self.choice();
-        Ui { autowalk: walk, class: self.class, ..Ui::new(fire) }
+        // the crew chat and the agent picked carry over: the agents play on across runs
+        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), ..Ui::new(fire) }
     }
 
     /// Track the sim's power-up offer. It does not pop up by itself (that interrupts play): it waits until the
@@ -565,6 +630,20 @@ impl Ui {
                 }
                 (Key::Char(k), t) if self.brief.chars().count() < BRIEF_MAX => {
                     self.brief.push(t.unwrap_or(k));
+                    return;
+                }
+                _ => {}
+            }
+        }
+        // the prompt is a text field: printable keys type, backspace erases; enter, tab and esc stay bindings
+        if self.mode == Mode::Prompt {
+            match (ev.key, ev.text) {
+                (Key::Backspace, _) => {
+                    self.prompt.pop();
+                    return;
+                }
+                (Key::Char(k), t) if self.prompt.chars().count() < PROMPT_MAX => {
+                    self.prompt.push(t.unwrap_or(k));
                     return;
                 }
                 _ => {}
@@ -810,6 +889,16 @@ impl Ui {
                 Start::Agent { adv, .. } => self.start = Start::Describe { adv },
                 Start::Asking { adv, agent } => self.start = Start::Agent { adv, sel: agent },
             },
+            Action::OpenPrompt => self.mode = Mode::Prompt,
+            Action::OpenLegacy => self.mode = Mode::Legacy,
+            Action::PromptAgent => self.agent_sel = (self.agent_sel + 1) % self.agent_names.len().max(1),
+            Action::PromptSend if !self.prompt.trim().is_empty() => {
+                self.prompt_send = Some(std::mem::take(&mut self.prompt));
+                self.mode = Mode::Play;
+            }
+            Action::PromptSend => {}
+            Action::LegacyMove(d) => self.boon_sel = (self.boon_sel as isize + isize::from(d)).rem_euclid(crate::legacy::Boon::ALL.len() as isize) as usize,
+            Action::LegacyBuy => self.boon_buy = crate::legacy::Boon::ALL.get(self.boon_sel).copied(),
             Action::Up | Action::Down | Action::Left | Action::Right => {}
         }
     }
@@ -843,7 +932,7 @@ impl Ui {
     pub fn input(&mut self, pick_pauses: bool) -> Input {
         // a popup (picker, tree, gear, shop) keeps the game going: auto-walk and auto-fire on while it is open,
         // restored to what they were when it closes
-        let popup = matches!(self.mode, Mode::Pick | Mode::Tree | Mode::Gear | Mode::Bags | Mode::Shop);
+        let popup = matches!(self.mode, Mode::Pick | Mode::Tree | Mode::Gear | Mode::Bags | Mode::Shop | Mode::Prompt | Mode::Legacy);
         match (popup, self.popup_saved) {
             (true, None) => {
                 self.popup_saved = Some((self.autowalk, self.autofire));

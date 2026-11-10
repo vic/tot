@@ -286,7 +286,9 @@ impl Link {
             return Ok(false);
         }
         let text = report(&self.chat, &self.evs, &self.refused, sim);
-        (self.chat.clear(), self.evs.clear(), self.refused.clear());
+        self.chat.clear();
+        self.evs.clear();
+        self.refused.clear();
         self.last_report = sim.secs();
         // an agent that went away is dropped, the others still hear
         self.to.retain(|s| crate::peer::send(s, &self.inbox, SENDER, &text).is_ok());
