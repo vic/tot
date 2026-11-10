@@ -88,6 +88,12 @@ done. A scene is a card with the agent's words and up to four choices; the world
 goes back to the agent. The agent hears where you go, whom you meet and what you choose, and it acts on its own
 between your prompts. A dim line under the chat gives tips on playing with agents.
 
+An agent can also make each level what it wants: a safe haven or a dungeon, how deadly it is, and the colours of its
+floor and walls. It can take the horde over: switch off the built-in waves, send foes of any family, call a boss,
+release a treasure goblin, and point a pal at the foe it should kill first. It can even write a whole new adventure
+(classes, foes, items, words, colours and art), send it through the game's socket, and switch the game to it while
+you play; the link to the agents stays open across the switch.
+
 To try it without a kitty terminal, run a headless fight. The autopilot plays the hero, and the run prints the chat:
 
 ```sh frame="terminal"
