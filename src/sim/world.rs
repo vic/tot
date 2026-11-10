@@ -909,10 +909,78 @@ mod tests {
         assert_eq!(s.tick, tick + 1, "control: out of the popup the world runs");
     }
 
+    /// A sim standing at `npc`'s counter, wearing the first catalog item.
+    fn at_counter(c: &crate::data::Content, npc: Npc) -> (Sim<'_>, crate::data::Slot) {
+        let mut s = sim_with(c, npc);
+        s.p.x += 4500;
+        s.world_step();
+        assert!(s.world.open_shop.is_some(), "control: at the counter");
+        s.gear.wear(c, ItemId(0));
+        (s, c.items[0].slot)
+    }
+
+    fn ask(s: &mut Sim, inp: crate::sim::Input) -> Option<crate::sim::Deed> {
+        s.step(&crate::sim::Input { shopping: true, ..inp });
+        s.deed.take().map(|(d, _)| d)
+    }
+
+    #[test]
+    fn smith_upgrades_jeweler_enchants_merchant_buys_back() {
+        use crate::sim::{Deed, Input, MAX_PLUS};
+        let c = content();
+        let stat = c.items[0].mods[0].stat;
+        let (mut s, slot) = at_counter(&c, Npc::Blacksmith { honest: true });
+        let base = s.gear.sum(&c, stat);
+        assert_eq!(ask(&mut s, Input { upgrade: Some(slot), ..Input::default() }), Some(Deed::Poor { gold: 60, ore: 1 }), "NEG: no pay, no work");
+        (s.p.gold, s.p.ore) = (10_000, 100);
+        assert!(matches!(ask(&mut s, Input { upgrade: Some(slot), ..Input::default() }), Some(Deed::Upgraded { plus, .. }) if plus.get() == 1));
+        assert_eq!((s.p.gold, s.p.ore), (10_000 - 60, 99));
+        assert_eq!(s.gear.sum(&c, stat), base * 1250 / 1000, "plus 1 raises the item's own mods by a quarter");
+        for _ in 1..MAX_PLUS {
+            ask(&mut s, Input { upgrade: Some(slot), ..Input::default() });
+        }
+        assert_eq!(ask(&mut s, Input { upgrade: Some(slot), ..Input::default() }), Some(Deed::Maxed));
+        s.gear.wear(&c, ItemId(0));
+        assert_eq!(s.gear.piece(slot).map(|p| p.plus.get()), Some(0), "a piece worn again starts plain");
+        assert_eq!(ask(&mut s, Input { enchant: Some(slot), ..Input::default() }), None, "NEG: a smith does not enchant");
+
+        let (mut s, slot) = at_counter(&c, Npc::Jeweler { honest: true });
+        s.p.gold = 1000;
+        let Some(Deed::Enchanted { m, .. }) = ask(&mut s, Input { enchant: Some(slot), ..Input::default() }) else { panic!("enchanted") };
+        assert!(m.value > 0 && s.p.gold == 1000 - crate::sim::ENCHANT_GOLD && s.gear.piece(slot).and_then(|p| p.ench) == Some(m));
+        let (mut s, slot) = at_counter(&c, Npc::Jeweler { honest: false });
+        s.p.gold = 1000;
+        let Some(Deed::Enchanted { m, .. }) = ask(&mut s, Input { enchant: Some(slot), ..Input::default() }) else { panic!("enchanted") };
+        assert!(m.value < 0, "a deceiving jeweler curses");
+
+        let (mut s, _) = at_counter(&c, Npc::Merchant { honest: true });
+        assert_eq!(ask(&mut s, Input { sell: true, ..Input::default() }), Some(Deed::NoPiece), "NEG: empty bag");
+        s.bag.push(ItemId(0));
+        let Some(Deed::Sold { item, gold }) = ask(&mut s, Input { sell: true, ..Input::default() }) else { panic!("sold") };
+        assert!(item == ItemId(0) && s.bag.is_empty() && s.p.gold == gold);
+    }
+
+    #[test]
+    fn boons_bless_a_run() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let hp0 = s.p.max_hp;
+        let mut l = crate::legacy::Legacy::default();
+        l.souls = 1000;
+        l.spend(crate::legacy::Boon::Vitality).unwrap();
+        l.spend(crate::legacy::Boon::Fortune).unwrap();
+        s.bless(l.boons());
+        assert_eq!((s.p.max_hp, s.p.hp, s.p.gold), (hp0 * 11 / 10, hp0 * 11 / 10, 50));
+        s.boons.xp = 500;
+        s.gain_xp(1);
+        s.gain_xp(1);
+        assert_eq!(s.p.xp, 3, "Wisdom: +50% XP, thousandths carried");
+    }
+
     #[test]
     fn deceiver_keeper_stocks_trash_and_non_keepers_have_no_shop() {
         let c = content();
-        let mut s = sim_with(&c, Npc::Witch { honest: false });
+        let mut s = sim_with(&c, Npc::Jeweler { honest: false });
         s.world.stock_shops(&Cat);
         assert!(s.world.shops[0].iter().all(|d| !d.honest));
         let mut s = sim_with(&c, Npc::Pal { traitor: false });

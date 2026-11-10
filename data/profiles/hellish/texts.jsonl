@@ -11,7 +11,7 @@
 {"t":"bark","id":"level","shout":"ASCEND!","lines":["The old rites answer me.","I am more than I was.","Another seal breaks.","Ding! Somebody ring the bell."]}
 {"t":"bark","id":"streak","shout":"REST!","lines":["Back to your graves.","Dust to dust.","I am the reaper now.","Who is next for the pit?"]}
 {"t":"bark","id":"special","shout":"BURN!","lines":["By fire and silver!","Begone!","Feel the holy flame.","The rite is spoken."]}
-{"t":"bark","id":"frozen","shout":"COLD!","lines":["The grave cold takes me.","My blood is ice.","Witch frost in my bones."]}
+{"t":"bark","id":"frozen","shout":"COLD!","lines":["The grave cold takes me.","My blood is ice.","Jeweler frost in my bones."]}
 {"t":"bark","id":"hungry","shout":"BREAD!","lines":["My belly prays louder than I do.","Bread and wine, anything.","A pilgrim must eat."]}
 {"t":"bark","id":"gold","shout":"GOLD!","lines":["Tithe +1.","Gold from a dead hand.","Mine. The dead do not need it.","For the abbey. Mostly."]}
 {"t":"text","id":"pick_title","text":"BOON  choose before "}
@@ -212,7 +212,7 @@
 {"t":"glyph","id":"npc_pal","glyph":"◦"}
 {"t":"glyph","id":"npc_merchant","glyph":"╤"}
 {"t":"glyph","id":"npc_blacksmith","glyph":"╥"}
-{"t":"glyph","id":"npc_witch","glyph":"▼"}
+{"t":"glyph","id":"npc_jeweler","glyph":"▼"}
 {"t":"glyph","id":"npc_neutral","glyph":"·"}
 {"t":"glyph","id":"map_hero","glyph":"◘"}
 {"t":"glyph","id":"map_chest","glyph":"■"}

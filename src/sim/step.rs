@@ -42,6 +42,10 @@ impl<'c> Sim<'c> {
         if inp.forge {
             self.forge();
         }
+        let deed = inp.upgrade.and_then(|s| self.upgrade(s)).or_else(|| inp.enchant.and_then(|s| self.enchant(s))).or_else(|| inp.sell.then(|| self.sell()).flatten());
+        if let Some(d) = deed {
+            self.deed = Some((d, self.tick));
+        }
         if let Some(id) = inp.learn {
             self.learn(id);
         }
@@ -65,6 +69,7 @@ impl<'c> Sim<'c> {
         self.world_step();
         self.grid.build(self.p.x, self.p.y, &self.e.x, &self.e.y, &self.e.rad);
         self.lists();
+        self.taunt_spots();
         self.enemies_move();
         self.weapons(inp);
         self.specials(inp);
@@ -74,6 +79,7 @@ impl<'c> Sim<'c> {
         self.boss_step();
         self.tele_step();
         self.contacts();
+        self.crew_step();
         self.hijack_step();
         self.status_step();
         self.sweep();
@@ -113,14 +119,14 @@ impl<'c> Sim<'c> {
     pub(super) fn eff(&self, o: &Owned) -> Eff {
         let s: &Skill = self.c.skill(o.id);
         let extra = i64::from(o.power.saturating_sub(1000));
-        let inc_dmg = 1000 + i64::from(s.per.dmg) * extra / 1000 + self.trait_val(SkillKind::Might) + self.gear.sum(self.c, Stat::Damage);
+        let inc_dmg = 1000 + i64::from(s.per.dmg) * extra / 1000 + self.trait_val(SkillKind::Might) + self.stat(Stat::Damage);
         let mut dmg = scale(s.base.dmg, inc_dmg);
         if self.mutant == Some(Mutant::Plus500(o.id)) {
             dmg *= 6;
         }
-        let haste = 1000 + i64::from(s.per.haste) * extra / 1000 + self.trait_val(SkillKind::Haste) + self.gear.sum(self.c, Stat::Haste);
+        let haste = 1000 + i64::from(s.per.haste) * extra / 1000 + self.trait_val(SkillKind::Haste) + self.stat(Stat::Haste);
         let cd = ((i64::from(s.base.cd) * 1000 / haste) as u16).max(3);
-        let area_inc = 1000 + i64::from(s.per.area) * extra / 1000 + self.gear.sum(self.c, Stat::Area);
+        let area_inc = 1000 + i64::from(s.per.area) * extra / 1000 + self.stat(Stat::Area);
         let area = (i64::from(s.base.area) * (area_inc * 1000).isqrt() / 1000) as i32;
         let r5 = o.rank >= self.c.picks.max_rank;
         let add = |b: u8, r: u8| b.saturating_add(if r5 { r } else { 0 });
@@ -128,7 +134,7 @@ impl<'c> Sim<'c> {
     }
 
     pub fn max_hp(&self) -> i32 {
-        (scale(self.c.player.hp, 1000 + self.trait_val(SkillKind::Plating)) + self.gear.sum(self.c, Stat::MaxHp) as i32).max(1000)
+        (scale(self.c.player.hp, 1000 + self.trait_val(SkillKind::Plating)) + self.stat(Stat::MaxHp) as i32).max(1000)
     }
 
     pub fn hijack_cap(&self) -> u16 {
@@ -155,7 +161,7 @@ impl<'c> Sim<'c> {
     /// Analytic single-target build DPS, HP/s (the D of rho = H/D, design sec 11.4).
     pub fn dps_capacity(&self) -> i64 {
         let hz = i64::from(self.c.hz().get());
-        let cc = i64::from(self.c.player.crit_chance) + self.gear.sum(self.c, Stat::Crit);
+        let cc = i64::from(self.c.player.crit_chance) + self.stat(Stat::Crit);
         let crit = 1000 + cc * i64::from(self.c.player.crit_bonus) / 1000;
         let mut d = 0i64;
         for o in &self.owned {
@@ -182,7 +188,7 @@ impl<'c> Sim<'c> {
             self.p.face = (mx, my);
         }
         let sky = self.world.forecast(self.tick).now;
-        let speed = self.hunger_pace().apply(sky.hero_speed().apply(scale(pd.speed, 1000 + self.gear.sum(self.c, Stat::Speed)).max(0)));
+        let speed = self.hunger_pace().apply(sky.hero_speed().apply(scale(pd.speed, 1000 + self.stat(Stat::Speed)).max(0)));
         let walk = if matches!(self.p.status, Status::Frozen { .. }) { scale(speed, i64::from(HERO_FROZEN_SPEED)) } else { speed };
         let step = if mx != 0 && my != 0 { scale(walk, 707) } else { walk };
         // the wind pushes the hero too (walls stop it like any move)
@@ -206,7 +212,7 @@ impl<'c> Sim<'c> {
         self.p.iframes = self.p.iframes.saturating_sub(1);
         self.p.dodge_cd = self.p.dodge_cd.saturating_sub(1);
         self.p.max_hp = self.max_hp();
-        let regen = i64::from(pd.regen) + mhp_per_tick(self.trait_val(SkillKind::Regen) + self.gear.sum(self.c, Stat::Regen), self.c.hz().get());
+        let regen = i64::from(pd.regen) + mhp_per_tick(self.trait_val(SkillKind::Regen) + self.stat(Stat::Regen), self.c.hz().get());
         self.p.hp = (self.p.hp + regen as i32).min(self.p.max_hp);
         self.p.flux = (self.p.flux + pd.flux_regen).min(pd.flux);
     }
@@ -216,7 +222,7 @@ impl<'c> Sim<'c> {
             return;
         }
         // armour: taken = D (1 - A / (A + 5 D)), D in HP (design sec 11.2, [E] UNVERIFIED formula)
-        let a = (i64::from(self.c.player.armour) + self.gear.sum(self.c, Stat::Armour)).max(0) * 1000;
+        let a = (i64::from(self.c.player.armour) + self.stat(Stat::Armour)).max(0) * 1000;
         let dd = i64::from(d);
         let taken = dd - dd * a / (a + 5 * dd);
         self.p.unhurt = 0;
@@ -285,6 +291,13 @@ impl<'c> Sim<'c> {
                     // weight w < 1 makes a hijacked target less attractive: pick if d < w * d_player
                     if d2 * 1_000_000 < td2 * weight * weight {
                         (tx, ty, td2) = (e.x[j], e.y[j], d2);
+                    }
+                }
+                // a crew tank near it draws it away from the hero
+                for &(ax, ay) in &self.taunts {
+                    let d2 = dist2(ax - x, ay - y);
+                    if d2 <= i64::from(super::crew::TAUNT_R).pow(2) && d2 < td2 {
+                        (tx, ty, td2) = (ax, ay, d2);
                     }
                 }
                 if dp2 <= sep_r2 && (tx, ty) == (px, py) && !e.panic[i] && e.tier[i] != Tier::Boss && matches!(&fam.kind, FamKind::Mob(Mob { role: MobRole::Melee, .. })) {
@@ -446,6 +459,11 @@ impl<'c> Sim<'c> {
                 None => return,
             }
         }
+        self.take_over(i);
+    }
+
+    /// Foe `i` fights for the hero for its family's hijack time (a crew necro raises foes the same way).
+    pub(super) fn take_over(&mut self, i: usize) {
         let h = &self.c.hijack;
         let dur = match self.e.tier[i] {
             Tier::Elite => h.elite_s,
@@ -473,7 +491,7 @@ impl<'c> Sim<'c> {
             (true, Tier::Boss) => 250,
             (true, _) => 500,
         };
-        let cc = (i64::from(self.c.player.crit_chance) + self.gear.sum(self.c, Stat::Crit)).max(0) as u32;
+        let cc = (i64::from(self.c.player.crit_chance) + self.stat(Stat::Crit)).max(0) as u32;
         let crits = cc / 1000 + u32::from(self.rng_combat.chance(cc % 1000));
         let d = i64::from(dmg) * (1000 + i64::from(crits) * i64::from(self.c.player.crit_bonus)) / 1000 * (1000 - res) / 1000;
         let actual = d.min(i64::from(self.e.hp[i])).max(0);
@@ -494,13 +512,13 @@ impl<'c> Sim<'c> {
         actual as i32
     }
 
-    fn fx(&mut self, shape: FxShape, skill: SkillId) {
+    pub(super) fn fx(&mut self, shape: FxShape, skill: SkillId) {
         if self.fx.len() < self.fx.capacity() {
             self.fx.push(Fx { shape, left: FX_TICKS, skill });
         }
     }
 
-    fn nearest_hostile(&self, x: i32, y: i32, range: i32, skip: &[u32]) -> Option<usize> {
+    pub(super) fn nearest_hostile(&self, x: i32, y: i32, range: i32, skip: &[u32]) -> Option<usize> {
         let r2 = i64::from(range).pow(2);
         (0..self.e.len())
             .filter(|&j| self.e.side[j] == Side::Hostile && self.e.hp[j] > 0 && !skip.contains(&self.e.id[j]))
@@ -617,6 +635,84 @@ impl<'c> Sim<'c> {
         self.p.ore -= FORGE_ORE;
         let k = good[(mix(u64::from(self.tick) ^ ITEM_SALT) % good.len() as u64) as usize];
         self.wear(ItemId(k as u16));
+    }
+
+    /// One stat over worn pieces plus the legacy's boon, in the stat's data units.
+    pub fn stat(&self, s: Stat) -> i64 {
+        self.gear.sum(self.c, s) + self.boons.stat(s, self.c.player.hp)
+    }
+
+    pub(super) fn gain_xp(&mut self, v: u16) {
+        let milli = u32::from(v) * (1000 + self.boons.xp) + self.p.xp_frac;
+        self.p.xp += milli / 1000;
+        self.p.xp_frac = milli % 1000;
+    }
+
+    /// Start the run with the legacy's boons: more HP (full), starting gold.
+    pub fn bless(&mut self, b: crate::legacy::Boons) {
+        self.boons = b;
+        self.p.gold = self.p.gold.saturating_add(b.gold);
+        self.p.max_hp = self.max_hp();
+        self.p.hp = self.p.max_hp;
+    }
+
+    /// The keeper the hero stands at, if any.
+    fn keeper(&self) -> Option<npc::Npc> {
+        self.world.open_shop.and_then(|i| self.world.npcs.get(i)).map(|p| p.npc)
+    }
+
+    /// Blacksmith: raise the piece in `slot` one plus for gold and ore. A deceiving smith botches one job in
+    /// BOTCH_1_IN (by tick) and keeps the pay.
+    fn upgrade(&mut self, slot: crate::data::Slot) -> Option<Deed> {
+        let Some(npc::Npc::Blacksmith { honest }) = self.keeper() else { return None };
+        let Some(p) = self.gear.piece(slot) else { return Some(Deed::NoPiece) };
+        if p.plus.get() >= MAX_PLUS {
+            return Some(Deed::Maxed);
+        }
+        let step = u32::from(p.plus.get()) + 1;
+        let (gold, ore) = (UPGRADE_GOLD * step, step);
+        if self.p.gold < gold || self.p.ore < ore {
+            return Some(Deed::Poor { gold, ore });
+        }
+        self.p.gold -= gold;
+        self.p.ore -= ore;
+        if !honest && mix(u64::from(self.tick) ^ ITEM_SALT).is_multiple_of(BOTCH_1_IN) {
+            return Some(Deed::Botched { slot });
+        }
+        Some(match self.gear.upgrade(slot) {
+            Ok(plus) => Deed::Upgraded { slot, plus },
+            Err(_) => Deed::Maxed,
+        })
+    }
+
+    /// Jeweler: put one enchantment (picked by the tick from ENCHANTS) on the piece in `slot` for gold. A
+    /// deceiving jeweler's enchantment is a curse: the same stat, negative.
+    fn enchant(&mut self, slot: crate::data::Slot) -> Option<Deed> {
+        let Some(npc::Npc::Jeweler { honest }) = self.keeper() else { return None };
+        if self.gear.piece(slot).is_none() {
+            return Some(Deed::NoPiece);
+        }
+        if self.p.gold < ENCHANT_GOLD {
+            return Some(Deed::Poor { gold: ENCHANT_GOLD, ore: 0 });
+        }
+        self.p.gold -= ENCHANT_GOLD;
+        let (stat, value) = ENCHANTS[(mix(u64::from(self.tick) ^ ITEM_SALT) % ENCHANTS.len() as u64) as usize];
+        let m = crate::data::Mod { stat, value: if honest { value } else { -value } };
+        self.gear.enchant(slot, m);
+        self.p.max_hp = self.max_hp();
+        Some(Deed::Enchanted { slot, m })
+    }
+
+    /// Merchant: sell the first bag item for SELL_PERMILLE of its fair price.
+    fn sell(&mut self) -> Option<Deed> {
+        let Some(npc::Npc::Merchant { .. }) = self.keeper() else { return None };
+        if self.bag.is_empty() {
+            return Some(Deed::NoPiece);
+        }
+        let item = self.bag.remove(0);
+        let gold = world::shop::resale(self.c, item);
+        self.p.gold = self.p.gold.saturating_add(gold);
+        Some(Deed::Sold { item, gold })
     }
 
     fn eat(&mut self) {
@@ -746,7 +842,7 @@ impl<'c> Sim<'c> {
         true
     }
 
-    fn area_hit(&mut self, x: i32, y: i32, r: i32, dmg: i32, hue: Hue, src: Option<SkillId>) {
+    pub(super) fn area_hit(&mut self, x: i32, y: i32, r: i32, dmg: i32, hue: Hue, src: Option<SkillId>) {
         let mut near = std::mem::take(&mut self.near);
         self.grid.query(x, y, r + MOB_R_MAX, &mut near);
         for &j in &near {
@@ -1009,7 +1105,7 @@ impl<'c> Sim<'c> {
         }
     }
 
-    fn tele(&mut self, shape: Shape, lead: u16, kind: TeleKind) {
+    pub(super) fn tele(&mut self, shape: Shape, lead: u16, kind: TeleKind) {
         if self.tele.len() < self.tele.capacity() {
             self.tele.push(Tele { shape, left: lead, lead, kind });
         }
@@ -1188,7 +1284,7 @@ impl<'c> Sim<'c> {
         if self.drops.x.len() >= self.drops.x.capacity() {
             // no room on the floor: the loot goes straight to the hero
             match kind {
-                Drop::Xp(v) => self.p.xp += u32::from(v),
+                Drop::Xp(v) => self.gain_xp(v),
                 Drop::Chest => self.pending_chest += 1,
                 Drop::Item(id) => {
                     self.wear(id);
@@ -1375,7 +1471,7 @@ impl<'c> Sim<'c> {
     pub(super) fn drops_step(&mut self) {
         self.thieves_steal();
         self.treasure_step();
-        let r = scale(self.c.player.pickup + self.gear.sum(self.c, Stat::Pickup) as i32, 1000 + self.trait_val(SkillKind::Magnet));
+        let r = scale(self.c.player.pickup + self.stat(Stat::Pickup) as i32, 1000 + self.trait_val(SkillKind::Magnet));
         let v = self.c.player.speed * 2;
         let (mut i, mut magnet) = (0, false);
         while i < self.drops.x.len() {
@@ -1386,7 +1482,7 @@ impl<'c> Sim<'c> {
             }
             if d2 <= 500 * 500 {
                 match self.drops.kind[i] {
-                    Drop::Xp(x) => self.p.xp += u32::from(x),
+                    Drop::Xp(x) => self.gain_xp(x),
                     Drop::Chest => self.pending_chest += 1,
                     Drop::Item(id) => {
                         self.wear(id);

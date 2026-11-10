@@ -10,6 +10,7 @@ mod floorgen;
 mod input;
 mod iso;
 mod json;
+mod legacy;
 mod peer;
 mod play;
 mod render;

@@ -6,11 +6,13 @@ use crate::data::{
 use crate::rng::{mix, Stream, Xo};
 use std::num::{NonZeroU16, NonZeroU32};
 
+mod crew;
 mod npc;
 mod solid;
 mod step;
 pub mod weather;
 mod world;
+pub use crew::{Allegiance, Body, CrewErr, CrewEv, Mate, Role, Stance, Word, CREW_MAX};
 pub use npc::Npc;
 #[cfg(test)]
 pub use npc::Placed;
@@ -51,6 +53,12 @@ pub struct Input {
     pub learn: Option<SkillId>,
     /// at a blacksmith: forge an item from ore
     pub forge: bool,
+    /// at a blacksmith: raise the piece worn in this slot one plus
+    pub upgrade: Option<crate::data::Slot>,
+    /// at a jeweler: enchant the piece worn in this slot
+    pub enchant: Option<crate::data::Slot>,
+    /// at a merchant: sell the first item in the bag
+    pub sell: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -166,6 +174,20 @@ pub enum SpecialTry {
     Passive,
     NoTarget,
     Empty,
+}
+
+/// What the last service asked at a keeper did (the shop popup shows it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Deed {
+    Sold { item: ItemId, gold: u32 },
+    Upgraded { slot: crate::data::Slot, plus: Plus },
+    /// a deceiving smith took the pay and botched the work
+    Botched { slot: crate::data::Slot },
+    Enchanted { slot: crate::data::Slot, m: crate::data::Mod },
+    /// nothing worn in that slot, or nothing in the bag to sell
+    NoPiece,
+    Poor { gold: u32, ore: u32 },
+    Maxed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -409,6 +431,15 @@ pub const BAG_SLOTS: usize = 12;
 /// Ore: trash drops it one in ORE_1_IN (by id); the blacksmith forges an item for FORGE_ORE.
 const ORE_1_IN: u64 = 8;
 pub const FORGE_ORE: u32 = 5;
+/// Blacksmith upgrade to plus n costs UPGRADE_GOLD x n gold and n ore; a deceiving smith botches one in BOTCH_1_IN.
+const UPGRADE_GOLD: u32 = 60;
+const BOTCH_1_IN: u64 = 3;
+/// Jeweler: one enchantment costs ENCHANT_GOLD; it is one of these (stat, value in the stat's data units).
+pub const ENCHANT_GOLD: u32 = 100;
+const ENCHANTS: [(crate::data::Stat, i32); 9] = {
+    use crate::data::Stat::*;
+    [(MaxHp, 25_000), (Regen, 2_000), (Armour, 4), (Pickup, 1_000), (Speed, 60), (Damage, 120), (Haste, 100), (Area, 120), (Crit, 50)]
+};
 /// Foes run this much faster (permille) toward a hero sheltering from rain or acid.
 const SHELTER_DRAW: u32 = 1200;
 /// Day and night: one cycle every DAY_S seconds (night is its last third); foes run NIGHT_PACE (permille).
@@ -502,29 +533,80 @@ fn dist(dx: i32, dy: i32) -> i32 {
     isqrt(dist2(dx, dy)) as i32
 }
 
-/// Worn items, one per slot (indexed by `Slot` order, so two items in one slot cannot be represented).
+/// Blacksmith upgrade level of a worn piece: 0..=MAX_PLUS, only ever raised one step by `next`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Plus(u8);
+
+/// Highest upgrade; each level adds PLUS_PERMILLE to the item's own mods.
+pub const MAX_PLUS: u8 = 5;
+const PLUS_PERMILLE: i64 = 250;
+
+impl Plus {
+    pub fn get(self) -> u8 {
+        self.0
+    }
+    fn next(self) -> Option<Plus> {
+        (self.0 < MAX_PLUS).then_some(Plus(self.0 + 1))
+    }
+}
+
+/// One worn item and what the smith and the jeweler added to it. Taking it off breaks both (they are bound to the
+/// worn piece): the bag holds plain items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Piece {
+    pub id: ItemId,
+    pub plus: Plus,
+    pub ench: Option<crate::data::Mod>,
+}
+
+/// Worn pieces, one per slot (indexed by `Slot` order, so two items in one slot cannot be represented).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Gear([Option<ItemId>; 5]);
+pub struct Gear([Option<Piece>; 5]);
 
 impl Gear {
     /// Wear `id` in its slot; returns the item it replaced. None if `id` is not in the catalog.
     pub fn wear(&mut self, c: &Content, id: ItemId) -> Option<Option<ItemId>> {
         let it = c.items.get(usize::from(id.0))?;
-        Some(self.0[it.slot as usize].replace(id))
+        Some(self.0[it.slot as usize].replace(Piece { id, plus: Plus::default(), ench: None }).map(|p| p.id))
     }
 
     /// Take off whatever is in `slot`.
     pub fn drop_slot(&mut self, slot: crate::data::Slot) -> Option<ItemId> {
-        self.0[slot as usize].take()
+        self.0[slot as usize].take().map(|p| p.id)
     }
 
     pub fn worn(&self, slot: crate::data::Slot) -> Option<ItemId> {
+        self.0[slot as usize].map(|p| p.id)
+    }
+
+    pub fn piece(&self, slot: crate::data::Slot) -> Option<Piece> {
         self.0[slot as usize]
     }
 
-    /// Sum of one stat's mods over worn items, in the stat's data units (milli-HP, mm, permille, armour points).
+    /// Raise the piece in `slot` one plus. Ok(new plus); Err(None) = nothing worn there, Err(Some(p)) = at the cap.
+    fn upgrade(&mut self, slot: crate::data::Slot) -> Result<Plus, Option<Plus>> {
+        let p = self.0[slot as usize].as_mut().ok_or(None)?;
+        p.plus = p.plus.next().ok_or(Some(p.plus))?;
+        Ok(p.plus)
+    }
+
+    /// Put `m` on the piece in `slot` (replacing an earlier enchantment). False when nothing is worn there.
+    fn enchant(&mut self, slot: crate::data::Slot, m: crate::data::Mod) -> bool {
+        self.0[slot as usize].as_mut().map(|p| p.ench = Some(m)).is_some()
+    }
+
+    /// Sum of one stat over worn pieces, in the stat's data units (milli-HP, mm, permille, armour points): each
+    /// item's mods raised by its plus, then its enchantment.
     pub fn sum(&self, c: &Content, stat: crate::data::Stat) -> i64 {
-        self.0.iter().flatten().filter_map(|id| c.items.get(usize::from(id.0))).flat_map(|it| &it.mods).filter(|m| m.stat == stat).map(|m| i64::from(m.value)).sum()
+        self.0
+            .iter()
+            .flatten()
+            .filter_map(|p| c.items.get(usize::from(p.id.0)).map(|it| (p, it)))
+            .map(|(p, it)| {
+                let own: i64 = it.mods.iter().filter(|m| m.stat == stat).map(|m| i64::from(m.value)).sum();
+                own * (1000 + PLUS_PERMILLE * i64::from(p.plus.0)) / 1000 + p.ench.filter(|m| m.stat == stat).map_or(0, |m| i64::from(m.value))
+            })
+            .sum()
     }
 }
 /// floor(sqrt(n)), n >= 0: same value as `i64::isqrt`, faster. The f64 root lands within one of the answer
@@ -561,6 +643,8 @@ pub struct Player {
     pub max_hp: i32,
     pub flux: i32,
     pub xp: u32,
+    /// XP thousandths the Wisdom boon added that do not make a whole point yet
+    xp_frac: u32,
     pub level: u16,
     pub face: (i32, i32),
     pub iframes: u16,
@@ -900,6 +984,15 @@ pub struct Sim<'c> {
     pub outcome: Option<Outcome>,
     /// last number-key press: what it did and the tick it was pressed
     pub special_try: Option<(SpecialTry, u32)>,
+    /// last service at a keeper and the tick it happened
+    pub deed: Option<(Deed, u32)>,
+    /// what the legacy (souls spent between runs) adds to this run
+    pub boons: crate::legacy::Boons,
+    /// agentic NPCs (pals and foes an agent runs) and what they did since the play loop last looked
+    pub crew: Vec<Mate>,
+    pub crew_ev: Vec<CrewEv>,
+    /// spots pal tanks hold this tick (foes near one go for it)
+    taunts: Vec<(i32, i32)>,
     pub narration: Option<(usize, u32)>,
     /// short-lived world events the view shows as floating text (sim stays text-free)
     pub barks: Vec<Bark>,
@@ -933,6 +1026,7 @@ impl<'c> Sim<'c> {
                 max_hp: p.hp,
                 flux: p.flux,
                 xp: 0,
+                xp_frac: 0,
                 level: 1,
                 face: (1, 0),
                 iframes: 0,
@@ -982,6 +1076,11 @@ impl<'c> Sim<'c> {
             },
             outcome: None,
             special_try: None,
+            deed: None,
+            boons: crate::legacy::Boons::default(),
+            crew: Vec::with_capacity(CREW_MAX),
+            crew_ev: Vec::with_capacity(crew::CREW_EV_CAP),
+            taunts: Vec::with_capacity(CREW_MAX),
             narration: None,
             barks: Vec::with_capacity(64),
             hijacked: 0,
@@ -1309,7 +1408,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false, shopping: false }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false, upgrade: None, enchant: None, sell: false, shopping: false }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {

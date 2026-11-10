@@ -8,7 +8,7 @@ pub enum Npc {
     Pal { traitor: bool },
     Merchant { honest: bool },
     Blacksmith { honest: bool },
-    Witch { honest: bool },
+    Jeweler { honest: bool },
     Neutral,
 }
 
@@ -22,7 +22,7 @@ pub enum Toucher {
 pub enum Service {
     Trade,
     Forge,
-    Brew,
+    Enchant,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -48,7 +48,7 @@ pub fn touch(npc: Npc, by: Toucher) -> Outcome {
         (Npc::Pal { traitor: true }, Toucher::Hero) => Outcome::TurnsFoe,
         (Npc::Merchant { .. }, Toucher::Hero) => serve(Service::Trade),
         (Npc::Blacksmith { .. }, Toucher::Hero) => serve(Service::Forge),
-        (Npc::Witch { .. }, Toucher::Hero) => serve(Service::Brew),
+        (Npc::Jeweler { .. }, Toucher::Hero) => serve(Service::Enchant),
     }
 }
 
@@ -68,7 +68,7 @@ impl Npc {
     /// Shopkeepers: Some(honest). Everyone else keeps no shop.
     pub fn keeper_honest(self) -> Option<bool> {
         match self {
-            Npc::Merchant { honest } | Npc::Blacksmith { honest } | Npc::Witch { honest } => Some(honest),
+            Npc::Merchant { honest } | Npc::Blacksmith { honest } | Npc::Jeweler { honest } => Some(honest),
             Npc::Pal { .. } | Npc::Neutral => None,
         }
     }
@@ -97,7 +97,7 @@ pub fn place(seed: u64, arena: &Arena, count: u32, bad_permille: u32) -> Vec<Pla
             0 | 1 => Npc::Pal { traitor: bad },
             2 => Npc::Merchant { honest: !bad },
             3 => Npc::Blacksmith { honest: !bad },
-            _ => Npc::Witch { honest: !bad },
+            _ => Npc::Jeweler { honest: !bad },
         };
         let npc = if pick(&mut rng, 6) == 0 { Npc::Neutral } else { npc };
         for _ in 0..TRIES {
@@ -125,8 +125,8 @@ mod tests {
         Npc::Pal { traitor: true },
         Npc::Merchant { honest: true },
         Npc::Blacksmith { honest: false },
-        Npc::Witch { honest: true },
-        Npc::Witch { honest: false },
+        Npc::Jeweler { honest: true },
+        Npc::Jeweler { honest: false },
         Npc::Merchant { honest: false },
         Npc::Neutral,
     ];

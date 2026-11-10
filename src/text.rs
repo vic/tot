@@ -576,7 +576,7 @@ pub const GLYPHS: [GlyphSpec; 31] = [
     gl("npc_pal", "A pal to rescue (arena and map)."),
     gl("npc_merchant", "A merchant (arena and map)."),
     gl("npc_blacksmith", "A blacksmith (arena and map)."),
-    gl("npc_witch", "A witch who sells potions (arena and map)."),
+    gl("npc_jeweler", "A jeweler who sells trinkets and enchants worn pieces (arena and map)."),
     gl("npc_neutral", "A neutral bystander (arena and map)."),
     gl("map_hero", "The hero on the map (top left box)."),
     gl("map_chest", "A treasure on the map."),
@@ -629,7 +629,7 @@ pub mod g {
     pub const NPC_PAL: GlyphId = GlyphId::named("npc_pal");
     pub const NPC_MERCHANT: GlyphId = GlyphId::named("npc_merchant");
     pub const NPC_BLACKSMITH: GlyphId = GlyphId::named("npc_blacksmith");
-    pub const NPC_WITCH: GlyphId = GlyphId::named("npc_witch");
+    pub const NPC_JEWELER: GlyphId = GlyphId::named("npc_jeweler");
     pub const NPC_NEUTRAL: GlyphId = GlyphId::named("npc_neutral");
     pub const MAP_HERO: GlyphId = GlyphId::named("map_hero");
     pub const MAP_CHEST: GlyphId = GlyphId::named("map_chest");

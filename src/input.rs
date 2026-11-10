@@ -121,7 +121,7 @@ pub enum Mode {
     Gear,
     /// carried items (hero pane BAGS tab)
     Bags,
-    /// merchant / blacksmith / witch offers
+    /// merchant / blacksmith / jeweler offers
     Shop,
     /// start screen: pick an adventure, then a class
     Start,
@@ -133,6 +133,12 @@ pub enum Action {
     ShopTake(u8),
     /// at a blacksmith: forge an item from ore
     ShopForge,
+    /// at a blacksmith: upgrade the gear cursor's piece; at a jeweler: enchant it; at a merchant: sell the first bag item
+    ShopUpgrade,
+    ShopEnchant,
+    ShopSell,
+    /// shop: move the gear cursor to the next slot (the piece the smith or the jeweler works on)
+    ShopSlot,
     OpenGear,
     /// bags: open, move the cursor (cols, rows), wear the selected item, discard it
     OpenBags,
@@ -197,6 +203,10 @@ impl Action {
             "shop_3" => ShopTake(2),
             "shop_4" => ShopTake(3),
             "forge" => ShopForge,
+            "upgrade" => ShopUpgrade,
+            "enchant" => ShopEnchant,
+            "sell" => ShopSell,
+            "shop_slot" => ShopSlot,
             "gear" => OpenGear,
             "bags" => OpenBags,
             "bag_left" => BagMove(-1, 0),
@@ -402,6 +412,8 @@ pub struct Ui {
     pub learn: Option<crate::data::SkillId>,
     /// one-shot: forge at the blacksmith
     pub forge: bool,
+    /// one-shot: a keeper service asked (ShopUpgrade, ShopEnchant or ShopSell) on the gear cursor's slot
+    pub service: Option<Action>,
     /// one-shot: special slot asked by a number key (taken by `input`)
     pub special: Option<u8>,
     /// auto-walk and auto-fire as they were before a popup opened (popups force both on so play goes on)
@@ -457,6 +469,7 @@ impl Ui {
             bag_act: None,
             learn: None,
             forge: false,
+            service: None,
             special: None,
             popup_saved: None,
             shop_len: 0,
@@ -718,6 +731,8 @@ impl Ui {
             Action::BagDiscard => self.bag_act = Some(BagAct::Discard(self.bag_sel as u8)),
             Action::ShopTake(n) => self.shop_buy = (usize::from(n) < self.shop_len).then_some(usize::from(n)),
             Action::ShopForge => self.forge = true,
+            Action::ShopUpgrade | Action::ShopEnchant | Action::ShopSell => self.service = Some(a),
+            Action::ShopSlot => self.gear_sel = (self.gear_sel + 1) % Slot::ALL.len(),
             Action::GearPrev => self.gear_sel = self.gear_sel.saturating_sub(1),
             Action::GearNext => self.gear_sel = (self.gear_sel + 1).min(Slot::ALL.len() - 1),
             Action::GearDrop => self.gear_drop = Slot::ALL.get(self.gear_sel).copied(),
@@ -864,6 +879,9 @@ impl Ui {
             learn: self.learn.take(),
             forge: std::mem::take(&mut self.forge),
             special: self.special.take(),
+            upgrade: (self.service == Some(Action::ShopUpgrade)).then(|| Slot::ALL.get(self.gear_sel).copied()).flatten(),
+            enchant: (self.service == Some(Action::ShopEnchant)).then(|| Slot::ALL.get(self.gear_sel).copied()).flatten(),
+            sell: self.service.take() == Some(Action::ShopSell),
             shopping: self.mode == Mode::Shop,
         }
     }

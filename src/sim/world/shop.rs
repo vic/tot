@@ -106,6 +106,14 @@ pub fn buy(deals: &mut Vec<Deal>, ix: usize, gold: u32) -> Result<(ItemId, u32),
     Ok((d.item, left))
 }
 
+/// A merchant buys an item back for this permille of its fair base price (a cursed one for 1 gold).
+const SELL_PERMILLE: u32 = 330;
+
+/// What a merchant pays for `id` (0 for an id outside the catalog).
+pub fn resale(cat: &impl Catalog, id: ItemId) -> u32 {
+    cat.info(id).map_or(0, |i| if i.cursed { 1 } else { i.rarity.base() * SELL_PERMILLE / 1000 })
+}
+
 /// The item data is the catalog: an item is cursed when any of its mods is negative.
 impl Catalog for crate::data::Content {
     fn len(&self) -> usize {

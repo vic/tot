@@ -212,7 +212,7 @@
 {"t":"glyph","id":"npc_pal","glyph":"ｱ"}
 {"t":"glyph","id":"npc_merchant","glyph":"ﾏ"}
 {"t":"glyph","id":"npc_blacksmith","glyph":"ﾎ"}
-{"t":"glyph","id":"npc_witch","glyph":"ｳ"}
+{"t":"glyph","id":"npc_jeweler","glyph":"ｳ"}
 {"t":"glyph","id":"npc_neutral","glyph":"･"}
 {"t":"glyph","id":"map_hero","glyph":"@"}
 {"t":"glyph","id":"map_chest","glyph":"■"}

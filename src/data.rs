@@ -363,7 +363,7 @@ pub struct ViewDef {
 
 /// Dungeon population per run (tuning.jsonl `world`).
 pub struct WorldDef {
-    /// NPCs placed (pals, merchants, smiths, witches, bystanders)
+    /// NPCs placed (pals, merchants, smiths, jewelers, bystanders)
     pub npcs: u32,
     /// chance (permille) an NPC is bad: a pal that turns on the hero, a cheating keeper
     pub bad: u32,

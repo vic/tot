@@ -212,7 +212,7 @@
 {"t":"glyph","id":"npc_pal","glyph":"d"}
 {"t":"glyph","id":"npc_merchant","glyph":"╥"}
 {"t":"glyph","id":"npc_blacksmith","glyph":"╦"}
-{"t":"glyph","id":"npc_witch","glyph":"╬"}
+{"t":"glyph","id":"npc_jeweler","glyph":"╬"}
 {"t":"glyph","id":"npc_neutral","glyph":"·"}
 {"t":"glyph","id":"map_hero","glyph":"◙"}
 {"t":"glyph","id":"map_chest","glyph":"▄"}

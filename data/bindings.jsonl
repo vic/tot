@@ -102,6 +102,10 @@
 {"t":"bind","mode":"shop","keys":["3"],"action":"shop_3","label":"buy 3"}
 {"t":"bind","mode":"shop","keys":["4"],"action":"shop_4","label":"buy 4"}
 {"t":"bind","mode":"shop","keys":["5"],"action":"forge","label":"forge"}
+{"t":"bind","mode":"shop","keys":["u"],"action":"upgrade","label":"upgrade piece"}
+{"t":"bind","mode":"shop","keys":["e"],"action":"enchant","label":"enchant piece"}
+{"t":"bind","mode":"shop","keys":["x"],"action":"sell","label":"sell bag item"}
+{"t":"bind","mode":"shop","keys":["tab"],"action":"shop_slot","label":"next piece"}
 {"t":"bind","mode":"tree","keys":["i"],"action":"gear","label":"gear"}
 {"t":"bind","mode":"tree","keys":["b"],"action":"bags","label":"bags"}
 {"t":"bind","mode":"bags","keys":["i"],"action":"gear","label":"gear"}

@@ -2242,7 +2242,7 @@ fn npc_ink(c: &Content, npc: crate::sim::Npc) -> (Glyph, Rgb) {
         Npc::Pal { .. } => (gl(g::NPC_PAL), pal.player),
         Npc::Merchant { .. } => (gl(g::NPC_MERCHANT), pal.chest),
         Npc::Blacksmith { .. } => (gl(g::NPC_BLACKSMITH), pal.chest),
-        Npc::Witch { .. } => (gl(g::NPC_WITCH), pal.chest),
+        Npc::Jeweler { .. } => (gl(g::NPC_JEWELER), pal.chest),
         Npc::Neutral => (gl(g::NPC_NEUTRAL), pal.dim),
     }
 }
