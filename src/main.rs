@@ -2,6 +2,7 @@
 mod agentic;
 mod bigtext;
 mod bot;
+mod crew;
 mod cam;
 mod data;
 mod director;

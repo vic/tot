@@ -165,6 +165,11 @@ pub fn default_dirs() -> Option<(PathBuf, PathBuf)> {
 pub(crate) mod tests {
     use super::*;
 
+    /// A session whose socket is `inbox`: what is sent to it, `inbox` receives.
+    pub(crate) fn session_at(name: &str, inbox: &Inbox) -> Session {
+        Session { pid: 1, name: name.into(), cwd: String::new(), busy: false, socket: inbox.path.clone() }
+    }
+
     /// Sessions with these names and no socket (for screens that only list them).
     pub(crate) fn sessions_named(names: &[&str]) -> Vec<Session> {
         names.iter().zip(1..).map(|(n, pid)| Session { pid, name: n.to_string(), cwd: format!("/w/{n}"), busy: false, socket: PathBuf::new() }).collect()
