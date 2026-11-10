@@ -24,6 +24,16 @@ pub enum Order {
     Place { level: crate::sim::Level, def: crate::sim::LevelDef },
     /// a goal for the hero with a reward the engine pays when it is done
     Quest { key: Word, title: Word, goal: crate::sim::Goal, reward: crate::sim::Reward },
+    /// foes of an adventure family sent on the spawn ring (the sim's live cap holds)
+    Spawn { family: Word, n: u16, tier: Word, form: Word },
+    /// an adventure boss that is not on the script
+    Boss { family: Word },
+    /// a treasure goblin now
+    Goblin,
+    /// the built-in director's waves on or off (off: the agents send every foe)
+    Director { on: bool },
+    /// point a pal at a foe member or the boss (no foe: back to the nearest)
+    Target { key: Word, focus: Option<crate::sim::Focus> },
     /// someone on a level with a job (its shop, a healer, words); its lines show when the hero meets it
     Person { key: Word, name: Word, job: crate::sim::Job, glyph: char, rgb: Option<Rgb8>, level: crate::sim::Level, at: Option<(i32, i32)>, lines: Vec<Say> },
     Leave { key: Word },
@@ -34,6 +44,8 @@ pub enum Order {
 pub struct Say(String);
 
 const SAY_MAX: usize = 60;
+/// Foes one spawn order may send.
+const SPAWN_MAX: u64 = 20;
 
 impl Say {
     pub fn parse(s: &str) -> Option<Say> {
@@ -145,6 +157,29 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
         }
         return Ok(Some(Order::Place { level: level()?, def: crate::sim::LevelDef { name, safe, danger, look } }));
     }
+    match t {
+        "spawn" => {
+            let n = v["n"].as_u64().filter(|n| (1..=SPAWN_MAX).contains(n)).ok_or(format!("\"n\": 1-{SPAWN_MAX}"))? as u16;
+            let pick = |f: &str, from: &[&str]| match v[f].as_str() {
+                None => Word::parse(from[0]).ok_or(format!("\"{f}\"")),
+                Some(x) if from.contains(&x) => Word::parse(x).ok_or(format!("\"{f}\"")),
+                Some(x) => Err(format!("{f} \"{x}\": one of {}", from.join(", "))),
+            };
+            return Ok(Some(Order::Spawn { family: word("family")?, n, tier: pick("tier", &["trash", "elite", "champion"])?, form: pick("form", &["scatter", "ring", "wall", "spiral"])? }));
+        }
+        "boss" => return Ok(Some(Order::Boss { family: word("family")? })),
+        "goblin" => return Ok(Some(Order::Goblin)),
+        "target" => {
+            let focus = match v["foe"].as_str() {
+                None => None,
+                Some("boss") => Some(crate::sim::Focus::Boss),
+                Some(f) => Some(crate::sim::Focus::Mate(Word::parse(f).ok_or("\"foe\": \"boss\" or a foe member's id")?)),
+            };
+            return Ok(Some(Order::Target { key: word("id")?, focus }));
+        }
+        "director" => return Ok(Some(Order::Director { on: v["on"].as_bool().ok_or("\"on\": true or false")? })),
+        _ => {}
+    }
     if t == "quest" {
         let g = &v["goal"];
         let count = |f: &str| g[f].as_u64().filter(|n| (1..=10_000).contains(n)).map(|n| n as u32);
@@ -228,9 +263,34 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
     }))
 }
 
-/// Apply one order to the sim. `say` and `chat` change nothing in the sim (the view shows them).
-pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
+/// Apply one order to the sim; Err names why the sim refused it. `say`, `chat`, `scene` and `director` change nothing
+/// in the sim (the play loop acts on them).
+pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), String> {
+    match o {
+        Order::Spawn { family, n, tier, form } => {
+            let cmd = crate::director::parse_spawn(sim.c, &[family.as_str(), &n.to_string(), tier.as_str(), form.as_str()])?;
+            return sim.command(agent_src(), cmd).map_err(|e| format!("{e:?}"));
+        }
+        Order::Boss { family } => {
+            let fam = crate::director::fam_by_key(sim.c, family.as_str()).ok_or(format!("no family '{}' in this adventure", family.as_str()))?;
+            return sim.command(agent_src(), crate::sim::Cmd::Wild { fam }).map_err(|e| format!("{e:?}"));
+        }
+        Order::Goblin => return sim.send_goblin().then_some(()).ok_or("no goblin now (a safe level, or too many)".into()),
+        Order::Director { .. } => return Ok(()),
+        _ => {}
+    }
+    apply_crew(sim, o).map_err(|e| format!("{e:?}"))
+}
+
+/// The source every agent command is logged under.
+fn agent_src() -> crate::sim::Src {
+    crate::sim::Src::parse("mcp:agent").unwrap_or(crate::sim::Src::Human)
+}
+
+fn apply_crew(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
     match *o {
+        Order::Spawn { .. } | Order::Boss { .. } | Order::Goblin | Order::Director { .. } => Ok(()),
+        Order::Target { key, focus } => sim.crew_focus(key, focus),
         Order::Join { key, name, side, kit, .. } => sim.crew_join(key, name, kit, side),
         Order::Stance { key, stance } => sim.crew_order(key, stance),
         Order::Move { key, dx, dy } => sim.crew_goal(key, dx, dy),
@@ -281,6 +341,7 @@ pub fn snapshot(sim: &Sim) -> String {
         "t": "state", "time_s": sim.secs(), "place": crate::render::level_name(sim, sim.level), "safe": sim.safe(sim.level),
         "hero": {"hp": sim.p.hp / 1000, "max": sim.p.max_hp / 1000, "level": sim.p.level, "gold": sim.p.gold},
         "foes_in_view": near, "foes_alive": sim.e.len(), "crew": crew,
+        "families": sim.c.fam_ids().map(|f| { let fam = sim.c.fam(f); serde_json::json!({"id": fam.key, "boss": matches!(fam.kind, crate::data::FamKind::Boss { .. })}) }).collect::<Vec<_>>(),
         "quests": sim.quests.iter().filter(|q| !q.done).map(|q| { let (n, of) = q.progress(sim); serde_json::json!({"id": q.key.as_str(), "title": q.title.as_str(), "now": n, "of": of}) }).collect::<Vec<_>>(),
     })
     .to_string()
@@ -322,8 +383,13 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
   someone who lives on a level (dx/dy optional: tiles from its start). job: trade (sells), forge (sells, forges, upgrades), enchant (sells, enchants), heal (heals the hero to full), talk (its lines open as a card). Reports tell you when the hero meets someone.
 {"t":"quest","id":"rats","title":"Rat Purge","goal":{"slay":20},"reward":{"gold":150,"xp":40}}
   a goal the engine counts from now: {"slay":n} foes, {"rescue":n} pals won, or {"reach":"town" or a depth}. reward: gold 0-10000, xp 0-5000, paid when done; the report tells you. Give quests through people and scenes.
+{"t":"spawn","family":"<foe family id of this adventure>","n":6,"tier":"elite","form":"ring"}   send the horde yourself: n 1-20, tier trash|elite|champion, form scatter|ring|wall|spiral (never in a safe level). The state line lists the families.
+{"t":"boss","family":"<boss family id>"}   a boss off the script, now
+{"t":"goblin"}   a treasure goblin runs past the hero (it drops gold as it flees)
+{"t":"director","on":false}   take the horde over: the built-in waves stop and only your spawns come; on:true gives them back
+{"t":"target","id":"mira","foe":"vex"}   point a pal at one of your foe members (or "boss"); leave "foe" out to free it
 {"t":"leave","id":"mira"}
-ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). You direct this world; the engine has no story of its own. Be proactive: when the hero enters a level, give it a name and people with jobs; give quests through people and scenes; send scenes between fights; bring pals, rivals and foes that fit the story; greet the player in the chat and tell them what you can do. Answer reports with new orders when the world calls for it."##;
+ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 12 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). You direct this world; the engine has no story of its own. Be proactive: when the hero enters a level, give it a name and people with jobs; give quests through people and scenes; send scenes between fights; bring pals, rivals and foes that fit the story; greet the player in the chat and tell them what you can do. Answer reports with new orders when the world calls for it."##;
 
 /// The first message to a session: the protocol, the player's line, the fight now.
 pub fn request(prompt: &str, reply_to: &str, sim: &Sim) -> String {
@@ -408,7 +474,7 @@ impl Link {
                     Ok(None) => continue,
                     Ok(Some(o)) => match apply(sim, &o) {
                         Ok(()) => Heard::Applied(o),
-                        Err(e) => Heard::Refused(format!("{}: {e:?}", line.trim())),
+                        Err(e) => Heard::Refused(format!("{}: {e}", line.trim())),
                     },
                     Err(why) => Heard::Refused(format!("{}: {why}", line.trim())),
                 };
@@ -532,6 +598,62 @@ mod tests {
         ] {
             assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
         }
+    }
+
+    #[test]
+    fn agents_send_the_horde_bosses_and_goblins_and_point_pals_at_foes() {
+        let c = content();
+        let mut sim = Sim::new(&c, 7, None);
+        let order = |l: &str| parse_line(l).unwrap().unwrap();
+        let mob = c.fams.iter().find(|f| matches!(f.kind, crate::data::FamKind::Mob(_))).unwrap().key.clone();
+        let boss = c.fams.iter().find(|f| matches!(f.kind, crate::data::FamKind::Boss { .. })).unwrap().key.clone();
+        let n0 = sim.e.len();
+        apply(&mut sim, &order(&format!(r#"{{"t":"spawn","family":"{mob}","n":5,"tier":"elite","form":"ring"}}"#))).unwrap();
+        assert_eq!(sim.e.len(), n0 + 5, "five elites on the ring");
+        assert!(sim.log.last().is_some_and(|r| r.src.tag() == "mcp:agent"), "logged as the agent's command");
+        assert!(apply(&mut sim, &order(r#"{"t":"spawn","family":"nobody","n":1}"#)).unwrap_err().contains("no family"), "NEG: unknown family");
+        assert!(apply(&mut sim, &order(&format!(r#"{{"t":"spawn","family":"{boss}","n":1}}"#))).unwrap_err().contains("NotMob"), "NEG: a boss family is no horde");
+        assert!(parse_line(&format!(r#"{{"t":"spawn","family":"{mob}","n":99}}"#)).unwrap_err().contains("\"n\": 1-20"));
+        apply(&mut sim, &order(&format!(r#"{{"t":"boss","family":"{boss}"}}"#))).unwrap();
+        assert!(sim.boss_ix().is_some(), "a boss now");
+        apply(&mut sim, &order(r#"{"t":"goblin"}"#)).unwrap();
+        assert!(!sim.world.goblins.is_empty(), "a goblin runs");
+        assert!(matches!(order(r#"{"t":"director","on":false}"#), Order::Director { on: false }));
+        // a safe level refuses the horde and goblins
+        sim.travel(crate::sim::Level::Town);
+        assert!(apply(&mut sim, &order(&format!(r#"{{"t":"spawn","family":"{mob}","n":1}}"#))).unwrap_err().contains("Town"));
+        assert!(apply(&mut sim, &order(r#"{"t":"goblin"}"#)).is_err(), "NEG: no goblin in town");
+        // target: an archer pal between two foe members hits the one it is pointed at (differential control)
+        let hit = |point: bool| {
+            let mut s = Sim::new(&c, 7, None);
+            s.world.npcs.clear();
+            let archer = r##"{"t":"join","id":"bow","name":"BOW","side":"pal","class":"archer","glyph":"A","hp":1,"abilities":[{"verb":"strike","every_s":0.5,"reach_m":14,"power":0.5}]}"##;
+            let foe = |id: &str| format!(r##"{{"t":"join","id":"{id}","name":"{id}","side":"foe","class":"brute","glyph":"X","hp":3,"abilities":[{{"verb":"taunt","every_s":30,"reach_m":0.5,"power":0}}]}}"##);
+            for l in [archer.to_string(), foe("near"), foe("far")] {
+                apply(&mut s, &order(&l)).unwrap();
+            }
+            let (ax, ay, ..) = s.mate_at(&s.crew[0]).unwrap();
+            for (k, dx) in [(1, 3_000), (2, 9_000)] {
+                let crate::sim::Body::Foe { id } = s.crew[k].body else { panic!("foe") };
+                let b = s.e.id.iter().position(|&j| j == id).unwrap();
+                (s.e.x[b], s.e.y[b]) = (ax + dx, ay);
+                s.e.status[b] = crate::sim::Status::Frozen { left: u16::MAX };
+            }
+            if point {
+                apply(&mut s, &order(r#"{"t":"target","id":"bow","foe":"far"}"#)).unwrap();
+            }
+            s.crew_order(Word::parse("bow").unwrap(), Stance::Hold).unwrap();
+            for _ in 0..3 {
+                s.step(&crate::sim::Input::default());
+            }
+            let hp = |s: &Sim, k: usize| s.mate_at(&s.crew[k]).map(|m| m.3 - m.2).unwrap_or(0);
+            (hp(&s, 1), hp(&s, 2))
+        };
+        let (near, far) = hit(false);
+        assert!(near > 0 && far == 0, "control: unpointed, it shoots the nearest ({near}, {far})");
+        let (near, far) = hit(true);
+        assert!(far > 0 && near == 0, "pointed at the far foe ({near}, {far})");
+        assert!(apply(&mut Sim::new(&c, 7, None), &order(r#"{"t":"target","id":"ghost","foe":"boss"}"#)).unwrap_err().contains("NoSuchMate"));
     }
 
     #[test]

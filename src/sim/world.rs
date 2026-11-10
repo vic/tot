@@ -29,6 +29,8 @@ const FOE_TOUCH: i32 = 1500;
 /// A goblin appears every this many seconds (while fewer than GOBLIN_MAX run), at this distance (mm).
 const GOBLIN_EVERY_S: u32 = 25;
 const GOBLIN_MAX: usize = 2;
+/// Goblins at once when agents send them too.
+const AGENT_GOBLINS: usize = 6;
 const GOBLIN_SPAWN_R: i32 = 14_000;
 /// Gold piles are picked up within this radius (mm).
 const GOLD_R: i32 = 1000;
@@ -337,6 +339,24 @@ impl Sim<'_> {
         self.stats.win_spawned += i64::from(hp);
         self.push_enemy(fam, Tier::Boss, (x, y), hp, (false, false));
         true
+    }
+
+    /// An agent sends a treasure goblin now (on top of the schedule; at most AGENT_GOBLINS at once, never in a safe
+    /// level). False when it is refused or finds no floor.
+    pub fn send_goblin(&mut self) -> bool {
+        if self.world.goblins.len() >= AGENT_GOBLINS || self.safe(self.level) {
+            return false;
+        }
+        let n = self.world.goblins_spawned;
+        self.world.goblins_spawned += 1;
+        let ang = mix(self.world.foe_key ^ GOBLIN_SALT ^ u64::from(n)) % self.trig.len().max(1) as u64;
+        match goblin::spawn_at(&self.arena, (self.p.x, self.p.y), self.trig[ang as usize], GOBLIN_SPAWN_R) {
+            Some(g) => {
+                self.world.goblins.push(g);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Goblins spawn on a seeded schedule, flee, leave a trail; the hero collects piles by walking over them.

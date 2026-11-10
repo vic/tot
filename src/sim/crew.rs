@@ -7,7 +7,7 @@
 use super::*;
 
 /// Crew members at once (pals and foes together), abilities per member.
-pub const CREW_MAX: usize = 6;
+pub const CREW_MAX: usize = 12;
 pub const ABILITIES: usize = 4;
 
 /// What an ability does. The numbers of `Feat` say how strong, how far, how often.
@@ -177,6 +177,13 @@ impl Word {
     }
 }
 
+/// A foe an agent points a pal at: one of the crew's foes by key, or the boss.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Focus {
+    Mate(Word),
+    Boss,
+}
+
 /// Where a crew member is: a pal has its own body, a foe is the enemy with this id.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Body {
@@ -193,6 +200,8 @@ pub struct Mate {
     pub stance: Stance,
     /// where an agent told it to go (world mm); cleared on arrival
     pub goal: Option<(i32, i32)>,
+    /// the foe an agent pointed it at: it hunts and hits that one first while it lives
+    pub focus: Option<Focus>,
     /// ticks until each ability acts again
     cd: [u16; ABILITIES],
 }
@@ -299,7 +308,7 @@ impl Sim<'_> {
                 Body::Foe { id }
             }
         };
-        self.crew.push(Mate { key, name, kit, body, stance: Stance::Follow, goal: None, cd: [0; ABILITIES] });
+        self.crew.push(Mate { key, name, kit, body, stance: Stance::Follow, goal: None, focus: None, cd: [0; ABILITIES] });
         self.ev(CrewEv::Joined(key));
         Ok(())
     }
@@ -332,6 +341,30 @@ impl Sim<'_> {
         let rgb = Rgb8(band(31, (90, 255)) as u8, band(32, (90, 255)) as u8, band(33, (90, 255)) as u8);
         let kit = Kit::new(class, glyph, Some(rgb), hp, band(22, (850, 1_200)), &feats).ok_or(CrewErr::NoBody)?;
         self.crew_join(key, name, kit, Allegiance::Pal)
+    }
+
+    /// Point pal `key` at a foe (None: back to the nearest). Err when the pal or the foe is unknown.
+    pub fn crew_focus(&mut self, key: Word, focus: Option<Focus>) -> Result<(), CrewErr> {
+        let i = self.mate_ix(key)?;
+        if let Some(Focus::Mate(f)) = focus
+            && !self.crew.iter().any(|m| m.key == f && m.side() == Allegiance::Foe)
+        {
+            return Err(CrewErr::NoSuchMate);
+        }
+        self.crew[i].focus = focus;
+        Ok(())
+    }
+
+    /// The enemy row member `k` is pointed at, while it lives.
+    fn focus_ix(&self, k: usize) -> Option<usize> {
+        match self.crew[k].focus? {
+            Focus::Boss => self.boss_ix(),
+            Focus::Mate(f) => match self.crew.iter().find(|m| m.key == f)?.body {
+                Body::Foe { id } => self.body_ix(id),
+                Body::Pal { .. } => None,
+            },
+        }
+        .filter(|&j| self.e.hp[j] > 0)
     }
 
     pub fn crew_order(&mut self, key: Word, stance: Stance) -> Result<(), CrewErr> {
@@ -466,7 +499,7 @@ impl Sim<'_> {
         // a fighter walks up to its foe until the foe is inside its own reach, then fights from there
         let hunt = || {
             let reach = m.kit.engage()?;
-            let (fx, fy) = near_foe(HUNT_R, x, y)?;
+            let (fx, fy) = self.focus_ix(k).map(|j| (self.e.x[j], self.e.y[j])).or_else(|| near_foe(HUNT_R, x, y))?;
             let stop = (i64::from(reach) * ENGAGE_PM / 1000) as i32;
             let d = dist(fx - x, fy - y);
             Some(if d <= stop { (x, y) } else { (fx, fy) })
@@ -557,7 +590,8 @@ impl Sim<'_> {
             // passive: taunt_spots draws the foes
             Verb::Taunt => false,
             Verb::Strike | Verb::Blast => {
-                let Some(j) = self.nearest_hostile(x, y, a.reach, &[]) else { return false };
+                let focus = self.focus_ix(k).filter(|&j| dist2(self.e.x[j] - x, self.e.y[j] - y) <= r2);
+                let Some(j) = focus.or_else(|| self.nearest_hostile(x, y, a.reach, &[])) else { return false };
                 let (tx, ty) = (self.e.x[j], self.e.y[j]);
                 let dmg = self.pal_hit(a.power);
                 if a.verb == Verb::Blast {

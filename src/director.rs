@@ -186,7 +186,7 @@ pub fn fallback(sim: &mut Sim, rejected: &Cmd) {
 const TIERS: [(&str, Tier); 3] = [("trash", Tier::Trash), ("elite", Tier::Elite), ("champion", Tier::Champion)];
 const FORMS: [(&str, Formation); 4] = [("scatter", Formation::Scatter), ("ring", Formation::Ring), ("wall", Formation::Wall), ("spiral", Formation::Spiral)];
 
-fn fam_by_key(c: &Content, k: &str) -> Option<FamId> {
+pub fn fam_by_key(c: &Content, k: &str) -> Option<FamId> {
     c.fam_ids().find(|&f| c.fam(f).key == k)
 }
 

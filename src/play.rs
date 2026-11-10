@@ -313,7 +313,9 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
                     };
                 }
                 let pick_open = ui.pick_open_ms;
-                dir.tick(&mut sim);
+                if agents.director {
+                    dir.tick(&mut sim);
+                }
                 let mut inp = ui.input(c.opt.pick_pauses);
                 // autowalk: bot movement unless the human holds a direction
                 if ui.autowalk && inp.mv == (0, 0) {
@@ -402,11 +404,13 @@ struct Agents {
     sessions: Vec<crate::peer::Session>,
     link: Option<crate::crew::Link>,
     listed: Option<Instant>,
+    /// the built-in director sends waves (an agent may take the horde over and switch it off)
+    director: bool,
 }
 
 impl Agents {
     fn new() -> Agents {
-        Agents { dirs: crate::peer::default_dirs(), sessions: Vec::new(), link: None, listed: None }
+        Agents { dirs: crate::peer::default_dirs(), sessions: Vec::new(), link: None, listed: None, director: true }
     }
 
     /// Re-read the live sessions while the prompt is open (their names go to the popup).
@@ -446,6 +450,9 @@ impl Agents {
                 crate::crew::Heard::Applied(o) => {
                     if let crate::crew::Order::Scene(s) = &o {
                         ui.scenes.push(s.clone());
+                    }
+                    if let crate::crew::Order::Director { on } = &o {
+                        self.director = *on;
                     }
                     if let crate::crew::Order::Person { key, lines, .. } = &o {
                         ui.talk.push((*key, lines.clone()));

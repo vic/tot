@@ -222,13 +222,19 @@ fn crew_cli(c: &data::Content, args: &Args) -> Result<()> {
     println!("you: {say}");
     let tick = std::time::Duration::from_micros(1_000_000 / u64::from(c.hz().get()));
     let end = sim.secs() + args.num("--secs", 120)? as u32;
+    let mut director = true;
     while sim.secs() < end && sim.outcome.is_none() {
-        dir.tick(&mut sim);
+        if director {
+            dir.tick(&mut sim);
+        }
         let (mv, dodge) = pilot.walk(&sim);
         let pick = sim.offer.map(|_| pilot.choose(&sim));
         sim.step(&sim::Input { mv, dodge, autofire: true, pick, ..sim::Input::default() });
         for h in link.poll(&mut sim) {
             // headless: a scene card is printed and its first choice taken (there is no player to ask)
+            if let crew::Heard::Applied(crew::Order::Director { on }) = &h {
+                director = *on;
+            }
             if let crew::Heard::Applied(crew::Order::Scene(s)) = &h {
                 println!("[scene {}] {}: {}", s.key.as_str(), s.title.as_str(), s.lines.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(" / "));
                 link.chose(s.key, s.choices.first().map(|c| c.0));

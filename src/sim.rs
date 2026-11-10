@@ -15,7 +15,7 @@ mod solid;
 mod step;
 pub mod weather;
 mod world;
-pub use crew::{Allegiance, Body, Feat, CrewErr, CrewEv, Kit, Mate, Rgb8, Stance, Verb, Word, CREW_MAX};
+pub use crew::{Allegiance, Body, Feat, Focus, CrewErr, CrewEv, Kit, Mate, Rgb8, Stance, Verb, Word, CREW_MAX};
 /// The ranges a crew kit's numbers must fall in (the agent protocol states them).
 pub mod crew_ranges {
     pub use super::crew::{ABILITIES, EVERY_MS, HP_PM, PACE_PM, POWER_PM, RADIUS_MM, REACH_MM};

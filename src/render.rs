@@ -4628,7 +4628,7 @@ mod tests {
         ui.push_chat(crate::input::Speaker::You, "send me a healer".into());
         ui.push_chat(crate::input::Speaker::Agent("MIRA".into()), "on my way".into());
         let s = shot(&mut f, &sim, &ui);
-        assert!(s.contains("CREW 2/6") && s.contains("MIRA lifebinder") && s.contains("RIVAL lifebinder"), "crew pane\n{s}");
+        assert!(s.contains(&format!("CREW 2/{}", crate::sim::CREW_MAX)) && s.contains("MIRA lifebinder") && s.contains("RIVAL lifebinder"), "crew pane\n{s}");
         assert!(s.contains("I have you!") && s.contains("YOU: send me a healer") && s.contains("MIRA: on my way"), "say over the head and the chat\n{s}");
         // a dim tip on using agents under the chat, a new one every TIP_MS
         let tips = c.texts.pool(t::AGENT_TIPS);
