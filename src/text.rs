@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 235] = [
+pub const TXTS: [Spec; 238] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -131,6 +131,9 @@ pub const TXTS: [Spec; 235] = [
     line("mode_bags", &[], "Status line, left: tag of the bags pane."),
     line("mode_prompt", &[], "Status line, left: tag of the prompt popup (P: speak to the agents)."),
     line("mode_legacy", &[], "Status line, left: tag of the legacy popup (L)."),
+    line("mode_scene", &[], "Status line, left: tag of a scene card an agent sent (the world waits)."),
+    line("scene_choice", &["key", "choice"], "Scene card: one choice line: its number key and the agent's text."),
+    line("scene_close", &[], "Scene card with no choices: the key that closes it."),
     line("mode_start", &[], "Status line, left: tag of the start screen."),
     // key hints (status line rows, after each key)
     line("hint_move", &[], "Key hints: what the move keys do."),
@@ -526,6 +529,9 @@ pub mod t {
     pub const MODE_BAGS: Txt<0> = Txt::named("mode_bags");
     pub const MODE_PROMPT: Txt<0> = Txt::named("mode_prompt");
     pub const MODE_LEGACY: Txt<0> = Txt::named("mode_legacy");
+    pub const MODE_SCENE: Txt<0> = Txt::named("mode_scene");
+    pub const SCENE_CHOICE: Txt<2> = Txt::named("scene_choice");
+    pub const SCENE_CLOSE: Txt<0> = Txt::named("scene_close");
     pub const MODE_START: Txt<0> = Txt::named("mode_start");
     pub const HINT_MOVE: Txt<0> = Txt::named("hint_move");
     pub const HINT_TURN: Txt<0> = Txt::named("hint_turn");

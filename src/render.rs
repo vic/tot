@@ -960,6 +960,17 @@ impl Frame {
                 };
                 (c.texts.get(t::PROMPT_TITLE).to_string(), vec![(tail, line.1), (String::new(), pal.text), to, (String::new(), pal.text), (c.texts.get(t::PROMPT_KEYS).to_string(), pal.dim)], None)
             }
+            // a scene card from an agent: its lines, a blank, its choices with their keys (or the close key)
+            Mode::Scene => {
+                let Some(s) = ui.scenes.first() else { return };
+                let mut rows: Vec<(String, Rgb)> = s.lines.iter().map(|l| (l.as_str().to_string(), pal.text)).collect();
+                rows.push((String::new(), pal.text));
+                rows.extend(s.choices.iter().zip(1..).map(|((_, text), k)| (c.texts.fill(t::SCENE_CHOICE, [&k.to_string(), text.as_str()]), pal.role(Role::Legendary))));
+                if s.choices.is_empty() {
+                    rows.push((c.texts.get(t::SCENE_CLOSE).to_string(), pal.dim));
+                }
+                (s.title.as_str().to_string(), rows, None)
+            }
             Mode::Legacy => {
                 use crate::legacy::{Boon, MAX_RANK};
                 let l = &ui.legacy;
@@ -2779,6 +2790,7 @@ fn mode_tag(mode: Mode, ended: bool) -> (crate::text::Txt<0>, ModeInk) {
         (_, Mode::Start) => (t::MODE_START, ModeInk::Player),
         (_, Mode::Prompt) => (t::MODE_PROMPT, ModeInk::Code),
         (_, Mode::Legacy) => (t::MODE_LEGACY, ModeInk::Role(Role::Legendary)),
+        (_, Mode::Scene) => (t::MODE_SCENE, ModeInk::Role(Role::Magic)),
     }
 }
 
@@ -4607,5 +4619,43 @@ mod tests {
         assert!(!pal_bar(&off), "pal bar gone\n{}", off.join("\n"));
         assert!(!bar_of(&off, bfull, bempty), "boss bar gone\n{}", off.join("\n"));
         assert!(off.iter().any(|r| r.contains("QUILL")), "control: the name stays");
+    }
+
+    #[test]
+    fn an_agent_scene_card_pauses_the_world_and_takes_the_choice() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let scene = |line: &str| match crate::crew::parse_line(line) {
+            Ok(Some(crate::crew::Order::Scene(s))) => s,
+            other => panic!("{other:?}"),
+        };
+        ui.scenes.push(scene(r#"{"t":"scene","id":"gate","title":"The Iron Gate","lines":["A guard waits."],"choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]}"#));
+        ui.scenes.push(scene(r#"{"t":"scene","id":"after","title":"Night","lines":["The road is quiet."]}"#));
+        ui.mode = Mode::Shop;
+        ui.sync_scene();
+        assert_eq!(ui.mode, Mode::Shop, "never opens over another popup");
+        ui.mode = Mode::Play;
+        ui.sync_scene();
+        assert_eq!(ui.mode, Mode::Scene);
+        let mut f = Frame::new(&c, 160, 45);
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let s = f.plain();
+        assert!(s.contains("The Iron Gate") && s.contains("A guard waits.") && s.contains("1  Pay him") && s.contains("2  Draw steel"), "the card\n{s}");
+        // the world waits while the card is open
+        let tick = sim.tick;
+        sim.step(&ui.input(c.opt.pick_pauses));
+        assert_eq!(sim.tick, tick, "paused");
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Enter, kind: crate::input::Kind::Press, text: None }, &c, 0);
+        assert!(ui.scene_done.is_none() && ui.mode == Mode::Scene, "NEG: enter does not dodge a choice");
+        crate::input::tests::press_key(&mut ui, &c, '2');
+        assert_eq!(ui.scene_done.take().map(|(k, ch)| (k.as_str().to_string(), ch.map(|w| w.as_str().to_string()))), Some(("gate".into(), Some("fight".into()))));
+        assert_eq!(ui.mode, Mode::Play);
+        sim.step(&ui.input(c.opt.pick_pauses));
+        assert_eq!(sim.tick, tick + 1, "control: closed, the world runs");
+        // the next card has no choices: enter closes it
+        ui.sync_scene();
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Enter, kind: crate::input::Kind::Press, text: None }, &c, 0);
+        assert_eq!(ui.scene_done.map(|(k, ch)| (k.as_str().to_string(), ch)), Some(("after".into(), None)));
     }
 }

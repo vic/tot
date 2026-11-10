@@ -39,6 +39,8 @@ pub struct Input {
     pub mv: (i32, i32),
     /// the shop popup is open: the tick only applies purchases, the world stands still
     pub shopping: bool,
+    /// a scene card is open: the world waits (like the shop, but nothing is bought)
+    pub paused: bool,
     pub dodge: bool,
     pub hack: bool,
     pub autofire: bool,
@@ -1412,7 +1414,7 @@ mod tests {
     /// Scripted input: circle walk + periodic dodge; picks the first card.
     fn script(t: u32) -> Input {
         let dirs = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
-        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false, upgrade: None, enchant: None, sell: false, shopping: false }
+        Input { mv: dirs[(t / 20 % 8) as usize], dodge: t.is_multiple_of(97), hack: false, autofire: true, fire: false, pick: Some(PickChoice::Card(0)), buy: None, drop: None, special: None, bag: None, learn: None, forge: false, upgrade: None, enchant: None, sell: false, shopping: false, paused: false }
     }
 
     fn run_hash(c: &Content, seed: u64, ticks: u32) -> u64 {

@@ -18,6 +18,8 @@ pub enum Order {
     Say { key: Word, text: Say },
     /// an agent speaks in the chat without a body
     Chat { from: Word, text: Say },
+    /// a scene card over the game (the world waits for the player)
+    Scene(Scene),
     Leave { key: Word },
 }
 
@@ -35,6 +37,38 @@ impl Say {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// A scene card an agent puts over the game: a title, 1..=SCENE_LINES lines, 0..=SCENE_CHOICES choices. The world
+/// waits while it is open; the player's choice goes back to the agents.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scene {
+    pub key: Word,
+    pub title: Say,
+    pub lines: Vec<Say>,
+    pub choices: Vec<(Word, Say)>,
+}
+
+pub const SCENE_LINES: usize = 8;
+pub const SCENE_CHOICES: usize = 4;
+
+fn scene(v: &serde_json::Value, key: Word) -> std::result::Result<Scene, String> {
+    let title = v["title"].as_str().and_then(Say::parse).ok_or("\"title\": printable ASCII, not blank")?;
+    let lines = v["lines"].as_array().filter(|a| (1..=SCENE_LINES).contains(&a.len())).ok_or(format!("\"lines\": a list of 1-{SCENE_LINES} strings"))?;
+    let lines = lines.iter().enumerate().map(|(k, l)| l.as_str().and_then(Say::parse).ok_or(format!("lines[{k}]: printable ASCII, not blank"))).collect::<std::result::Result<Vec<_>, _>>()?;
+    let choices = match &v["choices"] {
+        serde_json::Value::Null => Vec::new(),
+        serde_json::Value::Array(a) if a.len() <= SCENE_CHOICES => a
+            .iter()
+            .enumerate()
+            .map(|(k, c)| match (c["id"].as_str().and_then(Word::parse), c["text"].as_str().and_then(Say::parse)) {
+                (Some(id), Some(t)) => Ok((id, t)),
+                _ => Err(format!("choices[{k}]: {{\"id\": 1-16 of A-Z a-z 0-9 _ - space, \"text\": printable ASCII}}")),
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?,
+        _ => return Err(format!("\"choices\": a list of at most {SCENE_CHOICES}")),
+    };
+    Ok(Scene { key, title, lines, choices })
 }
 
 /// A number given in agent units (seconds, metres, shares), as thousandths.
@@ -100,6 +134,7 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
         "order" => Order::Stance { key, stance: Stance::parse(s("do")?).ok_or_else(|| format!("do: one of {}", Stance::ALL.map(Stance::key).join(", ")))? },
         "move" => Order::Move { key, dx: tiles("dx")?, dy: tiles("dy")? },
         "say" => Order::Say { key, text: say("text")? },
+        "scene" => Order::Scene(scene(&v, key)?),
         "leave" => Order::Leave { key },
         x => return Err(format!("t \"{x}\": join, order, move, say, chat or leave")),
     }))
@@ -112,7 +147,7 @@ pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
         Order::Stance { key, stance } => sim.crew_order(key, stance),
         Order::Move { key, dx, dy } => sim.crew_goal(key, dx, dy),
         Order::Say { key, .. } => sim.crew.iter().any(|m| m.key == key).then_some(()).ok_or(CrewErr::NoSuchMate),
-        Order::Chat { .. } => Ok(()),
+        Order::Chat { .. } | Order::Scene(_) => Ok(()),
         Order::Leave { key } => sim.crew_leave(key),
     }
 }
@@ -181,6 +216,8 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"move","id":"mira","dx":3,"dy":-2}   go to a spot in whole tiles from the hero (-40..40)
 {"t":"say","id":"mira","text":"Behind you!"}   a member speaks (60 chars)
 {"t":"chat","from":"captain","text":"Tank left, I heal."}   you speak in the chat without a body
+{"t":"scene","id":"gate","title":"The Iron Gate","lines":["A guard bars the road.","He wants coin."],"choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]}
+  a card over the game: 1-8 lines, 0-4 choices; the world waits while the player reads; the report tells you the choice. Use scenes for story, talk, quests and choices between fights.
 {"t":"leave","id":"mira"}
 ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). Answer with new orders when the fight calls for it; stay silent otherwise."##;
 
@@ -190,8 +227,11 @@ pub fn request(prompt: &str, reply_to: &str, sim: &Sim) -> String {
 }
 
 /// A report: chat since the last one, crew events, refused lines, the state.
-pub fn report(chat: &[(String, String)], evs: &[CrewEv], refused: &[String], sim: &Sim) -> String {
+pub fn report(chat: &[(String, String)], evs: &[CrewEv], refused: &[String], news: &[String], sim: &Sim) -> String {
     let mut s = String::from("tot report.\n");
+    for n in news {
+        s += &format!("{n}\n");
+    }
     for (who, text) in chat {
         s += &format!("Chat {who}: {text}\n");
     }
@@ -222,6 +262,8 @@ pub struct Link {
     inbox: Inbox,
     to: Vec<Session>,
     chat: Vec<(String, String)>,
+    /// what the player did that the agents asked about (scene choices)
+    news: Vec<String>,
     evs: Vec<CrewEv>,
     refused: Vec<String>,
     last_report: u32,
@@ -229,7 +271,7 @@ pub struct Link {
 
 impl Link {
     pub fn open(socks: &Path) -> Result<Link> {
-        Ok(Link { inbox: Inbox::open(socks)?, to: Vec::new(), chat: Vec::new(), evs: Vec::new(), refused: Vec::new(), last_report: 0 })
+        Ok(Link { inbox: Inbox::open(socks)?, to: Vec::new(), chat: Vec::new(), news: Vec::new(), evs: Vec::new(), refused: Vec::new(), last_report: 0 })
     }
 
     fn hear(&mut self, s: Session) {
@@ -276,16 +318,25 @@ impl Link {
         out
     }
 
+    /// The player closed scene `scene` with `choice` (None: a scene with no choices, read and closed).
+    pub fn chose(&mut self, scene: Word, choice: Option<Word>) {
+        self.news.push(match choice {
+            Some(c) => format!("Scene {}: the player chose {}.", scene.as_str(), c.as_str()),
+            None => format!("Scene {}: the player read it and closed it.", scene.as_str()),
+        });
+    }
+
     /// Take the sim's crew events; send a report to every agent when one is due. Ok(true) when it went out.
     pub fn tick(&mut self, sim: &mut Sim) -> Result<bool> {
         self.evs.extend(sim.crew_ev.drain(..).filter(|e| !matches!(e, CrewEv::Struck { .. })));
         let gap = sim.secs().saturating_sub(self.last_report);
-        let news = !self.chat.is_empty() || !self.refused.is_empty() || self.evs.iter().any(|e| matches!(e, CrewEv::Down(_)));
+        let news = !self.news.is_empty() || !self.chat.is_empty() || !self.refused.is_empty() || self.evs.iter().any(|e| matches!(e, CrewEv::Down(_)));
         let quiet = self.evs.is_empty() && !news && sim.crew.is_empty();
         if self.to.is_empty() || quiet || !(gap >= REPORT_S || (news && gap >= NEWS_S)) {
             return Ok(false);
         }
-        let text = report(&self.chat, &self.evs, &self.refused, sim);
+        let text = report(&self.chat, &self.evs, &self.refused, &self.news, sim);
+        self.news.clear();
         self.chat.clear();
         self.evs.clear();
         self.refused.clear();
@@ -328,6 +379,18 @@ mod tests {
             assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
         }
         assert_eq!(Say::parse("héllo\u{1b}[2J wörld").map(|s| s.0), Some("hllo[2J wrld".into()), "only printable ASCII reaches the screen");
+        let gate = r#"{"t":"scene","id":"gate","title":"The Iron Gate","lines":["A gate bars the road.","A guard waits."],"choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]}"#;
+        let Ok(Some(Order::Scene(s))) = parse_line(gate) else { panic!("scene") };
+        assert!(s.key.as_str() == "gate" && s.lines.len() == 2 && s.choices[1].0.as_str() == "fight" && s.choices[1].1.as_str() == "Draw steel");
+        assert!(matches!(parse_line(&gate.replace(r#","choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]"#, "")), Ok(Some(Order::Scene(s))) if s.choices.is_empty()), "choices are optional");
+        for (bad, why) in [
+            (gate.replace(r#""title":"The Iron Gate""#, r#""title":"  ""#), "\"title\""),
+            (gate.replace(r#"["A gate bars the road.","A guard waits."]"#, "[]"), "\"lines\": a list of 1-8"),
+            (gate.replace(r#""id":"fight""#, r#""id":"<x>""#), "choices[1]"),
+            (gate.replace(r#"{"id":"bribe","text":"Pay him"}"#, r#"{"id":"a","text":"a"},{"id":"b","text":"b"},{"id":"c","text":"c"},{"id":"d","text":"d"}"#), "\"choices\": a list of at most 4"),
+        ] {
+            assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
+        }
     }
 
     #[test]
@@ -362,6 +425,11 @@ mod tests {
             assert!(rep.contains("Chat DOC: I have you!") && rep.contains("Chat bow: I hunt you, hero") && rep.contains("doc joined") && rep.contains("Refused:") && rep.contains("\"class\":\"lifebinder\""), "{who} hears all: {rep}");
         }
         assert!(!link.tick(&mut sim).unwrap(), "control: nothing new, no report");
+        // the player's scene choice goes back to every agent as news
+        link.chose(Word::parse("gate").unwrap(), Some(Word::parse("open").unwrap()));
+        sim.tick += sim.c.hz().get() * NEWS_S;
+        assert!(link.tick(&mut sim).unwrap(), "a choice is news");
+        assert!(lead_in.poll().concat().contains("Scene gate: the player chose open."));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -228,6 +228,11 @@ fn crew_cli(c: &data::Content, args: &Args) -> Result<()> {
         let pick = sim.offer.map(|_| pilot.choose(&sim));
         sim.step(&sim::Input { mv, dodge, autofire: true, pick, ..sim::Input::default() });
         for h in link.poll(&mut sim) {
+            // headless: a scene card is printed and its first choice taken (there is no player to ask)
+            if let crew::Heard::Applied(crew::Order::Scene(s)) = &h {
+                println!("[scene {}] {}: {}", s.key.as_str(), s.title.as_str(), s.lines.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(" / "));
+                link.chose(s.key, s.choices.first().map(|c| c.0));
+            }
             match h {
                 crew::Heard::Applied(o) => match crew::chat_line(&sim, &o) {
                     Some((who, text)) => println!("{who}: {text}"),

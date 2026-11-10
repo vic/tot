@@ -2637,7 +2637,7 @@ fn waves(recs: &[(String, Rec)], hz: Hz, fam_id: &dyn Fn(&Rec, &str) -> Result<F
 fn binds(recs: &[(String, Rec)]) -> Result<(Vec<Bind>, Vec<Group>)> {
     let (mut bs, mut gs) = (Vec::new(), Vec::new());
     for (t, r) in recs {
-        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start), ("prompt", Mode::Prompt), ("legacy", Mode::Legacy)])?;
+        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start), ("prompt", Mode::Prompt), ("legacy", Mode::Legacy), ("scene", Mode::Scene)])?;
         let keys = r.strs("keys")?.iter().map(|k| Key::parse(k).ok_or_else(|| r.err("keys", format!("unknown key '{k}'")))).collect::<Result<Vec<_>>>()?;
         if keys.is_empty() {
             return Err(r.err("keys", "empty"));

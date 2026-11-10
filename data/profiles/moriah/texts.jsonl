@@ -340,3 +340,6 @@
 {"t":"pool","id":"rescued_class","lines":["runesmith","shieldmaiden","ironbeard","lorekeeper","tunneler","oathkeeper"]}
 {"t":"pool","id":"rescued_say","lines":["Free of the dark! My axe is yours.","Stone remembers. So will I.","To the deeps, together!","A debt of iron. I will pay it."]}
 {"t":"pool","id":"agent_tip","lines":["P: call a Claude agent down the tunnel","Ask your agent for kin: runesmith, shieldmaiden","Agents may raise subagents, one per dwarf","Ask for a rival clan to hunt you","H hides the health bars over heads","L spends souls: they outlive every death","Your agent speaks first: answer it with P","Tab in the P box picks another agent"]}
+{"t":"text","id":"mode_scene","text":"SAGA"}
+{"t":"text","id":"scene_choice","text":"{key}  {choice}"}
+{"t":"text","id":"scene_close","text":"enter: onward"}

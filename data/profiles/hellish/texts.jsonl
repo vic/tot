@@ -340,3 +340,6 @@
 {"t":"pool","id":"rescued_class","lines":["penitent","ashpriest","chainbreaker","pyre witch","bone reader","exile"]}
 {"t":"pool","id":"rescued_say","lines":["Out of the pit. I owe you my soul.","The flames did not take me. Now they burn for us.","Unchained. Point me at the damned.","I walk with you into the dark."]}
 {"t":"pool","id":"agent_tip","lines":["P: whisper to a Claude agent in the dark","Ask your agent for allies: penitents, pyre witches","Agents can call subagents, one per soul","Ask for a rival coven to hunt you","H hides the health bars over heads","L spends souls: they outlive every death","Your agent speaks first: answer it with P","Tab in the P box picks another agent"]}
+{"t":"text","id":"mode_scene","text":"OMEN"}
+{"t":"text","id":"scene_choice","text":"{key}  {choice}"}
+{"t":"text","id":"scene_close","text":"enter: let it pass"}

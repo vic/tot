@@ -129,6 +129,8 @@ pub enum Mode {
     Prompt,
     /// L: spend souls on boons
     Legacy,
+    /// a scene card an agent sent: the world waits until the player chooses
+    Scene,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -198,6 +200,9 @@ pub enum Action {
     /// legacy: cursor step, buy the next rank of the cursor boon
     LegacyMove(i8),
     LegacyBuy,
+    /// scene card: take choice n, or close a card that has no choices
+    SceneChoice(u8),
+    SceneClose,
 }
 
 impl Action {
@@ -277,6 +282,11 @@ impl Action {
             "legacy_up" => LegacyMove(-1),
             "legacy_down" => LegacyMove(1),
             "legacy_buy" => LegacyBuy,
+            "scene_1" => SceneChoice(0),
+            "scene_2" => SceneChoice(1),
+            "scene_3" => SceneChoice(2),
+            "scene_4" => SceneChoice(3),
+            "scene_close" => SceneClose,
             _ => return None,
         })
     }
@@ -486,6 +496,10 @@ pub struct Ui {
     pub chat: Vec<(Speaker, String)>,
     /// lines crew members say, shown over them until the clock (ms) passes the deadline
     pub says: Vec<(crate::sim::Word, String, u64)>,
+    /// scene cards the agents sent, oldest first (the first is the one open in Mode::Scene)
+    pub scenes: Vec<crate::crew::Scene>,
+    /// one-shot: the scene the player closed and the choice it took (taken by the play loop)
+    pub scene_done: Option<(crate::sim::Word, Option<crate::sim::Word>)>,
 }
 
 /// Who said a chat line.
@@ -554,6 +568,8 @@ impl Ui {
             boon_buy: None,
             chat: Vec::new(),
             says: Vec::new(),
+            scenes: Vec::new(),
+            scene_done: None,
             bars: true,
         }
     }
@@ -579,6 +595,13 @@ impl Ui {
         self.offer_waiting = offer_open;
         if !offer_open && self.mode == Mode::Pick {
             self.mode = Mode::Play;
+        }
+    }
+
+    /// A scene card waits: open it as soon as the player is back in play (never over another popup).
+    pub fn sync_scene(&mut self) {
+        if self.mode == Mode::Play && !self.scenes.is_empty() {
+            self.mode = Mode::Scene;
         }
     }
 
@@ -906,6 +929,22 @@ impl Ui {
             Action::PromptSend => {}
             Action::LegacyMove(d) => self.boon_sel = (self.boon_sel as isize + isize::from(d)).rem_euclid(crate::legacy::Boon::ALL.len() as isize) as usize,
             Action::LegacyBuy => self.boon_buy = crate::legacy::Boon::ALL.get(self.boon_sel).copied(),
+            Action::SceneChoice(n) => {
+                if let Some(s) = self.scenes.first()
+                    && let Some((id, _)) = s.choices.get(usize::from(n))
+                {
+                    self.scene_done = Some((s.key, Some(*id)));
+                    self.scenes.remove(0);
+                    self.mode = Mode::Play;
+                }
+            }
+            Action::SceneClose => {
+                if let Some(s) = self.scenes.first().filter(|s| s.choices.is_empty()) {
+                    self.scene_done = Some((s.key, None));
+                    self.scenes.remove(0);
+                    self.mode = Mode::Play;
+                }
+            }
             Action::Up | Action::Down | Action::Left | Action::Right => {}
         }
     }
@@ -979,6 +1018,7 @@ impl Ui {
             enchant: (self.service == Some(Action::ShopEnchant)).then(|| Slot::ALL.get(self.gear_sel).copied()).flatten(),
             sell: self.service.take() == Some(Action::ShopSell),
             shopping: self.mode == Mode::Shop,
+            paused: self.mode == Mode::Scene,
         }
     }
 }

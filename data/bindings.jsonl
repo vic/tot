@@ -134,3 +134,8 @@
 {"t":"bind","mode":"legacy","keys":["esc"],"action":"back","label":"close"}
 {"t":"bind","mode":"legacy","keys":["L"],"action":"back","label":"close"}
 {"t":"bind","mode":"play","keys":["H"],"action":"bars","label":"health bars"}
+{"t":"bind","mode":"scene","keys":["1"],"action":"scene_1","label":"choice 1"}
+{"t":"bind","mode":"scene","keys":["2"],"action":"scene_2","label":"choice 2"}
+{"t":"bind","mode":"scene","keys":["3"],"action":"scene_3","label":"choice 3"}
+{"t":"bind","mode":"scene","keys":["4"],"action":"scene_4","label":"choice 4"}
+{"t":"bind","mode":"scene","keys":["enter"],"action":"scene_close","label":"close"}

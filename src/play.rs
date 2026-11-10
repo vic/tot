@@ -287,6 +287,10 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
         // shortcut: points = levels gained, owned nodes live in Ui until the sim holds them
         ui.tree_earned = sim.p.level.saturating_sub(1) + sim.boons.points;
         agents.list(&mut ui);
+        ui.sync_scene();
+        if let (Some((scene, choice)), Some(link)) = (ui.scene_done.take(), agents.link.as_mut()) {
+            link.chose(scene, choice);
+        }
         if let Some(b) = ui.boon_buy.take() {
             ui.msg = buy_boon(c, &mut ui, b, legacy_path.as_deref());
         }
@@ -431,6 +435,9 @@ impl Agents {
         for heard in heard {
             match heard {
                 crate::crew::Heard::Applied(o) => {
+                    if let crate::crew::Order::Scene(s) = &o {
+                        ui.scenes.push(s.clone());
+                    }
                     if let crate::crew::Order::Say { key, text } | crate::crew::Order::Join { key, say: Some(text), .. } = &o {
                         ui.says.retain(|(_, _, until)| *until > now_ms);
                         ui.says.push((*key, text.as_str().to_string(), now_ms + SAY_MS));

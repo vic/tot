@@ -340,3 +340,6 @@
 {"t":"pool","id":"rescued_class","lines":["sparkle mage","pillow knight","candy healer","star archer","bubble tank","plush tamer"]}
 {"t":"pool","id":"rescued_say","lines":["Yay! Best friends forever!","Hugs first, then we fight!","I will sparkle them away!","Thank you thank you thank you!"]}
 {"t":"pool","id":"agent_tip","lines":["P: chat with a Claude agent friend!","Ask your agent for besties: healer, tank, mage!","Agents can bring subagent friends, one each!","Ask for a rival squad to chase you!","H hides the health bars over heads","L spends souls: they stay forever!","Your agent says hi first: answer with P!","Tab in the P box picks another agent"]}
+{"t":"text","id":"mode_scene","text":"STORY"}
+{"t":"text","id":"scene_choice","text":"{key}  {choice}"}
+{"t":"text","id":"scene_close","text":"enter: okay!"}

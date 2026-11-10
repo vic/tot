@@ -340,3 +340,6 @@
 {"t":"pool","id":"rescued_class","lines":["netrunner","street medic","chromeblade","drone jockey","ice breaker","fixer"]}
 {"t":"pool","id":"rescued_say","lines":["Owe you one, choom. I am in.","Jacked in. Let us burn the grid.","My rig is yours, runner.","Freed from the cage. Time to pay back."]}
 {"t":"pool","id":"agent_tip","lines":["P: jack a line into a local Claude agent","Ask your agent for a crew: medic, tank, hacker","Agents can spawn subagents: one per crew member","Ask for a rival gang to hunt you","H hides the health bars over heads","L spends souls: they outlive every death","Your agent talks first: answer it with P","Tab in the P box picks another agent"]}
+{"t":"text","id":"mode_scene","text":"FEED"}
+{"t":"text","id":"scene_choice","text":"{key}  {choice}"}
+{"t":"text","id":"scene_close","text":"enter: jack out"}
