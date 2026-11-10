@@ -21,13 +21,15 @@ pub struct Director {
     /// miniboss spawned so far, and the tick the next is due (None = the cadence start)
     mini_n: u32,
     next_mini: Option<u32>,
+    /// a scripted boss that came due while the hero rested in a safe level: it comes on the return
+    held_boss: Option<usize>,
     /// tick of the next wild boss (None = not drawn yet)
     next_wild: Option<u32>,
 }
 
 impl Director {
     pub fn new(seed: u64) -> Director {
-        Director { rng: Xo::stream(seed, Stream::Director), wallet: 0, phase: 0, phase_t: 0, wave_i: 0, thin: 1000, final_boss: false, last: None, fam_mult: Vec::new(), clock_acc: 0, mini_n: 0, next_mini: None, next_wild: None }
+        Director { rng: Xo::stream(seed, Stream::Director), wallet: 0, phase: 0, phase_t: 0, wave_i: 0, thin: 1000, final_boss: false, last: None, fam_mult: Vec::new(), clock_acc: 0, mini_n: 0, next_mini: None, next_wild: None, held_boss: None }
     }
 
     pub fn phase_name(&self) -> &'static str {
@@ -83,7 +85,28 @@ impl Director {
         }
         let one = NonZeroU16::MIN;
         let level = sim.p.level;
+        let safe = sim.safe(sim.level);
+        // back from a safe level: the boss that came due there comes now (its script slot already passed)
+        if !safe
+            && sim.boss_ix().is_none()
+            && let Some(k) = self.held_boss.take()
+            && let Some(WaveEv::Boss { fam, last, .. }) = c.waves.get(k)
+        {
+            self.final_boss |= *last;
+            if *last {
+                let _ = sim.command(Src::Builtin, Cmd::Flee);
+            }
+            let _ = sim.command(Src::Builtin, Cmd::Boss { fam: *fam });
+        }
         while let Some(ev) = c.waves.get(self.wave_i).filter(|e| e.at() <= t) {
+            // in a safe level time passes for the script: hordes due there are gone, a boss due there is held back
+            if safe {
+                if matches!(ev, WaveEv::Boss { .. }) && self.held_boss.is_none() {
+                    self.held_boss = Some(self.wave_i);
+                }
+                self.wave_i += 1;
+                continue;
+            }
             let cmd = match *ev {
                 WaveEv::Horde { pattern, n, fam, .. } => Some(Cmd::Spawn { fam, n: c.scale.horde_n(n, level, c.spawn.live_cap), tier: Tier::Trash, form: pattern }),
                 WaveEv::Boss { fam, last, .. } => {
@@ -106,6 +129,10 @@ impl Director {
                 let _ = sim.command(Src::Builtin, cmd);
             }
             self.wave_i += 1;
+        }
+        // a safe level pauses the horde: nothing is banked or due there, so the return brings no backlog
+        if safe {
+            return;
         }
         let near_boss = |at: u32| c.waves.iter().any(|w| matches!(w, WaveEv::Boss { .. }) && w.at().abs_diff(at) < c.hz().ticks(30.0));
         for (cad, tier) in [(c.elite, Tier::Elite), (c.champion, Tier::Champion)] {
@@ -414,5 +441,31 @@ mod tests {
         let (n, wave_i) = boss_at(true);
         assert_eq!(n, 0, "a wild boss on stage: the scripted boss is not sent (and lost)");
         assert_eq!(wave_i, c.waves.iter().position(|w| matches!(w, WaveEv::Boss { .. })).unwrap(), "the script stays on that boss until the stage frees");
+    }
+
+    #[test]
+    fn a_stay_in_town_does_not_bank_a_horde_for_the_return_and_keeps_the_boss() {
+        let c = content();
+        let after_town = |secs: u32| {
+            let mut s = Sim::new(&c, 5, None);
+            let mut d = Director::new(5);
+            s.travel(crate::sim::Level::Town);
+            for _ in 0..secs * c.hz().get() {
+                d.tick(&mut s);
+                s.step(&Input::default());
+            }
+            s.travel(crate::sim::Level::FIRST);
+            for _ in 0..c.hz().get() {
+                d.tick(&mut s);
+                s.step(&Input::default());
+            }
+            (s.live(), d.wave_i, s.boss_ix().is_some())
+        };
+        let (short, _, boss_short) = after_town(5);
+        let (long, wave_i, boss_long) = after_town(550);
+        assert!(long <= short + 12, "a long stay sends no banked flood: {long} live after 550 s vs {short} after 5 s");
+        let first_boss = c.waves.iter().position(|w| matches!(w, WaveEv::Boss { .. })).unwrap();
+        assert!(wave_i > first_boss, "the script moved on past the town stay (at {wave_i}, first boss at {first_boss})");
+        assert!(boss_long && !boss_short, "the boss that came due in town comes on the return (control: none due after 5 s)");
     }
 }
