@@ -1686,15 +1686,24 @@ impl Frame {
     }
 
     /// Crew chat (left, under the power-up panes): the newest lines that fit, wrapped, speaker in its colour.
-    fn chat_pane(&mut self, sim: &Sim, ui: &Ui) {
+    fn chat_pane(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
         let pal = &sim.c.pal;
         let top = MAP_H + 1 + LOOT_PANES * 3;
-        let bottom = match self.bar_origin() {
+        let mut bottom = match self.bar_origin() {
             Some((bx, by)) if bx < CHAT_W => by,
             _ => self.play_rows(),
         };
+        if bottom <= top || self.cols < CHAT_W * 2 {
+            return;
+        }
+        // the last row: one dim tip on using the agents, a new one every TIP_MS (non-intrusive: no box, no colour)
+        let tip: String = sim.c.texts.pick(t::AGENT_TIPS, (now_ms / TIP_MS) as usize).chars().take(usize::from(CHAT_W) - 2).collect();
+        if !tip.is_empty() {
+            bottom -= 1;
+            self.text(bottom, 1, &tip, pal.dim);
+        }
         let rows = usize::from(bottom.saturating_sub(top)).min(CHAT_ROWS);
-        if ui.chat.is_empty() || rows == 0 || self.cols < CHAT_W * 2 {
+        if ui.chat.is_empty() || rows == 0 {
             return;
         }
         let w = usize::from(CHAT_W) - 2;
@@ -1798,7 +1807,7 @@ impl Frame {
         self.crew_labels(sim, ui, now_ms);
         self.panel(sim, v.phase, v.last_bytes);
         self.crew_pane(sim);
-        self.chat_pane(sim, ui);
+        self.chat_pane(sim, ui, now_ms);
         self.hero_pane(sim, ui);
         self.hud_bar(sim);
         for &(x, y, _) in &t {
@@ -2697,6 +2706,8 @@ const LOOT_PANE_W: i32 = 16;
 /// Crew chat box (left edge, under the power-up panes): width and most rows.
 const CHAT_W: u16 = 48;
 const CHAT_ROWS: usize = 10;
+/// A new agent tip under the chat every this many ms.
+const TIP_MS: u64 = 12_000;
 /// Health bar over a pal's head (cells); a boss's is as wide as its cloud, never narrower.
 const HEAD_BAR_W: i32 = 8;
 /// Power-up panes: their colour role and fill (permille toward the panel background; the top pane pulses to HI).
@@ -3891,7 +3902,8 @@ mod tests {
     // re-pinned 2026-11-09: cyberpunk cyan-purple neon, wall lore as shadow only
     // re-pinned 2026-11-09: the next-boss panel shows the mid boss at 300 s (was 450 s)
     // re-pinned 2026-11-10: key hints gain P (speak to agents) and L (legacy)
-    const GOLDEN: u64 = 0x7a08_52f5_044e_53fa;
+    // re-pinned 2026-11-10: a dim agent tip line at the bottom left
+    const GOLDEN: u64 = 0xb6f8_fe23_cd09_ad4b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -4526,6 +4538,11 @@ mod tests {
         let s = shot(&mut f, &sim, &ui);
         assert!(s.contains("CREW 2/6") && s.contains("MIRA lifebinder") && s.contains("RIVAL lifebinder"), "crew pane\n{s}");
         assert!(s.contains("I have you!") && s.contains("YOU: send me a healer") && s.contains("MIRA: on my way"), "say over the head and the chat\n{s}");
+        // a dim tip on using agents under the chat, a new one every TIP_MS
+        let tips = c.texts.pool(t::AGENT_TIPS);
+        assert!(s.contains(tips[0].as_str()) && !s.contains(tips[1].as_str()), "first tip at 1 s\n{s}");
+        f.compose(&sim, &View { ui: &ui, now_ms: TIP_MS + 1_000, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(f.plain().contains(tips[1].as_str()), "the next tip after TIP_MS");
         // the pal stands on the screen with its agent's glyph
         let (x, y, ..) = sim.mate_at(&sim.crew[0]).unwrap();
         let i = f.cell_of(f64::from(x), f64::from(y)).unwrap();

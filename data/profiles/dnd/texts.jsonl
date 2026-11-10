@@ -339,3 +339,4 @@
 {"t":"pool","id":"rescued_name","lines":["Elowen","Bramwick","Thessaly","Garrick","Isolde","Fenwick","Mirabel","Torvald"]}
 {"t":"pool","id":"rescued_class","lines":["cleric","paladin","bard","ranger","druid","sorcerer"]}
 {"t":"pool","id":"rescued_say","lines":["By my oath, I ride with you.","Roll for initiative, friend!","You freed me. My blade is yours.","The gods sent you. Lead on."]}
+{"t":"pool","id":"agent_tip","lines":["P: speak to a Claude agent, your dungeon master","Ask your agent for a party: cleric, paladin, bard","Agents may summon subagents, one per hero","Ask your agent for a rival adventuring party","H hides the health bars over heads","L spends souls: they outlive every death","Your agent speaks first: answer it with P","Tab in the P box picks another agent"]}
