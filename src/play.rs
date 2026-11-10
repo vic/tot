@@ -447,6 +447,9 @@ impl Agents {
                     if let crate::crew::Order::Scene(s) = &o {
                         ui.scenes.push(s.clone());
                     }
+                    if let crate::crew::Order::Person { key, lines, .. } = &o {
+                        ui.talk.push((*key, lines.clone()));
+                    }
                     if let crate::crew::Order::Say { key, text } | crate::crew::Order::Join { key, say: Some(text), .. } = &o {
                         ui.says.retain(|(_, _, until)| *until > now_ms);
                         ui.says.push((*key, text.as_str().to_string(), now_ms + SAY_MS));
@@ -473,6 +476,20 @@ impl Agents {
                 }
                 crate::sim::CrewEv::Down(k) => ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_DOWN, [k.as_str()])),
                 _ => {}
+            }
+        }
+        // the hero met someone: a talker opens its words as a card, the rest say their first line; the agents hear of it
+        for key in std::mem::take(&mut sim.people_ev) {
+            let Some(p) = sim.people.iter().find(|p| p.key == key).copied() else { continue };
+            let Some(lines) = ui.talk.iter().find(|(k, _)| *k == key).map(|(_, l)| l.clone()) else { continue };
+            if p.job == crate::sim::Job::Talk {
+                ui.scenes.push(crate::crew::Scene { key, title: crate::crew::Say::parse(p.name.as_str()).unwrap_or_else(|| lines[0].clone()), lines, choices: Vec::new() });
+            } else if let Some(first) = lines.first() {
+                ui.says.push((key, first.as_str().to_string(), now_ms + SAY_MS));
+                ui.push_chat(Speaker::Agent(p.name.as_str().to_string()), first.as_str().to_string());
+            }
+            if let Some(link) = self.link.as_mut() {
+                link.met(p.name.as_str());
             }
         }
         match &mut self.link {

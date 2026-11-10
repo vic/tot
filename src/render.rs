@@ -1576,10 +1576,24 @@ impl Frame {
         // fainter, so a pal or a keeper reads at a glance in a crowd
         let n = sim.c.view.actor_rows[2].max(1);
         for p in &w.npcs {
-            let (ch, fg) = npc_ink(sim.c, p.npc);
+            // an agent's person stands where its shop is: its own look covers the plain keeper
+            let (ch, fg) = match sim.people_here().find(|q| (q.x, q.y) == (p.x, p.y)) {
+                Some(q) => (Glyph::of(q.glyph).unwrap_or(pal.body), q.rgb.map_or(pal.chest, |c| Rgb(c.0, c.1, c.2))),
+                None => npc_ink(sim.c, p.npc),
+            };
             let (x, y) = (f64::from(p.x), f64::from(p.y));
             let Some(i) = self.cell_of(x, y) else { continue };
             let head = Ink { ch, fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
+            let body = Ink { ch: pal.body, fg, bg: Some(mix(fg, pal.bg, NPC_BODY_GLOW)) };
+            let shadow = Ink { ch: pal.shadow, fg: mix(pal.floor, pal.bg, 300), bg: None };
+            self.stand(i, self.vd(x, y), n, Prio::EliteBoss, [head, body, shadow]);
+        }
+        // people without a shop (healers, talkers) stand on their own
+        for q in sim.people_here().filter(|q| !w.npcs.iter().any(|p| (p.x, p.y) == (q.x, q.y))) {
+            let fg = q.rgb.map_or(pal.chest, |c| Rgb(c.0, c.1, c.2));
+            let (x, y) = (f64::from(q.x), f64::from(q.y));
+            let Some(i) = self.cell_of(x, y) else { continue };
+            let head = Ink { ch: Glyph::of(q.glyph).unwrap_or(pal.body), fg, bg: Some(mix(fg, pal.bg, NPC_GLOW)) };
             let body = Ink { ch: pal.body, fg, bg: Some(mix(fg, pal.bg, NPC_BODY_GLOW)) };
             let shadow = Ink { ch: pal.shadow, fg: mix(pal.floor, pal.bg, 300), bg: None };
             self.stand(i, self.vd(x, y), n, Prio::EliteBoss, [head, body, shadow]);
@@ -1634,6 +1648,15 @@ impl Frame {
             }
             self.label(top, col, m.name.as_str(), fg);
             if let Some((_, s, _)) = ui.says.iter().rev().find(|(k, _, until)| *k == m.key && *until > now_ms) {
+                self.label(top - 1, col, s, pal.text);
+            }
+        }
+        // people: their name over the head, and what they said last
+        for q in sim.people_here() {
+            let (col, row) = self.scr(f64::from(q.x), f64::from(q.y));
+            let top = row - i32::from(n) - 1;
+            self.label(top, col, q.name.as_str(), q.rgb.map_or(pal.chest, |c| Rgb(c.0, c.1, c.2)));
+            if let Some((_, s, _)) = ui.says.iter().rev().find(|(k, _, until)| *k == q.key && *until > now_ms) {
                 self.label(top - 1, col, s, pal.text);
             }
         }
@@ -4725,5 +4748,25 @@ mod tests {
         assert!(s.contains("The Rust Pits") && !s.contains(&deep1), "agent name replaces the default\n{s}");
         sim.travel(crate::sim::Level::Town);
         assert!(shot(&mut f, &sim).contains(c.texts.get(t::LEVEL_TOWN)), "control: the town shows its adventure name");
+    }
+
+    #[test]
+    fn an_agents_person_stands_with_its_look_and_name_and_covers_its_shop() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let w = |s: &str| crate::sim::Word::parse(s).unwrap();
+        sim.add_person(w("bran"), w("BRAN"), crate::sim::Job::Forge, 'Z', None, sim.level, Some((3, 0))).unwrap();
+        sim.add_person(w("mae"), w("MAE"), crate::sim::Job::Heal, 'Y', None, sim.level, Some((-3, 0))).unwrap();
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let s = f.plain();
+        assert!(s.contains("BRAN") && s.contains("MAE"), "names over heads\n{s}");
+        for (key, ch) in [("bran", 'Z'), ("mae", 'Y')] {
+            let p = sim.people.iter().find(|p| p.key == w(key)).unwrap();
+            let i = f.cell_of(f64::from(p.x), f64::from(p.y)).unwrap();
+            let n = usize::from(c.view.actor_rows[2].max(1));
+            assert_eq!(f.cells[i - n * usize::from(f.cols)].ch.ch(), ch, "{key}: its own glyph over the keeper");
+        }
     }
 }

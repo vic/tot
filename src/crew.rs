@@ -22,6 +22,8 @@ pub enum Order {
     Scene(Scene),
     /// the name a level shows (on the map, in messages and reports)
     Place { level: crate::sim::Level, name: Word },
+    /// someone on a level with a job (its shop, a healer, words); its lines show when the hero meets it
+    Person { key: Word, name: Word, job: crate::sim::Job, glyph: char, rgb: Option<Rgb8>, level: crate::sim::Level, at: Option<(i32, i32)>, lines: Vec<Say> },
     Leave { key: Word },
 }
 
@@ -110,12 +112,39 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
     if t == "chat" {
         return Ok(Some(Order::Chat { from: word("from")?, text: say("text")? }));
     }
+    let level = || match &v["level"] {
+        serde_json::Value::String(s) if s == "town" => Ok(crate::sim::Level::Town),
+        n => n.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(std::num::NonZeroU8::new).map(crate::sim::Level::Deep).ok_or("\"level\": \"town\" or a depth 1-255".to_string()),
+    };
     if t == "place" {
-        let level = match &v["level"] {
-            serde_json::Value::String(s) if s == "town" => crate::sim::Level::Town,
-            n => crate::sim::Level::Deep(n.as_u64().and_then(|d| u8::try_from(d).ok()).and_then(std::num::NonZeroU8::new).ok_or("\"level\": \"town\" or a depth 1-255")?),
+        return Ok(Some(Order::Place { level: level()?, name: word("name")? }));
+    }
+    if t == "person" {
+        let glyph = s("glyph")?.chars().collect::<Vec<_>>();
+        let glyph = match glyph.as_slice() {
+            [g] if g.is_ascii_graphic() => *g,
+            _ => return Err("\"glyph\": one printable ASCII char".into()),
         };
-        return Ok(Some(Order::Place { level, name: word("name")? }));
+        let rgb = match v["color"].as_str() {
+            Some(c) => Some(colour(c).ok_or("color: #rrggbb")?),
+            None => None,
+        };
+        let lines = v["lines"].as_array().filter(|a| (1..=SCENE_LINES).contains(&a.len())).ok_or(format!("\"lines\": a list of 1-{SCENE_LINES} strings"))?;
+        let lines = lines.iter().enumerate().map(|(k, l)| l.as_str().and_then(Say::parse).ok_or(format!("lines[{k}]: printable ASCII, not blank"))).collect::<std::result::Result<Vec<_>, _>>()?;
+        let at = match (v.get("dx"), v.get("dy")) {
+            (None, None) => None,
+            _ => Some((tiles("dx")?, tiles("dy")?)),
+        };
+        return Ok(Some(Order::Person {
+            key: word("id")?,
+            name: word("name")?,
+            job: crate::sim::Job::parse(s("job")?).ok_or_else(|| format!("job: one of {}", crate::sim::Job::ALL.map(crate::sim::Job::key).join(", ")))?,
+            glyph,
+            rgb,
+            level: level()?,
+            at,
+            lines,
+        }));
     }
     let key = word("id")?;
     Ok(Some(match t {
@@ -157,6 +186,7 @@ pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
         Order::Move { key, dx, dy } => sim.crew_goal(key, dx, dy),
         Order::Say { key, .. } => sim.crew.iter().any(|m| m.key == key).then_some(()).ok_or(CrewErr::NoSuchMate),
         Order::Chat { .. } | Order::Scene(_) => Ok(()),
+        Order::Person { key, name, job, glyph, rgb, level, at, .. } => sim.add_person(key, name, job, glyph, rgb, level, at),
         Order::Place { level, name } => {
             sim.name_level(level, name);
             Ok(())
@@ -232,6 +262,8 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"scene","id":"gate","title":"The Iron Gate","lines":["A guard bars the road.","He wants coin."],"choices":[{"id":"bribe","text":"Pay him"},{"id":"fight","text":"Draw steel"}]}
   a card over the game: 1-8 lines, 0-4 choices; the world waits while the player reads; the report tells you the choice. Use scenes for story, talk, quests and choices between fights.
 {"t":"place","level":"town","name":"Emberhold"}   name a level as the player sees it: "town" (safe, keepers, no waves) or a depth 1-255 (the deeps, foes tougher each level). The hero takes stairs between them; reports tell you where it is.
+{"t":"person","id":"bran","name":"BRAN","level":"town","job":"forge","glyph":"B","color":"#ffaa55","lines":["Steel for coin, friend.","The deep forges are cold now."],"dx":3,"dy":0}
+  someone who lives on a level (dx/dy optional: tiles from its start). job: trade (sells), forge (sells, forges, upgrades), enchant (sells, enchants), heal (heals the hero to full), talk (its lines open as a card). Reports tell you when the hero meets someone.
 {"t":"leave","id":"mira"}
 ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 6 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). Answer with new orders when the fight calls for it; stay silent otherwise."##;
 
@@ -332,6 +364,11 @@ impl Link {
         out
     }
 
+    /// The hero walked up to the person named `name`.
+    pub fn met(&mut self, name: &str) {
+        self.news.push(format!("The hero met {name}."));
+    }
+
     /// The hero took a stair to the level named `name` (in the adventure's words).
     pub fn entered(&mut self, name: &str) {
         self.news.push(format!("The hero entered {name}."));
@@ -406,6 +443,12 @@ mod tests {
         assert!(matches!(parse_line(r#"{"t":"place","level":3,"name":"The Ossuary"}"#), Ok(Some(Order::Place { level: crate::sim::Level::Deep(d), .. })) if d.get() == 3));
         assert!(parse_line(r#"{"t":"place","level":0,"name":"x"}"#).unwrap_err().contains("\"level\""), "NEG: depth 0 is no level");
         assert!(parse_line(r#"{"t":"place","level":"heaven","name":"x"}"#).unwrap_err().contains("\"level\""));
+        let bran = r##"{"t":"person","id":"bran","name":"BRAN","level":"town","job":"forge","glyph":"B","color":"#ffaa55","lines":["Steel for coin."],"dx":3,"dy":0}"##;
+        assert!(matches!(parse_line(bran), Ok(Some(Order::Person { job: crate::sim::Job::Forge, glyph: 'B', level: crate::sim::Level::Town, at: Some((3, 0)), .. }))));
+        assert!(matches!(parse_line(&bran.replace(r#","dx":3,"dy":0"#, "")), Ok(Some(Order::Person { at: None, .. }))), "a spot is optional");
+        for (bad, why) in [(bran.replace("forge", "bake"), "job: one of"), (bran.replace(r#""glyph":"B""#, r#""glyph":"BB""#), "\"glyph\""), (bran.replace(r#"["Steel for coin."]"#, "[]"), "\"lines\""), (bran.replace(r#""dx":3,"#, ""), "\"dx\"")] {
+            assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
+        }
         for (bad, why) in [
             (gate.replace(r#""title":"The Iron Gate""#, r#""title":"  ""#), "\"title\""),
             (gate.replace(r#"["A gate bars the road.","A guard waits."]"#, "[]"), "\"lines\": a list of 1-8"),

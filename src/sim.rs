@@ -9,6 +9,7 @@ use std::num::{NonZeroU16, NonZeroU32};
 mod crew;
 mod level;
 mod npc;
+mod people;
 mod solid;
 mod step;
 pub mod weather;
@@ -20,6 +21,7 @@ pub mod crew_ranges {
 }
 pub use level::{Level, Stair};
 pub use npc::Npc;
+pub use people::{Job, Person};
 #[cfg(test)]
 pub use npc::Placed;
 pub use world::hazard::TrapState;
@@ -1009,6 +1011,9 @@ pub struct Sim<'c> {
     pub level_ev: Vec<Level>,
     /// names agents gave levels (the view shows them instead of the adventure's)
     level_names: Vec<(Level, Word)>,
+    /// people agents put on levels, and the ones the hero met since the play loop last looked
+    pub people: Vec<Person>,
+    pub people_ev: Vec<Word>,
     /// spots pal taunters hold this tick and their radius (foes inside go for them)
     taunts: Vec<(i32, i32, i32)>,
     pub narration: Option<(usize, u32)>,
@@ -1103,6 +1108,8 @@ impl<'c> Sim<'c> {
             stairs: Vec::with_capacity(2),
             level_ev: Vec::with_capacity(4),
             level_names: Vec::new(),
+            people: Vec::with_capacity(people::PEOPLE_MAX),
+            people_ev: Vec::with_capacity(people::PEOPLE_MAX),
             taunts: Vec::with_capacity(CREW_MAX * crew::ABILITIES),
             narration: None,
             barks: Vec::with_capacity(64),

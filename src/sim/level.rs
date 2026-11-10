@@ -129,6 +129,7 @@ impl Sim<'_> {
             self.treasures.clear();
         }
         self.place_stairs(to);
+        self.seat_people();
         self.level_ev.push(to);
     }
 }

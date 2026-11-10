@@ -63,6 +63,7 @@ impl<'c> Sim<'c> {
         self.player_step(inp);
         self.walls.follow(&self.arena, self.p.x, self.p.y);
         self.stairs_step();
+        self.people_step();
         // the belly empties over FOOD_LAST_S seconds
         self.p.food = (self.p.food - FOOD_FULL / (FOOD_LAST_S * self.c.hz().get() as i32)).max(0);
         self.p.unhurt = self.p.unhurt.saturating_add(1);

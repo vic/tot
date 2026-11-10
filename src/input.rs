@@ -500,6 +500,8 @@ pub struct Ui {
     pub scenes: Vec<crate::crew::Scene>,
     /// one-shot: the scene the player closed and the choice it took (taken by the play loop)
     pub scene_done: Option<(crate::sim::Word, Option<crate::sim::Word>)>,
+    /// what each person an agent made says when the hero meets it
+    pub talk: Vec<(crate::sim::Word, Vec<crate::crew::Say>)>,
 }
 
 /// Who said a chat line.
@@ -570,6 +572,7 @@ impl Ui {
             says: Vec::new(),
             scenes: Vec::new(),
             scene_done: None,
+            talk: Vec::new(),
             bars: true,
         }
     }
