@@ -141,7 +141,7 @@ fn run() -> Result<()> {
             play::play(&c, &lib, args.val("--seed").map(|_| args.num("--seed", 0)).transpose()?, &PathBuf::from(args.val("--out").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/results"))), auto)
         }
         Some("agentic" | "batch") => agentic_cli(&lib, &args),
-        Some("crew") => crew_cli(&c, &args),
+        Some("crew") => crew_cli(&lib, &c, &args),
         Some("skill") => {
             print!("{}", skill::skill(&dir)?);
             Ok(())
@@ -209,7 +209,7 @@ fn main() {
 /// `tot crew --to PID --say TEXT --secs S [--seed N] [--ansi FILE]`: a headless run (the autopilot plays the hero in
 /// real time) where the player's line goes to a live local Claude session and its crew joins the fight. Prints the
 /// chat and the crew as it goes; --ansi writes the last frame.
-fn crew_cli(c: &data::Content, args: &Args) -> Result<()> {
+fn crew_cli(lib: &data::Library, c: &data::Content, args: &Args) -> Result<()> {
     let (reg, socks) = peer::default_dirs().ok_or_else(|| Error::Usage("HOME and XDG_RUNTIME_DIR must be set".into()))?;
     let pid = args.val("--to").ok_or_else(|| Error::Usage("--to PID (tot agentic lists the live sessions)".into()))?;
     let to = peer::sessions(&reg, std::path::Path::new("/proc")).into_iter().find(|s| s.pid.to_string() == pid).ok_or_else(|| Error::Usage(format!("no live Claude session with pid {pid}")))?;
@@ -245,6 +245,12 @@ fn crew_cli(c: &data::Content, args: &Args) -> Result<()> {
                     None => println!("applied: {o:?}"),
                 },
                 crew::Heard::Refused(r) => println!("refused: {r}"),
+                // headless: the adventure is installed and the agents told; it plays from the next tot play
+                crew::Heard::Adventure(files) => {
+                    let r = agentic::install(lib, &files).map_err(|e| e.to_string());
+                    println!("adventure: {r:?}");
+                    link.adventure(r);
+                }
             }
         }
         for e in sim.crew_ev.iter().filter(|e| matches!(e, sim::CrewEv::Joined(_) | sim::CrewEv::Down(_) | sim::CrewEv::Raised { .. })) {

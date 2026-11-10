@@ -22,7 +22,7 @@ pub mod crew_ranges {
 }
 pub use level::{DANGER_MAX, Danger, Level, LevelDef, Stair};
 pub use npc::Npc;
-pub use people::{Job, Person};
+pub use people::{Job, Person, PersonDef};
 pub use quest::{Goal, Quest, QuestErr, Reward};
 /// The reward caps a quest must stay under (the agent protocol states them).
 pub mod quest_caps {

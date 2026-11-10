@@ -32,6 +32,8 @@ pub enum Order {
     Goblin,
     /// the built-in director's waves on or off (off: the agents send every foe)
     Director { on: bool },
+    /// end this adventure and play the installed one with this id (the agents stay linked)
+    Adventure { id: AdventureId },
     /// point a pal at a foe member or the boss (no foe: back to the nearest)
     Target { key: Word, focus: Option<crate::sim::Focus> },
     /// someone on a level with a job (its shop, a healer, words); its lines show when the hero meets it
@@ -39,6 +41,19 @@ pub enum Order {
     Leave { key: Word },
 }
 
+
+/// An adventure id as the loader takes it: 1..=40 of a-z 0-9 and -.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdventureId(String);
+
+impl AdventureId {
+    pub fn parse(s: &str) -> Option<AdventureId> {
+        ((1..=40).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')).then(|| AdventureId(s.to_string()))
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 /// A chat line: 1..=SAY_MAX printable ASCII chars (the terminal draws every one).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Say(String);
@@ -178,6 +193,7 @@ pub fn parse_line(line: &str) -> std::result::Result<Option<Order>, String> {
             return Ok(Some(Order::Target { key: word("id")?, focus }));
         }
         "director" => return Ok(Some(Order::Director { on: v["on"].as_bool().ok_or("\"on\": true or false")? })),
+        "adventure" => return Ok(Some(Order::Adventure { id: s("id").and_then(|x| AdventureId::parse(x).ok_or("\"id\": an adventure id, 1-40 of a-z 0-9 -".into()))? })),
         _ => {}
     }
     if t == "quest" {
@@ -276,7 +292,7 @@ pub fn apply(sim: &mut Sim, o: &Order) -> std::result::Result<(), String> {
             return sim.command(agent_src(), crate::sim::Cmd::Wild { fam }).map_err(|e| format!("{e:?}"));
         }
         Order::Goblin => return sim.send_goblin().then_some(()).ok_or("no goblin now (a safe level, or too many)".into()),
-        Order::Director { .. } => return Ok(()),
+        Order::Director { .. } | Order::Adventure { .. } => return Ok(()),
         _ => {}
     }
     apply_crew(sim, o).map_err(|e| format!("{e:?}"))
@@ -289,14 +305,14 @@ fn agent_src() -> crate::sim::Src {
 
 fn apply_crew(sim: &mut Sim, o: &Order) -> std::result::Result<(), CrewErr> {
     match *o {
-        Order::Spawn { .. } | Order::Boss { .. } | Order::Goblin | Order::Director { .. } => Ok(()),
+        Order::Spawn { .. } | Order::Boss { .. } | Order::Goblin | Order::Director { .. } | Order::Adventure { .. } => Ok(()),
         Order::Target { key, focus } => sim.crew_focus(key, focus),
         Order::Join { key, name, side, kit, .. } => sim.crew_join(key, name, kit, side),
         Order::Stance { key, stance } => sim.crew_order(key, stance),
         Order::Move { key, dx, dy } => sim.crew_goal(key, dx, dy),
         Order::Say { key, .. } => sim.crew.iter().any(|m| m.key == key).then_some(()).ok_or(CrewErr::NoSuchMate),
         Order::Chat { .. } | Order::Scene(_) => Ok(()),
-        Order::Person { key, name, job, glyph, rgb, level, at, .. } => sim.add_person(key, name, job, glyph, rgb, level, at),
+        Order::Person { key, name, job, glyph, rgb, level, at, .. } => sim.add_person(crate::sim::PersonDef { key, name, job, glyph, rgb, level, at }),
         Order::Quest { key, title, goal, reward } => sim.give_quest(key, title, goal, reward).map_err(|e| match e {
             crate::sim::QuestErr::Full => CrewErr::Full,
             crate::sim::QuestErr::Taken | crate::sim::QuestErr::Bounds => CrewErr::Taken,
@@ -388,6 +404,7 @@ Send messages with the SendMessage tool to the reply address below (it is the ga
 {"t":"goblin"}   a treasure goblin runs past the hero (it drops gold as it flees)
 {"t":"director","on":false}   take the horde over: the built-in waves stop and only your spawns come; on:true gives them back
 {"t":"target","id":"mira","foe":"vex"}   point a pal at one of your foe members (or "boss"); leave "foe" out to free it
+A whole new adventure (its classes, foes, bosses, items, words, colours, art and numbers): send its files in the tot-adventure answer format, each as `=== FILE <name>`, its JSON lines, `=== END`, then a line `=== DONE` (ask the player's tot for the format with `tot skill`). The game installs it and tells you; then {"t":"adventure","id":"<its id>"} switches the game to it (a new run there, your link stays).
 {"t":"leave","id":"mira"}
 ids, names, classes: 1-16 of A-Z a-z 0-9 _ - space. At most 12 members at once. The game sends reports: chat lines, what the crew did, refused lines with the reason, and a state line (positions in tiles from the hero). You direct this world; the engine has no story of its own. Be proactive: when the hero enters a level, give it a name and people with jobs; give quests through people and scenes; send scenes between fights; bring pals, rivals and foes that fit the story; greet the player in the chat and tell them what you can do. Answer reports with new orders when the world calls for it."##;
 
@@ -425,6 +442,8 @@ const SENDER: &str = "tot";
 pub enum Heard {
     Applied(Order),
     Refused(String),
+    /// a whole adventure an agent sent (file blocks, then the done line): install it and maybe switch to it
+    Adventure(Vec<(String, String)>),
 }
 
 /// The running link: our inbox, every agent that may hear us, what waits to be reported.
@@ -437,11 +456,21 @@ pub struct Link {
     evs: Vec<CrewEv>,
     refused: Vec<String>,
     last_report: u32,
+    /// adventure files an agent is sending, until its done line
+    files: crate::agentic::Answer,
 }
 
 impl Link {
     pub fn open(socks: &Path) -> Result<Link> {
-        Ok(Link { inbox: Inbox::open(socks)?, to: Vec::new(), chat: Vec::new(), news: Vec::new(), evs: Vec::new(), refused: Vec::new(), last_report: 0 })
+        Ok(Link { inbox: Inbox::open(socks)?, to: Vec::new(), chat: Vec::new(), news: Vec::new(), evs: Vec::new(), refused: Vec::new(), last_report: 0, files: crate::agentic::Answer::default() })
+    }
+
+    /// The play loop installed (Ok: the adventure id) or refused an adventure an agent sent; the agents hear it.
+    pub fn adventure(&mut self, r: std::result::Result<String, String>) {
+        match r {
+            Ok(id) => self.news.push(format!("Adventure {id} is installed. Send {{\"t\":\"adventure\",\"id\":\"{id}\"}} to play it now.")),
+            Err(e) => self.refused.push(format!("the adventure files: {e}. Fix the file it names and send every file again, then {}.", crate::agentic::DONE)),
+        }
     }
 
     fn hear(&mut self, s: Session) {
@@ -469,6 +498,16 @@ impl Link {
             if let Some(s) = letter.from {
                 self.hear(s);
             }
+            // adventure files travel in the same letters: their JSON lines are content, never orders
+            let t = &letter.text;
+            if t.contains(crate::skill::FILE_OPEN) || t.lines().any(|l| l.trim() == crate::agentic::DONE) {
+                match self.files.push(t) {
+                    Some(Ok(files)) => out.push(Heard::Adventure(files)),
+                    Some(Err(e)) => self.adventure(Err(e.to_string())),
+                    None => {}
+                }
+                continue;
+            }
             for line in letter.text.lines() {
                 let heard = match parse_line(line) {
                     Ok(None) => continue,
@@ -481,6 +520,7 @@ impl Link {
                 match &heard {
                     Heard::Refused(r) => self.refused.push(r.clone()),
                     Heard::Applied(o) => self.chat.extend(chat_line(sim, o)),
+                    Heard::Adventure(_) => {}
                 }
                 out.push(heard);
             }
@@ -598,6 +638,45 @@ mod tests {
         ] {
             assert!(parse_line(&bad).unwrap_err().contains(why), "{bad}: {:?}", parse_line(&bad));
         }
+    }
+
+    #[test]
+    fn an_agent_sends_a_whole_adventure_through_the_socket_and_can_switch_to_it() {
+        let c = content();
+        let mut sim = Sim::new(&c, 7, None);
+        let dir = std::env::temp_dir().join(format!("tot-crew-adv-{}", std::process::id()));
+        for d in ["game", "agent", "user"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        let mut link = Link::open(&dir.join("game")).unwrap();
+        let agent_in = Inbox::open(&dir.join("agent")).unwrap();
+        let game = crate::peer::tests::session_at("game", &link.inbox);
+        let data = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        let blocks: String = crate::data::adventure_files(data, "kawai")
+            .unwrap()
+            .into_iter()
+            .map(|(n, t)| {
+                let t = if n == "profile.jsonl" { t.replace("\"id\":\"kawai\"", "\"id\":\"agentworld\"") } else { t };
+                format!("{}{n}\n{}\n{}\n", crate::skill::FILE_OPEN, t.trim_end(), crate::skill::FILE_CLOSE)
+            })
+            .collect();
+        let (a, b) = blocks.split_at(blocks.len() / 2);
+        let cut = a.rfind(crate::skill::FILE_OPEN).unwrap();
+        crate::peer::send(&game, &agent_in, "agent", &blocks[..cut]).unwrap();
+        assert!(link.poll(&mut sim).is_empty(), "not done after the first part; its JSON lines are no orders");
+        crate::peer::send(&game, &agent_in, "agent", &format!("{}{b}{}", &a[cut..], crate::agentic::DONE)).unwrap();
+        let heard = link.poll(&mut sim);
+        let Some(Heard::Adventure(files)) = heard.first() else { panic!("{heard:?}") };
+        assert!(link.refused.is_empty(), "nothing refused");
+        let lib = crate::data::Library { base: data.to_path_buf(), user: Some(dir.join("user")) };
+        let id = crate::agentic::install(&lib, files).unwrap();
+        assert_eq!(id, "agentworld");
+        link.adventure(Ok(id));
+        assert!(link.news.iter().any(|n| n.contains("Adventure agentworld is installed")));
+        assert!(matches!(parse_line(r#"{"t":"adventure","id":"agentworld"}"#), Ok(Some(Order::Adventure { id })) if id.as_str() == "agentworld"));
+        assert!(parse_line(r#"{"t":"adventure","id":"Bad World"}"#).unwrap_err().contains("\"id\""), "NEG: not an adventure id");
+        assert!(lib.load(Some("agentworld")).is_ok(), "the game can play it");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

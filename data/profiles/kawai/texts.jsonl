@@ -350,3 +350,4 @@
 {"t":"text","id":"msg_entered","text":"Hop! Welcome to {level}!"}
 {"t":"text","id":"quest_row","text":"~ {title} {now}/{of}"}
 {"t":"text","id":"msg_quest_done","text":"Yay! {title} done!"}
+{"t":"text","id":"msg_adventure_new","text":"A new dream world: {id}!"}

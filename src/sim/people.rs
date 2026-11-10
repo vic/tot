@@ -62,6 +62,18 @@ pub struct Person {
     near: bool,
 }
 
+/// A person as an agent asks for it (the game seats it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PersonDef {
+    pub key: crew::Word,
+    pub name: crew::Word,
+    pub job: Job,
+    pub glyph: char,
+    pub rgb: Option<crew::Rgb8>,
+    pub level: Level,
+    pub at: Option<(i32, i32)>,
+}
+
 /// People at once over all levels; meeting radius (mm), and how far the hero must go before the next meeting.
 pub const PEOPLE_MAX: usize = 24;
 const MEET_R: i32 = 1_500;
@@ -70,15 +82,15 @@ const PART_R: i32 = 4_000;
 const SPOT_R: i32 = 9_000;
 
 impl Sim<'_> {
-    /// An agent puts a person on `level` (at `at` tiles from its start, else on a spot the game picks).
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_person(&mut self, key: crew::Word, name: crew::Word, job: Job, glyph: char, rgb: Option<crew::Rgb8>, level: Level, at: Option<(i32, i32)>) -> Result<(), crew::CrewErr> {
-        if self.people.iter().any(|p| p.key == key) {
+    /// An agent puts a person on its level (at `at` tiles from its start, else on a spot the game picks).
+    pub fn add_person(&mut self, d: PersonDef) -> Result<(), crew::CrewErr> {
+        if self.people.iter().any(|p| p.key == d.key) {
             return Err(crew::CrewErr::Taken);
         }
         if self.people.len() >= PEOPLE_MAX {
             return Err(crew::CrewErr::Full);
         }
+        let PersonDef { key, name, job, glyph, rgb, level, at } = d;
         self.people.push(Person { key, name, job, glyph, rgb, level, at, x: 0, y: 0, near: false });
         if level == self.level {
             self.seat_people();
@@ -167,14 +179,15 @@ mod tests {
 
     #[test]
     fn people_stand_on_their_level_keep_their_trade_and_are_met_once_per_approach() {
+        use super::PersonDef as PD;
         let c = content();
         let mut s = Sim::new(&c, 7, None);
         s.travel(Level::Town);
         let keepers = s.world.npcs.len();
-        s.add_person(w("bran"), w("BRAN"), Job::Forge, 'B', None, Level::Town, Some((3, 0))).unwrap();
-        s.add_person(w("mae"), w("MAE"), Job::Heal, 'M', None, Level::Town, Some((-3, 0))).unwrap();
-        s.add_person(w("deep"), w("OLD ONE"), Job::Talk, 'O', None, Level::FIRST, None).unwrap();
-        assert_eq!(s.add_person(w("mae"), w("X"), Job::Talk, 'X', None, Level::Town, None), Err(crew::CrewErr::Taken));
+        s.add_person(PD { key: w("bran"), name: w("BRAN"), job: Job::Forge, glyph: 'B', rgb: None, level: Level::Town, at: Some((3, 0)) }).unwrap();
+        s.add_person(PD { key: w("mae"), name: w("MAE"), job: Job::Heal, glyph: 'M', rgb: None, level: Level::Town, at: Some((-3, 0)) }).unwrap();
+        s.add_person(PD { key: w("deep"), name: w("OLD ONE"), job: Job::Talk, glyph: 'O', rgb: None, level: Level::FIRST, at: None }).unwrap();
+        assert_eq!(s.add_person(PD { key: w("mae"), name: w("X"), job: Job::Talk, glyph: 'X', rgb: None, level: Level::Town, at: None }), Err(crew::CrewErr::Taken));
         assert_eq!(s.people_here().count(), 2, "only this level's people stand here");
         let bran = *s.people.iter().find(|p| p.key == w("bran")).unwrap();
         assert!(keepers > 0, "control: the town had default keepers");

@@ -179,7 +179,7 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
         return Err(Error::NoKitty);
     }
     let need = (base.view.min_cols, base.view.min_rows);
-    let mut size = tty.size()?;
+    let size = tty.size()?;
     if size.0 < need.0 || size.1 < need.1 {
         return Err(Error::TooSmall { need, have: size });
     }
@@ -190,7 +190,43 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
             None => return Ok(()),
         },
     };
-    let (c, class) = picked.as_ref().map_or((base, ClassId::FIRST), |(c, k)| (c, *k));
+    // one session per adventure: an agent may install a new one and switch the game to it; the agents stay linked
+    let mut agents = Agents::new();
+    let mut next: Option<Content> = None;
+    let mut logs = Vec::new();
+    let run = Run { lib, seed0, out_dir, auto };
+    loop {
+        let (c, class) = match &next {
+            Some(c) => (c, ClassId::FIRST),
+            None => picked.as_ref().map_or((base, ClassId::FIRST), |(c, k)| (c, *k)),
+        };
+        let (log, switch) = session(&mut tty, size, c, class, &run, &mut agents)?;
+        logs.push(log);
+        match switch {
+            Some(id) => next = Some(lib.load(Some(&id))?),
+            None => break,
+        }
+    }
+    drop(tty);
+    for p in logs {
+        println!("telemetry: {}", p.display());
+    }
+    Ok(())
+}
+
+/// What every session of a play shares.
+struct Run<'a> {
+    lib: &'a Library,
+    seed0: Option<u64>,
+    out_dir: &'a Path,
+    auto: Option<(MoveBot, PickBot)>,
+}
+
+/// Play adventure `c` until the player quits (Ok((log, None))) or an agent switches the game to another adventure
+/// (Ok((log, Some(id)))).
+fn session(tty: &mut Tty, mut size: (u16, u16), c: &Content, class: ClassId, run: &Run, agents: &mut Agents) -> Result<(std::path::PathBuf, Option<String>)> {
+    let Run { lib, seed0, out_dir, auto } = *run;
+    let need = (c.view.min_cols, c.view.min_rows);
     tty.send(b"\x1b[2J")?;
     std::fs::create_dir_all(out_dir)?;
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
@@ -217,7 +253,6 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
         None => {}
     }
     sim.bless(ui.legacy.boons());
-    let mut agents = Agents::new();
     // demo: `--auto` plays itself, restarts a new run 4 s after each end
     let (auto_mv, auto_pk) = auto.unwrap_or((MoveBot::Kiter, PickBot::Skip));
     let mut pilot = Autopilot::new(seed, auto_mv, auto_pk);
@@ -269,7 +304,7 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
             frame.invalidate();
             tty.send(b"\x1b[2J")?;
         }
-        if ui.quit {
+        if ui.quit || agents.switch.is_some() {
             if !ended {
                 tel.run_end(c, &sim, run, seed, "quit")?;
             }
@@ -353,7 +388,7 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
                         link.entered(&name);
                     }
                 }
-                if let Some(m) = agents.tick(c, &mut ui, &mut sim, now_ms()) {
+                if let Some(m) = agents.tick(c, lib, &mut ui, &mut sim, now_ms()) {
                     ui.msg = m;
                 }
                 if sim.tick.is_multiple_of(c.hz().get() * 30) {
@@ -387,9 +422,7 @@ pub fn play(base: &Content, lib: &Library, seed0: Option<u64>, out_dir: &Path, a
         let wait = next.min(next_frame).saturating_duration_since(Instant::now());
         pending = tty.wait(wait);
     }
-    drop(tty);
-    println!("telemetry: {}", path.display());
-    Ok(())
+    Ok((path, agents.switch.take()))
 }
 
 /// How long a line a crew member says stays over its head (ms).
@@ -406,11 +439,13 @@ struct Agents {
     listed: Option<Instant>,
     /// the built-in director sends waves (an agent may take the horde over and switch it off)
     director: bool,
+    /// the adventure an agent switched the game to (the session ends and the next starts in it)
+    switch: Option<String>,
 }
 
 impl Agents {
     fn new() -> Agents {
-        Agents { dirs: crate::peer::default_dirs(), sessions: Vec::new(), link: None, listed: None, director: true }
+        Agents { dirs: crate::peer::default_dirs(), sessions: Vec::new(), link: None, listed: None, director: true, switch: None }
     }
 
     /// Re-read the live sessions while the prompt is open (their names go to the popup).
@@ -442,7 +477,7 @@ impl Agents {
 
     /// One tick: apply what the agents sent, put their chat and the crew's joins and falls in the chat log, send a
     /// report when one is due. Err = the status message of a failed report.
-    fn tick(&mut self, c: &Content, ui: &mut Ui, sim: &mut Sim, now_ms: u64) -> Option<String> {
+    fn tick(&mut self, c: &Content, lib: &Library, ui: &mut Ui, sim: &mut Sim, now_ms: u64) -> Option<String> {
         use crate::input::Speaker;
         let heard = self.link.as_mut().map(|l| l.poll(sim)).unwrap_or_default();
         for heard in heard {
@@ -450,6 +485,12 @@ impl Agents {
                 crate::crew::Heard::Applied(o) => {
                     if let crate::crew::Order::Scene(s) = &o {
                         ui.scenes.push(s.clone());
+                    }
+                    if let crate::crew::Order::Adventure { id } = &o {
+                        match lib.profiles().map(|ps| ps.iter().any(|p| p.id == id.as_str())) {
+                            Ok(true) => self.switch = Some(id.as_str().to_string()),
+                            _ => ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_REFUSED, [id.as_str()])),
+                        }
                     }
                     if let crate::crew::Order::Director { on } = &o {
                         self.director = *on;
@@ -466,6 +507,16 @@ impl Agents {
                     }
                 }
                 crate::crew::Heard::Refused(why) => ui.push_chat(Speaker::Game, c.texts.fill(t::CREW_REFUSED, [&why])),
+                crate::crew::Heard::Adventure(files) => {
+                    let r = crate::agentic::install(lib, &files).map_err(|e| e.to_string());
+                    ui.push_chat(Speaker::Game, match &r {
+                        Ok(id) => c.texts.fill(t::MSG_ADVENTURE_NEW, [id]),
+                        Err(e) => c.texts.fill(t::CREW_REFUSED, [e]),
+                    });
+                    if let Some(link) = self.link.as_mut() {
+                        link.adventure(r);
+                    }
+                }
             }
         }
         for e in &sim.crew_ev {

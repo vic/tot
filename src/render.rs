@@ -4768,13 +4768,14 @@ mod tests {
 
     #[test]
     fn an_agents_person_stands_with_its_look_and_name_and_covers_its_shop() {
+        use crate::sim::PersonDef as PD;
         let c = Content::parse(&texts()).unwrap();
         let mut sim = Sim::new(&c, 7, None);
         let ui = Ui::new(true);
         let mut f = Frame::new(&c, 160, 45);
         let w = |s: &str| crate::sim::Word::parse(s).unwrap();
-        sim.add_person(w("bran"), w("BRAN"), crate::sim::Job::Forge, 'Z', None, sim.level, Some((3, 0))).unwrap();
-        sim.add_person(w("mae"), w("MAE"), crate::sim::Job::Heal, 'Y', None, sim.level, Some((-3, 0))).unwrap();
+        sim.add_person(PD { key: w("bran"), name: w("BRAN"), job: crate::sim::Job::Forge, glyph: 'Z', rgb: None, level: sim.level, at: Some((3, 0)) }).unwrap();
+        sim.add_person(PD { key: w("mae"), name: w("MAE"), job: crate::sim::Job::Heal, glyph: 'Y', rgb: None, level: sim.level, at: Some((-3, 0)) }).unwrap();
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let s = f.plain();
         assert!(s.contains("BRAN") && s.contains("MAE"), "names over heads\n{s}");
