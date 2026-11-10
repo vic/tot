@@ -963,6 +963,17 @@ impl Frame {
                 };
                 (c.texts.get(t::PROMPT_TITLE).to_string(), vec![(tail, line.1), (String::new(), pal.text), to, (String::new(), pal.text), (c.texts.get(t::PROMPT_KEYS).to_string(), pal.dim)], None)
             }
+            // the colour scheme picker: the filter typed, then the matches (the cursor one is on screen already)
+            Mode::Theme => {
+                let m = ui.theme_matches();
+                let sel = ui.theme_sel.min(m.len().saturating_sub(1));
+                let mut rows: Vec<(String, Rgb)> = m.iter().map(|id| (id.clone(), pal.text)).collect();
+                if rows.is_empty() {
+                    rows.push((c.texts.get(t::THEME_NONE).to_string(), pal.dim));
+                }
+                rows.push((c.texts.get(t::THEME_KEYS).to_string(), pal.dim));
+                (c.texts.fill(t::THEME_TITLE, [&format!("{}_", ui.theme_query), &m.len().to_string()]), rows, (!m.is_empty()).then_some(sel))
+            }
             // a scene card from an agent: its lines, a blank, its choices with their keys (or the close key)
             Mode::Scene => {
                 let Some(s) = ui.scenes.first() else { return };
@@ -2987,6 +2998,7 @@ fn mode_tag(mode: Mode, ended: bool) -> (crate::text::Txt<0>, ModeInk) {
         (_, Mode::Prompt) => (t::MODE_PROMPT, ModeInk::Code),
         (_, Mode::Legacy) => (t::MODE_LEGACY, ModeInk::Role(Role::Legendary)),
         (_, Mode::Scene) => (t::MODE_SCENE, ModeInk::Role(Role::Magic)),
+        (_, Mode::Theme) => (t::MODE_THEME, ModeInk::Role(Role::Accent)),
     }
 }
 
@@ -4962,5 +4974,48 @@ mod tests {
         // portals: cyan arrows, doubled
         let cyan = f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == portal_ink(&c.pal())).count();
         assert!(cyan >= 2, "portal arrows in the portal colour, big ({cyan})");
+    }
+
+    #[test]
+    fn the_theme_picker_filters_fuzzily_paints_live_keeps_and_goes_back() {
+        use crate::input::{fuzzy, ThemeReq};
+        assert!(fuzzy("drc", "dracula").is_some() && fuzzy("xyz", "dracula").is_none(), "subsequence match");
+        assert!(fuzzy("tok", "tokyo-night") < fuzzy("tok", "the-other-kind"), "a tight match ranks first");
+        let d = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data"));
+        let c = Content::parse(&texts()).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        ui.themes = crate::data::world_schemes(d);
+        assert!(ui.themes.len() > 100 && ui.themes.iter().any(|t| t == "dracula"), "the vendored dark schemes ({})", ui.themes.len());
+        crate::input::tests::press_key(&mut ui, &c, 'T');
+        assert_eq!((ui.mode, ui.theme_req.take()), (Mode::Theme, Some(ThemeReq::Open)));
+        for ch in "dracul".chars() {
+            crate::input::tests::press_key(&mut ui, &c, ch);
+        }
+        assert_eq!(ui.theme_req.take(), Some(ThemeReq::Preview("dracula".into())), "each keystroke previews the top match");
+        // the preview paints the frame live, through the same Content the sim holds
+        let mut f = Frame::new(&c, 160, 45);
+        let bg0 = c.pal().bg;
+        let w = crate::data::load_world_scheme(d, "dracula").unwrap();
+        let before = c.pal();
+        c.set_pal(|p| p.reskin(&w));
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        let ground = f.cells.iter().filter(|cl| cl.bg == c.pal().bg).count();
+        assert!(c.pal().bg != bg0 && ground > f.cells.len() / 3, "the world repainted in the scheme ({ground} cells)");
+        assert!(f.plain().contains("dracula"), "the picker lists the match");
+        // esc: back to the colours before
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Esc, kind: crate::input::Kind::Press, text: None }, &c, 0);
+        assert_eq!((ui.mode, ui.theme_req.take()), (Mode::Play, Some(ThemeReq::Revert)));
+        c.set_pal(|now| *now = (*before).clone());
+        assert_eq!(c.pal().bg, bg0, "reverted");
+        // enter keeps the cursor's match
+        crate::input::tests::press_key(&mut ui, &c, 'T');
+        ui.theme_req = None;
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Down, kind: crate::input::Kind::Press, text: None }, &c, 0);
+        let second = ui.theme_matches()[1].clone();
+        assert_eq!(ui.theme_req.take(), Some(ThemeReq::Preview(second.clone())), "down previews the next match");
+        ui.key(crate::input::KeyEv { key: crate::input::Key::Enter, kind: crate::input::Kind::Press, text: None }, &c, 0);
+        assert_eq!((ui.mode, ui.theme_req.take()), (Mode::Play, Some(ThemeReq::Keep(second))));
+        assert!(crate::data::load_world_scheme(d, "no-such-scheme").is_err(), "NEG: an unknown scheme is an error, not a crash");
     }
 }

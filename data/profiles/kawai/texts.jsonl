@@ -352,3 +352,7 @@
 {"t":"text","id":"msg_quest_done","text":"Yay! {title} done!"}
 {"t":"text","id":"msg_adventure_new","text":"A new dream world: {id}!"}
 {"t":"glyph","id":"map_objective","glyph":"◎"}
+{"t":"text","id":"mode_theme","text":"COLORS"}
+{"t":"text","id":"theme_title","text":"COLORS > {query} ({n})"}
+{"t":"text","id":"theme_none","text":"No colors match!"}
+{"t":"text","id":"theme_keys","text":"type to filter  up/down  enter keep  esc back"}

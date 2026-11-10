@@ -352,3 +352,7 @@
 {"t":"text","id":"msg_quest_done","text":"Contract closed: {title}. Credits wired."}
 {"t":"text","id":"msg_adventure_new","text":"New world uploaded: {id}."}
 {"t":"glyph","id":"map_objective","glyph":"◎"}
+{"t":"text","id":"mode_theme","text":"SKIN"}
+{"t":"text","id":"theme_title","text":"SKIN > {query} ({n})"}
+{"t":"text","id":"theme_none","text":"No skin matches."}
+{"t":"text","id":"theme_keys","text":"type to filter  up/down  enter keep  esc back"}

@@ -141,3 +141,8 @@
 {"t":"bind","mode":"scene","keys":["enter"],"action":"scene_close","label":"close"}
 {"t":"bind","mode":"play","keys":["o"],"action":"objective","label":"goal"}
 {"t":"bind","mode":"play","keys":["O"],"action":"objective_line","label":"path"}
+{"t":"bind","mode":"play","keys":["T"],"action":"theme","label":"skin"}
+{"t":"bind","mode":"theme","keys":["up"],"action":"theme_up","label":"up"}
+{"t":"bind","mode":"theme","keys":["down"],"action":"theme_down","label":"down"}
+{"t":"bind","mode":"theme","keys":["enter"],"action":"theme_keep","label":"keep"}
+{"t":"bind","mode":"theme","keys":["esc"],"action":"back","label":"back"}

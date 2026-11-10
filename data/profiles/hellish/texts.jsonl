@@ -352,3 +352,7 @@
 {"t":"text","id":"msg_quest_done","text":"The pact is kept: {title}."}
 {"t":"text","id":"msg_adventure_new","text":"A new hell opens: {id}."}
 {"t":"glyph","id":"map_objective","glyph":"+"}
+{"t":"text","id":"mode_theme","text":"HUES"}
+{"t":"text","id":"theme_title","text":"HUES > {query} ({n})"}
+{"t":"text","id":"theme_none","text":"No such hues in hell."}
+{"t":"text","id":"theme_keys","text":"type to filter  up/down  enter keep  esc back"}

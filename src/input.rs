@@ -131,6 +131,8 @@ pub enum Mode {
     Legacy,
     /// a scene card an agent sent: the world waits until the player chooses
     Scene,
+    /// T: the colour scheme picker (fuzzy filter, each match shown live)
+    Theme,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -206,6 +208,10 @@ pub enum Action {
     /// scene card: take choice n, or close a card that has no choices
     SceneChoice(u8),
     SceneClose,
+    /// T: open the colour scheme picker; move in its matches; keep the one under the cursor
+    OpenTheme,
+    ThemeMove(i8),
+    ThemeKeep,
 }
 
 impl Action {
@@ -292,6 +298,10 @@ impl Action {
             "scene_3" => SceneChoice(2),
             "scene_4" => SceneChoice(3),
             "scene_close" => SceneClose,
+            "theme" => OpenTheme,
+            "theme_up" => ThemeMove(-1),
+            "theme_down" => ThemeMove(1),
+            "theme_keep" => ThemeKeep,
             _ => return None,
         })
     }
@@ -510,8 +520,58 @@ pub struct Ui {
     pub scene_done: Option<(crate::sim::Word, Option<crate::sim::Word>)>,
     /// what each person an agent made says when the hero meets it
     pub talk: Vec<(crate::sim::Word, Vec<crate::crew::Say>)>,
+    /// T: the colour schemes there are (set by the play loop), the fuzzy filter typed, the cursor in its matches, and
+    /// the one-shot request the play loop acts on (preview, keep, revert)
+    pub themes: Vec<String>,
+    pub theme_query: String,
+    pub theme_sel: usize,
+    pub theme_req: Option<ThemeReq>,
 }
 
+
+/// What the theme picker asks of the play loop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ThemeReq {
+    /// the picker opened: remember the colours to go back to
+    Open,
+    /// show this scheme now (the cursor or the filter moved)
+    Preview(String),
+    /// keep this scheme (and save it for later runs)
+    Keep(String),
+    /// back to the colours before the picker opened
+    Revert,
+}
+
+/// Longest theme filter.
+const THEME_QUERY_MAX: usize = 40;
+
+/// Fuzzy match: every char of `q` in `name` in order (case-insensitive). Lower score = better: fewer gaps, earlier start.
+pub fn fuzzy(q: &str, name: &str) -> Option<usize> {
+    let mut score = 0;
+    let mut at = 0;
+    let n: Vec<char> = name.chars().map(|c| c.to_ascii_lowercase()).collect();
+    for (k, c) in q.chars().map(|c| c.to_ascii_lowercase()).enumerate() {
+        let i = at + n[at..].iter().position(|&x| x == c)?;
+        score += if k == 0 { i } else { (i - at) * 2 };
+        at = i + 1;
+    }
+    Some(score)
+}
+
+impl Ui {
+    /// The schemes matching the filter, best first.
+    pub fn theme_matches(&self) -> Vec<String> {
+        let mut m: Vec<(usize, &String)> = self.themes.iter().filter_map(|t| fuzzy(&self.theme_query, t).map(|s| (s, t))).collect();
+        m.sort();
+        m.into_iter().map(|(_, t)| t.clone()).collect()
+    }
+
+    fn preview_theme(&mut self) {
+        if let Some(id) = self.theme_matches().get(self.theme_sel).cloned() {
+            self.theme_req = Some(ThemeReq::Preview(id));
+        }
+    }
+}
 /// Who said a chat line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Speaker {
@@ -581,6 +641,10 @@ impl Ui {
             scenes: Vec::new(),
             scene_done: None,
             talk: Vec::new(),
+            themes: Vec::new(),
+            theme_query: String::new(),
+            theme_sel: 0,
+            theme_req: None,
             bars: true,
             obj_sel: 0,
             obj_line: true,
@@ -599,7 +663,7 @@ impl Ui {
         // a popup open at restart forced the toggles on: the player's own choice is the saved one
         let (walk, fire) = self.choice();
         // the crew chat and the agent picked carry over: the agents play on across runs
-        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), bars: self.bars, obj_sel: self.obj_sel, obj_line: self.obj_line, agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), ..Ui::new(fire) }
+        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), bars: self.bars, obj_sel: self.obj_sel, obj_line: self.obj_line, agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), themes: self.themes.clone(), ..Ui::new(fire) }
     }
 
     /// Track the sim's power-up offer. It does not pop up by itself (that interrupts play): it waits until the
@@ -678,6 +742,24 @@ impl Ui {
             }
         }
         // the prompt is a text field: printable keys type, backspace erases; enter, tab and esc stay bindings
+        // the theme picker: printable keys type the fuzzy filter, backspace erases; each change shows the top match
+        if self.mode == Mode::Theme {
+            match (ev.key, ev.text) {
+                (Key::Backspace, _) => {
+                    self.theme_query.pop();
+                    self.theme_sel = 0;
+                    self.preview_theme();
+                    return;
+                }
+                (Key::Char(k), t) if self.theme_query.chars().count() < THEME_QUERY_MAX => {
+                    self.theme_query.push(t.unwrap_or(k));
+                    self.theme_sel = 0;
+                    self.preview_theme();
+                    return;
+                }
+                _ => {}
+            }
+        }
         if self.mode == Mode::Prompt {
             match (ev.key, ev.text) {
                 (Key::Backspace, _) => {
@@ -896,8 +978,29 @@ impl Ui {
             Action::CurRight => self.cursor.0 += 1,
             Action::Back => {
                 self.shop_left |= self.mode == Mode::Shop;
+                // leaving the theme picker without enter puts the colours back
+                if self.mode == Mode::Theme {
+                    self.theme_req = Some(ThemeReq::Revert);
+                }
                 self.mode = Mode::Play;
                 self.cmdline.clear();
+            }
+            Action::OpenTheme => {
+                self.mode = Mode::Theme;
+                self.theme_query.clear();
+                self.theme_sel = 0;
+                self.theme_req = Some(ThemeReq::Open);
+            }
+            Action::ThemeMove(d) => {
+                let n = self.theme_matches().len().max(1) as isize;
+                self.theme_sel = (self.theme_sel as isize + isize::from(d)).rem_euclid(n) as usize;
+                self.preview_theme();
+            }
+            Action::ThemeKeep => {
+                if let Some(id) = self.theme_matches().get(self.theme_sel).cloned() {
+                    self.theme_req = Some(ThemeReq::Keep(id));
+                }
+                self.mode = Mode::Play;
             }
             Action::StartMove(d) => {
                 let n = self.start_len.max(1) as isize;

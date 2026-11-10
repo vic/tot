@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 244] = [
+pub const TXTS: [Spec; 248] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -132,6 +132,10 @@ pub const TXTS: [Spec; 244] = [
     line("mode_prompt", &[], "Status line, left: tag of the prompt popup (P: speak to the agents)."),
     line("mode_legacy", &[], "Status line, left: tag of the legacy popup (L)."),
     line("mode_scene", &[], "Status line, left: tag of a scene card an agent sent (the world waits)."),
+    line("mode_theme", &[], "Status line, left: tag of the colour scheme picker (T)."),
+    line("theme_title", &["query", "n"], "Colour scheme picker, top line: the fuzzy filter typed and how many schemes match."),
+    line("theme_none", &[], "Colour scheme picker: no scheme matches the filter."),
+    line("theme_keys", &[], "Colour scheme picker, last line: the keys (type to filter, up and down, enter keeps, esc goes back)."),
     line("level_town", &[], "Name of the town level (stats panel, first row; status message on arrival)."),
     line("level_deep", &["depth"], "Name of a level under the town by its depth (stats panel, first row; status message on arrival)."),
     line("msg_entered", &["level"], "Status message: the hero took a stair and arrived on a level (level_town or level_deep)."),
@@ -536,6 +540,10 @@ pub mod t {
     pub const MODE_PROMPT: Txt<0> = Txt::named("mode_prompt");
     pub const MODE_LEGACY: Txt<0> = Txt::named("mode_legacy");
     pub const MODE_SCENE: Txt<0> = Txt::named("mode_scene");
+    pub const MODE_THEME: Txt<0> = Txt::named("mode_theme");
+    pub const THEME_TITLE: Txt<2> = Txt::named("theme_title");
+    pub const THEME_NONE: Txt<0> = Txt::named("theme_none");
+    pub const THEME_KEYS: Txt<0> = Txt::named("theme_keys");
     pub const LEVEL_TOWN: Txt<0> = Txt::named("level_town");
     pub const LEVEL_DEEP: Txt<1> = Txt::named("level_deep");
     pub const MSG_ENTERED: Txt<1> = Txt::named("msg_entered");

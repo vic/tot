@@ -352,3 +352,7 @@
 {"t":"text","id":"msg_quest_done","text":"Quest complete: {title}!"}
 {"t":"text","id":"msg_adventure_new","text":"A new realm is written: {id}."}
 {"t":"glyph","id":"map_objective","glyph":"!"}
+{"t":"text","id":"mode_theme","text":"COLOURS"}
+{"t":"text","id":"theme_title","text":"COLOURS > {query} ({n})"}
+{"t":"text","id":"theme_none","text":"No such colours."}
+{"t":"text","id":"theme_keys","text":"type to filter  up/down  enter keep  esc back"}

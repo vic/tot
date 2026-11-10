@@ -93,6 +93,10 @@ arrow and the metres to it. Objectives are green on the map and on the screen ed
 picks the next, and a dotted line leads you to it (`O` hides the line). Portals (the stairs between levels) are big
 cyan blocks with big cyan arrows; shops stand on stalls of their own colour.
 
+`T` opens the colour scheme picker: type to filter the 200-odd dark base24 schemes fuzzily, move with up and down,
+and the game repaints live as you go. Enter keeps the scheme (it is saved for later runs); Esc puts the old colours
+back.
+
 An agent can also make each level what it wants: a safe haven or a dungeon, how deadly it is, and the colours of its
 floor and walls. It can take the horde over: switch off the built-in waves, send foes of any family, call a boss,
 release a treasure goblin, and point a pal at the foe it should kill first. It can even write a whole new adventure

@@ -253,6 +253,12 @@ fn session(tty: &mut Tty, mut size: (u16, u16), c: &Content, class: ClassId, run
         None => {}
     }
     sim.bless(ui.legacy.boons());
+    // the colour scheme the player kept last time, and the list the picker (T) offers
+    ui.themes = crate::data::world_schemes(&lib.base);
+    let mut before: Option<std::sync::Arc<crate::data::Palette>> = None;
+    if let Some(id) = theme_path().and_then(|p| std::fs::read_to_string(p).ok()) {
+        let _ = apply_theme(c, lib, id.trim());
+    }
     // demo: `--auto` plays itself, restarts a new run 4 s after each end
     let (auto_mv, auto_pk) = auto.unwrap_or((MoveBot::Kiter, PickBot::Skip));
     let mut pilot = Autopilot::new(seed, auto_mv, auto_pk);
@@ -322,6 +328,7 @@ fn session(tty: &mut Tty, mut size: (u16, u16), c: &Content, class: ClassId, run
         // shortcut: points = levels gained, owned nodes live in Ui until the sim holds them
         ui.tree_earned = sim.p.level.saturating_sub(1) + sim.boons.points;
         agents.list(&mut ui);
+        themes(c, lib, &mut ui, &mut before);
         ui.sync_scene();
         if let (Some((scene, choice)), Some(link)) = (ui.scene_done.take(), agents.link.as_mut()) {
             link.chose(scene, choice);
@@ -614,6 +621,46 @@ fn opener(path: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
     OPENERS.iter().find_map(|o| std::env::split_paths(path).map(|d| d.join(o)).find(|p| p.is_file()))
 }
 
+
+/// Where the colour scheme the player kept is saved (next to the legacy).
+fn theme_path() -> Option<std::path::PathBuf> {
+    crate::legacy::Legacy::default_path().map(|p| p.with_file_name("theme"))
+}
+
+/// Paint the run with scheme `id` from the adventures' scheme library, live.
+fn apply_theme(c: &Content, lib: &Library, id: &str) -> Result<()> {
+    let w = crate::data::load_world_scheme(&lib.base, id)?;
+    c.set_pal(|p| p.reskin(&w));
+    Ok(())
+}
+
+/// Act on what the theme picker asked: remember the colours on open, show a match, keep (and save) one, or go back.
+fn themes(c: &Content, lib: &Library, ui: &mut Ui, before: &mut Option<std::sync::Arc<crate::data::Palette>>) {
+    let Some(req) = ui.theme_req.take() else { return };
+    let r = match req {
+        crate::input::ThemeReq::Open => {
+            *before = Some(c.pal());
+            Ok(())
+        }
+        crate::input::ThemeReq::Preview(id) => apply_theme(c, lib, &id),
+        crate::input::ThemeReq::Keep(id) => {
+            *before = None;
+            apply_theme(c, lib, &id).and_then(|()| match theme_path() {
+                Some(p) => p.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(p, &id)).map_err(Error::from),
+                None => Ok(()),
+            })
+        }
+        crate::input::ThemeReq::Revert => {
+            if let Some(p) = before.take() {
+                c.set_pal(|now| *now = (*p).clone());
+            }
+            Ok(())
+        }
+    };
+    if let Err(e) = r {
+        ui.msg = e.to_string();
+    }
+}
 #[cfg(test)]
 mod open_tests {
     use super::*;

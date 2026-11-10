@@ -847,6 +847,44 @@ impl SchemeId {
 /// The scheme the world is drawn in: dark by construction (light schemes are for UI regions only).
 pub struct WorldScheme(Scheme);
 
+/// The dark base24 schemes under `dir/schemes` (light ones cannot paint the world), sorted by id.
+pub fn world_schemes(dir: &Path) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(dir.join("schemes")) else { return Vec::new() };
+    let mut out: Vec<String> = rd
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            let id = name.strip_suffix(".yaml")?.to_string();
+            let s = Scheme::parse(&name, &std::fs::read_to_string(e.path()).ok()?).ok()?;
+            (s.variant == Variant::Dark).then_some(id)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// Scheme `id` under `dir/schemes`, as a world scheme (dark).
+pub fn load_world_scheme(dir: &Path, id: &str) -> Result<WorldScheme> {
+    let file = format!("schemes/{id}.yaml");
+    let text = std::fs::read_to_string(dir.join(&file)).map_err(|e| scheme_err(&file, 0, "", e.to_string()))?;
+    WorldScheme::new(&file, Scheme::parse(&file, &text)?)
+}
+
+impl Palette {
+    /// Repaint with a world scheme: the UI roles from its 24 slots, the world from the base16 conventions (00 ground,
+    /// 01 panels, 03 dim, 04 walls, 05 text, 08 danger, 09 heat, 0A gold, 0B life, 0C cold, 0D the hero, 0E code).
+    /// Glyphs and motif shares stay the adventure's.
+    pub fn reskin(&mut self, w: &WorldScheme) {
+        let s = &w.0.slots;
+        self.roles = RoleTable::of(&w.0, w);
+        (self.bg, self.hud_bg, self.fog, self.floor, self.wall, self.dim, self.text) = (s[0x00], s[0x01], s[0x10], s[0x02], s[0x04], s[0x03], s[0x05]);
+        (self.player, self.ring, self.alarm, self.xp, self.chest) = (s[0x0D], s[0x02], s[0x08], s[0x0A], s[0x0A]);
+        self.hue = [s[0x0B], s[0x09], s[0x0C], s[0x0E]];
+        self.floor_motif.0 = s[0x0E];
+        self.wall_motif.0 = s[0x08];
+    }
+}
+
 impl WorldScheme {
     pub fn new(file: &str, s: Scheme) -> Result<WorldScheme> {
         match s.variant {
@@ -2671,7 +2709,7 @@ fn waves(recs: &[(String, Rec)], hz: Hz, fam_id: &dyn Fn(&Rec, &str) -> Result<F
 fn binds(recs: &[(String, Rec)]) -> Result<(Vec<Bind>, Vec<Group>)> {
     let (mut bs, mut gs) = (Vec::new(), Vec::new());
     for (t, r) in recs {
-        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start), ("prompt", Mode::Prompt), ("legacy", Mode::Legacy), ("scene", Mode::Scene)])?;
+        let mode = r.pick("mode", &[("play", Mode::Play), ("pick", Mode::Pick), ("look", Mode::Look), ("cmd", Mode::Cmd), ("tree", Mode::Tree), ("gear", Mode::Gear), ("shop", Mode::Shop), ("bags", Mode::Bags), ("start", Mode::Start), ("prompt", Mode::Prompt), ("legacy", Mode::Legacy), ("scene", Mode::Scene), ("theme", Mode::Theme)])?;
         let keys = r.strs("keys")?.iter().map(|k| Key::parse(k).ok_or_else(|| r.err("keys", format!("unknown key '{k}'")))).collect::<Result<Vec<_>>>()?;
         if keys.is_empty() {
             return Err(r.err("keys", "empty"));
