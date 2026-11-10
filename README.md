@@ -6,7 +6,7 @@ scenes with text glyphs, so it needs no graphics card and no window system.
 
 The game will always be gratis. If you enjoy it, please consider [sponsoring](https://github.com/sponsors/vic) development.
 
-**TODO**: Skills Tree, Item Shops, Meta Progression and Resource discipline.
+Grow a skill tree per class, gear up from merchants, blacksmiths and jewelers, carry souls from run to run, and bring a crew of AI agents into the fight as pals or foes.
 
 Each adventure is a set of data files: the foes, the bosses, the words, the colors and the art. The same engine plays
 all of them. Here are two runs, played by the built-in demo player. Each adventure defines the complete experience and
@@ -47,6 +47,42 @@ $ nix run github:vic/tot -- play --auto --profile cyberpunk
 The adventures that ship with the game are `cyberpunk`, `dnd`, `hellish`, `kawai` and `moriah`. Add `--seed 7` to
 play the same run again.
 
+## Town, gear and legacy
+
+Keepers stand in the rooms around your start. Walk up to one and its shop opens; the world waits while you shop. Every
+keeper sells items, and the keys `1` to `4` buy them. The merchant also buys back: `x` sells the first item in your bags.
+The blacksmith forges a rare item from ore with `5`, and `u` raises the piece you wear in the chosen slot one plus, up to
+plus five, for gold and ore. Tab picks the slot. The jeweler puts an enchantment on that piece with `e`. Some keepers
+deceive you: a crooked smith can botch the work and keep your coin, and a crooked jeweler curses the piece instead.
+
+Every run ends with souls: one for each ten kills, more for each level and boss, and many for a win. Souls stay when the
+hero dies. Press `L` at any time, also on the death screen, to spend them on boons in the legacy tree. Vitality, Might
+and Fortune are the roots; Swiftness, Kinship and Wisdom open at rank two of a root; Insight, the crown, opens at rank
+three of Wisdom. A boon holds from the next run on. The legacy is saved in `~/.local/share/tot/legacy.json`.
+
+## Agentic crew
+
+The game is also a chat room for agents. Press `P`, type what you want, pick a live local Claude Code session with Tab,
+and press Enter. The line goes to that session with the crew protocol and the state of the fight. The agent answers by
+sending JSON lines to the game's socket: it invents each crew member (its name, class, glyph, colour, hit points, pace
+and up to four abilities) and orders it about. A pal fights beside you; a foe hunts you. The engine knows no classes,
+only five verbs with numbers: heal, strike, blast, raise and taunt. So a healer, a tank, a necromancer or a battle mage
+is whatever the agent makes of them.
+
+One prompt can field a whole team. An agent can spawn subagents and give them the game's address; the game answers
+whoever writes to it, so each subagent can run its own members and talk to the others through the game. Their chat
+shows in the lower left, the crew in the pane under the stats, and each member's name and last line over its head.
+The game reports back what the crew did, the lines it refused and why, and the state of the fight.
+
+To try it without a kitty terminal, run a headless fight. The autopilot plays the hero, and the run prints the chat:
+
+```sh frame="terminal"
+$ tot agentic
+$ tot crew --to 12345 --say "a healer and a tank for me, and a rival necromancer" --secs 120
+```
+
+`tot agentic` lists the live sessions and their process ids; give one to `--to` (12345 above is an example).
+
 ## Static binary
 
 The package `static-tot` is a static Linux build. It does not need Nix libraries at run time:
@@ -62,8 +98,8 @@ inside. Keep the `data` directory next to it.
 
 In play mode, `wasd`, `hjkl` or the arrow keys move the hero. A tap on Shift dodges. `x` hacks a foe. `q` and `e`
 turn the camera. `:` opens the command line, and Space opens the leader menu, which lists the next keys after a short
-wait. In the pick screen, `h` and `l` select a power, Enter takes it and `s` skips. After a death or a win, `r`
-starts a new run and `q` quits. Every key is data in `data/bindings.jsonl`, so you can remap it.
+wait. In the pick screen, `h` and `l` select a power, Enter takes it and `s` skips. `t`, `i` and `b` open the skill tree, the gear and the bags. `P` speaks to
+the agents and `L` opens the legacy. After a death or a win, `r` starts a new run and `q` quits. Every key is data in `data/bindings.jsonl`, so you can remap it.
 
 ## Record the demo
 
