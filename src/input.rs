@@ -193,6 +193,8 @@ pub enum Action {
     StartBack,
     /// H: show or hide the health bars over pals and bosses
     ToggleBars,
+    /// g: see through the floating panes (map, stats, hero)
+    ToggleGlass,
     /// o: follow the next objective; O: show or hide the line to it
     NextObjective,
     ToggleLine,
@@ -284,6 +286,7 @@ impl Action {
             "start_pick" => StartPick,
             "start_back" => StartBack,
             "bars" => ToggleBars,
+            "glass" => ToggleGlass,
             "objective" => NextObjective,
             "objective_line" => ToggleLine,
             "prompt" => OpenPrompt,
@@ -507,6 +510,8 @@ pub struct Ui {
     pub boon_buy: Option<crate::legacy::Boon>,
     /// health bars over pals and bosses (H toggles)
     pub bars: bool,
+    /// floating panes drawn as glass: the arena shows through their blank cells (g toggles)
+    pub glass: bool,
     /// the objective the player follows (index into the open quests, wraps) and whether a line leads to it (O)
     pub obj_sel: usize,
     pub obj_line: bool,
@@ -646,6 +651,7 @@ impl Ui {
             theme_sel: 0,
             theme_req: None,
             bars: true,
+            glass: false,
             obj_sel: 0,
             obj_line: true,
         }
@@ -663,7 +669,7 @@ impl Ui {
         // a popup open at restart forced the toggles on: the player's own choice is the saved one
         let (walk, fire) = self.choice();
         // the crew chat and the agent picked carry over: the agents play on across runs
-        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), bars: self.bars, obj_sel: self.obj_sel, obj_line: self.obj_line, agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), themes: self.themes.clone(), ..Ui::new(fire) }
+        Ui { autowalk: walk, class: self.class, chat: self.chat.clone(), bars: self.bars, glass: self.glass, obj_sel: self.obj_sel, obj_line: self.obj_line, agent_sel: self.agent_sel, agent_names: self.agent_names.clone(), legacy: self.legacy.clone(), themes: self.themes.clone(), ..Ui::new(fire) }
     }
 
     /// Track the sim's power-up offer. It does not pop up by itself (that interrupts play): it waits until the
@@ -1035,6 +1041,7 @@ impl Ui {
                 Start::Asking { adv, agent } => self.start = Start::Agent { adv, sel: agent },
             },
             Action::ToggleBars => self.bars = !self.bars,
+            Action::ToggleGlass => self.glass = !self.glass,
             Action::NextObjective => self.obj_sel = self.obj_sel.wrapping_add(1),
             Action::ToggleLine => self.obj_line = !self.obj_line,
             Action::OpenPrompt => self.mode = Mode::Prompt,

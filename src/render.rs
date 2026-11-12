@@ -26,8 +26,8 @@ fn shoulders(tier: usize, fg: Rgb) -> [Option<(Glyph, Rgb)>; 2] {
     let pair = tier.checked_sub(1).map(|t| SHOULDERS[t.min(SHOULDERS.len() - 1)]);
     [0, 1].map(|s| pair.and_then(|p| Glyph::of(p[s])).map(|g| (g, fg)))
 }
-/// Map box (top-left of the play area): cols x rows of the map.
-const MAP_W: u16 = 26;
+/// Map box (top-left of the play area): cols x rows of the map; the map, stats and hero panes share one width.
+const MAP_W: u16 = PANEL_W;
 const MAP_H: u16 = 11;
 /// Map cell = this many floor cells. shortcut: fixed zoom, upgrade when zoom is a player option.
 const MAP_K: i32 = 4;
@@ -38,7 +38,7 @@ const PANEL_H: u16 = PANEL_CAST_ROW + 1 + Cast::ALL.len() as u16;
 const PANEL_POWERS: usize = 4;
 const MORALE_BAR_W: u16 = 10;
 const FOOD_BAR_W: u16 = 8;
-const PANEL_FOES_ROW: u16 = 12;
+const PANEL_FOES_ROW: u16 = 15;
 /// Hostile (family, tier) rows under FOES, then the CAST block (hero, allies, panicked, thieves).
 const PANEL_FOE_ROWS: u16 = 5;
 const PANEL_CAST_ROW: u16 = PANEL_FOES_ROW + 1 + PANEL_FOE_ROWS;
@@ -1942,14 +1942,14 @@ impl Frame {
         if let Some(b) = sim.boss_ix() {
             t.push((sim.e.x[b], sim.e.y[b], sim.e.fam[b].ix()));
         }
-        self.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures);
+        self.pane(ui.glass, |f| f.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures));
         self.loot_panes(sim, ui);
         self.crew_labels(sim, ui, now_ms);
-        self.panel(sim, v.phase, v.last_bytes);
+        self.pane(ui.glass, |f| f.panel(sim, ui, v.phase, v.last_bytes));
         self.crew_pane(sim, ui);
         self.objective_marks(sim, ui);
         self.chat_pane(sim, ui, now_ms);
-        self.hero_pane(sim, ui);
+        self.pane(ui.glass, |f| f.hero_pane(sim, ui));
         self.hud_bar(sim);
         for &(x, y, _) in &t {
             self.pointer(sim, x, y, c.pal().alarm);
@@ -1983,6 +1983,16 @@ impl Frame {
         self.menu(sim, ui);
         self.death_fx(sim, now_ms);
         self.sky_banner_fx(sim, now_ms);
+    }
+
+    /// Draw a floating pane; as glass, every cell it blanked shows the arena again and every glyph it wrote sits
+    /// on the arena's background, so the world reads through it.
+    fn pane(&mut self, glass: bool, draw: impl FnOnce(&mut Self)) {
+        let under = glass.then(|| self.cells.clone());
+        draw(self);
+        for (c, u) in self.cells.iter_mut().zip(under.iter().flatten()).filter(|(c, u)| **c != **u) {
+            *c = if c.ch == Glyph::SPACE { *u } else { Cell { bg: u.bg, ..*c } };
+        }
     }
 
     fn map(&mut self, sim: &Sim, heading: Heading, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
@@ -2077,7 +2087,7 @@ impl Frame {
     }
 
 
-    fn panel(&mut self, sim: &Sim, phase: &str, bytes: usize) {
+    fn panel(&mut self, sim: &Sim, ui: &Ui, phase: &str, bytes: usize) {
         let c = sim.c;
         let pal = &c.pal();
         if self.cols < PANEL_W || self.play_rows() < PANEL_H {
@@ -2151,6 +2161,27 @@ impl Frame {
         x = self.text(r, x + 2, c.texts.get(t::PANEL_FOOD), pal.text);
         let fed = sim.p.food >= crate::sim::FOOD_LOW;
         self.bar(r, x, i64::from(sim.p.food), i64::from(crate::sim::FOOD_FULL), FOOD_BAR_W, pal.role(if fed { Role::Heal } else { Role::Danger }));
+        r += 1;
+        // progress: bosses slain, quests done of all taken
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_BOSSES), pal.text);
+        x = self.num(r, x, sim.stats.boss_kill_ticks.len() as i64, pal.alarm);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_QUESTS), pal.text);
+        let done = i64::from(sim.stats.quests_done);
+        x = self.num(r, x, done, objective_ink(pal));
+        x = self.text(r, x, "/", pal.dim);
+        self.num(r, x, done + sim.quests.iter().filter(|q| !q.done).count() as i64, pal.dim);
+        r += 1;
+        // tree points to spend, souls banked for the legacy, then the run's blood: hp dealt and taken
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_POINTS), pal.text);
+        x = self.num(r, x, i64::from(ui.tree_earned.saturating_sub(ui.tree_spent)), pal.xp);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_SOULS), pal.text);
+        self.num(r, x, i64::from(ui.legacy.souls), pal.role(Role::Legendary));
+        r += 1;
+        let dealt = sim.stats.dealt.iter().sum::<i64>() + sim.stats.dealt_hijack;
+        let mut x = self.text(r, x0 + 1, c.texts.get(t::PANEL_DEALT), pal.text);
+        x = self.num(r, x, dealt / 1000, pal.player);
+        x = self.text(r, x + 2, c.texts.get(t::PANEL_TAKEN), pal.text);
+        self.num(r, x, sim.stats.taken / 1000, pal.role(Role::Danger));
         r += 1;
         // sky: weather now, what comes next and when (a full or blood moon is the threat)
         let fc = sim.world.forecast(sim.tick);
@@ -3042,6 +3073,7 @@ fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
             Action::ShopTake(_) => (c.texts.get(t::HINT_BUY).to_string(), None),
             Action::Autofire => (b.label.clone(), Some(ui.autofire)),
             Action::Autowalk => (b.label.clone(), Some(ui.autowalk)),
+            Action::ToggleGlass => (b.label.clone(), Some(ui.glass)),
             _ => (b.label.clone(), None),
         };
         // a group entry shows only its prefix key
@@ -3396,6 +3428,49 @@ mod tests {
         (sim.p.gold, sim.world.pals) = (437, 2);
         f.compose(&sim, &view);
         assert!(f.plain().contains("GOLD 437  PALS 2"), "{}", f.plain());
+    }
+
+    #[test]
+    fn panel_shows_every_progress_number() {
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        let frame = |f: &mut Frame, sim: &Sim, ui: &Ui| {
+            f.compose(sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            f.plain()
+        };
+        let s = frame(&mut f, &sim, &ui);
+        assert!(s.contains("BOSSES 0  JOBS 0/0") && s.contains("PTS 0  SOULS 0") && s.contains("DEALT 0  TAKEN 0"), "control: a fresh run\n{s}");
+        let fam = c.waves.iter().find_map(|w| match w {
+            crate::data::WaveEv::Boss { fam, .. } => Some(*fam),
+            _ => None,
+        });
+        sim.stats.boss_kill_ticks.push((fam.unwrap(), 9));
+        sim.stats.quests_done = 2;
+        (sim.stats.dealt[0], sim.stats.dealt_hijack, sim.stats.taken) = (40_000, 2_000, 5_000);
+        (ui.tree_earned, ui.tree_spent, ui.legacy.souls) = (3, 1, 77);
+        let s = frame(&mut f, &sim, &ui);
+        assert!(s.contains("BOSSES 1  JOBS 2/2") && s.contains("PTS 2  SOULS 77") && s.contains("DEALT 42  TAKEN 5"), "{s}");
+    }
+
+    #[test]
+    fn glass_shows_the_arena_through_the_panes_and_keeps_their_text() {
+        let c = Content::parse(&texts()).unwrap();
+        let sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 120, 40);
+        // stats pane cells left on the pane background
+        let solid = |f: &mut Frame, ui: &Ui| {
+            f.compose(&sim, &View { ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+            let bg = c.pal().hud_bg;
+            let n = (0..usize::from(PANEL_H)).flat_map(|r| (120 - usize::from(PANEL_W)..120).map(move |col| r * 120 + col)).filter(|&i| f.cells[i].bg == bg).count();
+            (n, f.plain().contains("GOLD 0  PALS 0"))
+        };
+        let (n, text) = solid(&mut f, &ui);
+        assert!(n > 0 && text, "control: a solid pane ({n} cells on the pane background)");
+        ui.glass = true;
+        assert_eq!(solid(&mut f, &ui), (0, true), "glass: no pane background left, text kept");
     }
 
     #[test]
@@ -4125,7 +4200,8 @@ mod tests {
     // re-pinned 2026-11-10: a dim agent tip line at the bottom left
     // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
     // re-pinned 2026-11-10: cyan portal blocks and big portal arrows, shop stalls, shorter key labels (goal, path)
-    const GOLDEN: u64 = 0x4d94_11d3_61bc_7ee6;
+    // re-pinned 2026-11-12: map as wide as the stats pane, stats rows for bosses, quests, points, souls, damage; g glass key
+    const GOLDEN: u64 = 0xc2b7_5c61_e27d_b997;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

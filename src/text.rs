@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 248] = [
+pub const TXTS: [Spec; 254] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -94,6 +94,12 @@ pub const TXTS: [Spec; 248] = [
     line("panel_foes", &[], "Stats panel: label of the foe tier counts."),
     line("panel_net", &[], "Stats panel: label of the bytes sent per frame."),
     line("panel_cast", &[], "Stats panel: label of the cast rows (who is on screen)."),
+    line("panel_bosses", &[], "Stats panel: label of the bosses slain this run."),
+    line("panel_quests", &[], "Stats panel: label of the quests done, out of all quests taken this run."),
+    line("panel_points", &[], "Stats panel: label of the skill tree points not spent yet."),
+    line("panel_souls", &[], "Stats panel: label of the souls banked for the legacy."),
+    line("panel_dealt", &[], "Stats panel: label of the hit points the hero and its allies dealt this run."),
+    line("panel_taken", &[], "Stats panel: label of the hit points the hero lost this run."),
     line("cast_hero", &[], "Stats panel cast row: the hero's HP."),
     line("cast_ally", &[], "Stats panel cast row: hijacked foes fighting for the hero."),
     line("cast_panic", &[], "Stats panel cast row: panicked foes."),
@@ -513,6 +519,12 @@ pub mod t {
     pub const PANEL_FOES: Txt<0> = Txt::named("panel_foes");
     pub const PANEL_NET: Txt<0> = Txt::named("panel_net");
     pub const PANEL_CAST: Txt<0> = Txt::named("panel_cast");
+    pub const PANEL_BOSSES: Txt<0> = Txt::named("panel_bosses");
+    pub const PANEL_QUESTS: Txt<0> = Txt::named("panel_quests");
+    pub const PANEL_POINTS: Txt<0> = Txt::named("panel_points");
+    pub const PANEL_SOULS: Txt<0> = Txt::named("panel_souls");
+    pub const PANEL_DEALT: Txt<0> = Txt::named("panel_dealt");
+    pub const PANEL_TAKEN: Txt<0> = Txt::named("panel_taken");
     /// cast rows: hero, ally, panic, thief
     pub const CAST: [Txt<0>; 4] = [Txt::named("cast_hero"), Txt::named("cast_ally"), Txt::named("cast_panic"), Txt::named("cast_thief")];
     /// foe tiers: trash, elite, champion, boss

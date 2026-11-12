@@ -57,6 +57,12 @@
 {"t":"text","id":"panel_foes","text":"DEAD  "}
 {"t":"text","id":"panel_net","text":"NET "}
 {"t":"text","id":"panel_cast","text":"CAST"}
+{"t":"text","id":"panel_bosses","text":"BOSSES "}
+{"t":"text","id":"panel_quests","text":"OATHS "}
+{"t":"text","id":"panel_points","text":"PTS "}
+{"t":"text","id":"panel_souls","text":"SOULS "}
+{"t":"text","id":"panel_dealt","text":"DEALT "}
+{"t":"text","id":"panel_taken","text":"TAKEN "}
 {"t":"text","id":"cast_hero","text":"HERO blood"}
 {"t":"text","id":"cast_ally","text":"THRALL dead"}
 {"t":"text","id":"cast_panic","text":"FLEEING dead"}

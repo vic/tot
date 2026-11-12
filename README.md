@@ -93,6 +93,12 @@ cyan blocks with big cyan arrows; shops stand on stalls of their own colour.
 and the game repaints live as you go. Enter keeps the scheme (it is saved for later runs); Esc puts the old colours
 back.
 
+The map (top left), the stats pane (top right) and the hero pane (bottom right) have the same width. The stats
+pane shows every number of your run: the next boss, health, level and the XP still to go, flux, kills, hijacks,
+nerve and panic, gold, pals, food, bosses slain, quests done of all taken, skill points to spend, souls, damage
+dealt and taken, the weather and your powers. `g` turns the three panes to glass: the world shows through them and
+their text stays on top. Press `g` again to make them solid.
+
 An agent can also make each level what it wants: a safe haven or a dungeon, how deadly it is, and the colours of its
 floor and walls. It can take the horde over: switch off the built-in waves, send foes of any family, call a boss,
 release a treasure goblin, and point a pal at the foe it should kill first. It can even write a whole new adventure

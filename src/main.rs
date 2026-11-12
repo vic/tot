@@ -153,6 +153,7 @@ fn run() -> Result<()> {
         Some("snapshot") => {
             let (mut sim, mut dir) = bot::sim_at(&c, args.num("--seed", 1)?, args.num("--secs", 60)? as u32);
             let mut ui = input::Ui::new(true);
+            ui.glass = args.has("--glass");
             // --pick: play on (auto-fire, no picks) until the next power-up offer, at most 2 minutes, and show it open
             if args.has("--pick") {
                 let until = sim.secs() + 120;

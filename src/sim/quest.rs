@@ -135,6 +135,7 @@ impl Sim<'_> {
             let (now, of) = q.progress(self);
             if !q.done && now >= of {
                 self.quests[k].done = true;
+                self.stats.quests_done += 1;
                 self.p.gold = self.p.gold.saturating_add(q.reward.gold);
                 self.p.xp = self.p.xp.saturating_add(q.reward.xp);
                 if self.quest_ev.len() < QUESTS_MAX {

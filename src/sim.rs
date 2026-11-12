@@ -848,6 +848,8 @@ pub struct Stats {
     pub first_pick: Option<u32>,
     pub boss_kill_ticks: Vec<(FamId, u32)>,
     pub hijacked_peak: u16,
+    /// quests finished this run (finished quests leave the list when a new one comes)
+    pub quests_done: u32,
 }
 
 /// Negative-control mutants (design sec 14.2). Harness-only; data cannot express them.
@@ -1105,6 +1107,7 @@ impl<'c> Sim<'c> {
                 first_pick: None,
                 boss_kill_ticks: Vec::with_capacity(4),
                 hijacked_peak: 0,
+                quests_done: 0,
             },
             outcome: None,
             special_try: None,
