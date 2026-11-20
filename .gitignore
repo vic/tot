@@ -1,6 +1,7 @@
 target
 */target
 results/
+dist
 result
 .envrc
 .direnv
