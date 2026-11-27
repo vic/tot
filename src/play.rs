@@ -602,9 +602,11 @@ fn buy_boon(c: &Content, ui: &mut Ui, b: crate::legacy::Boon, path: Option<&Path
 }
 
 /// Openers tried in order: the desktop's default, then browsers by name.
+#[cfg(not(target_os = "wasi"))]
 const OPENERS: [&str; 7] = ["xdg-open", "open", "firefox", "chromium", "chromium-browser", "google-chrome", "chrome"];
 
 /// Open `url` with the first opener found in PATH, detached (no shell, output discarded). Returns the status line.
+#[cfg(not(target_os = "wasi"))]
 fn open_url(c: &Content, url: &str) -> String {
     let Some(bin) = opener(&std::env::var_os("PATH").unwrap_or_default()) else {
         return c.texts.fill(t::MSG_NO_BROWSER, [url]);
@@ -616,7 +618,16 @@ fn open_url(c: &Content, url: &str) -> String {
     }
 }
 
+/// The browser build cannot spawn: it asks the page, which owns the window, through a private OSC (8888).
+#[cfg(target_os = "wasi")]
+fn open_url(c: &Content, url: &str) -> String {
+    let mut o = std::io::stdout().lock();
+    let _ = write!(o, "\x1b]8888;{url}\x07").and_then(|()| o.flush());
+    c.texts.fill(t::MSG_OPENING, [url])
+}
+
 /// First of OPENERS that exists as a file in the PATH list `path`.
+#[cfg(not(target_os = "wasi"))]
 fn opener(path: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
     OPENERS.iter().find_map(|o| std::env::split_paths(path).map(|d| d.join(o)).find(|p| p.is_file()))
 }

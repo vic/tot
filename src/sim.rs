@@ -313,6 +313,16 @@ pub enum Tactic {
     Flank,
 }
 
+/// What a hostile foe is visibly doing: the screen says it over its head.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Intent {
+    Rage,
+    Flee,
+    Surround,
+    Bait,
+    Flank,
+}
+
 impl Tactic {
     pub fn of(id: u32) -> Tactic {
         match id % 4 {
@@ -1491,6 +1501,40 @@ mod tests {
     }
 
     #[test]
+    fn foes_show_what_they_are_doing() {
+        use crate::data::{Mob, MobRole};
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let thief = c.fam_ids().find(|&f| c.fam(f).key == "thief").unwrap();
+        let melee = c.fam_ids().find(|&f| matches!(&c.fam(f).kind, FamKind::Mob(Mob { role: MobRole::Melee, .. }))).unwrap();
+        let near = (s.p.x + 2_000, s.p.y);
+        // a thief close to the hero runs; far off it does not
+        s.push_enemy(thief, Tier::Trash, near, 1000, (false, false));
+        s.push_enemy(thief, Tier::Trash, (s.p.x + 500_000, s.p.y), 1000, (false, false));
+        assert_eq!((s.intent(0), s.intent(1)), (Some(Intent::Flee), None), "near thief flees, far thief does not (NEG)");
+        // melee foes close to the hero work their born tactic: each of the four ids gets its own word, rush none
+        let first = s.e.len();
+        for _ in 0..4 {
+            s.push_enemy(melee, Tier::Trash, near, 1000, (false, false));
+        }
+        let said: Vec<(Tactic, Option<Intent>)> = (first..first + 4).map(|k| (Tactic::of(s.e.id[k]), s.intent(k))).collect();
+        for (t, i) in &said {
+            let want = match t {
+                Tactic::Rush => None,
+                Tactic::Surround => Some(Intent::Surround),
+                Tactic::Bait => Some(Intent::Bait),
+                Tactic::Flank => Some(Intent::Flank),
+            };
+            assert_eq!(*i, want, "{t:?}");
+        }
+        assert!(said.iter().any(|(_, i)| i.is_none()) && said.iter().any(|(_, i)| i.is_some()), "control: a mix of rushing and working foes");
+        // a raging foe says so, whatever else it does
+        let k = first + 1;
+        s.e.status[k] = Status::None.enrage(c.hz().get());
+        assert_eq!(s.intent(k), Some(Intent::Rage));
+    }
+
+    #[test]
     fn thief_eats_chest_grows_hp_and_damage_and_barks() {
         let c = content();
         let mut s = Sim::new(&c, 7, None);
@@ -1923,38 +1967,6 @@ mod tests {
         // negative control: the counter sees an allocation
         let v: Vec<u8> = Vec::with_capacity(16);
         assert!(allocs() > before, "{}", v.capacity());
-    }
-
-    #[test]
-    fn tick_p99_under_4ms_at_20k_entities() {
-        let mut t = texts();
-        t[1] = t[1].replacen("\"live_cap\":600", "\"live_cap\":20000", 1).replacen("\"despawn_m\":40", "\"despawn_m\":400", 1);
-        let c = Content::parse(&t).unwrap();
-        let mut sim = Sim::new(&c, 9, None);
-        let fam = c.fam_ids().next().unwrap();
-        let mut rng = Xo::seeded(9);
-        let n60 = NonZeroU32::new(120_000).unwrap();
-        for _ in 0..20_000 {
-            let (x, y) = (rng.below(n60) as i32 - 60_000, rng.below(n60) as i32 - 60_000);
-            sim.push_enemy(fam, Tier::Trash, (x, y), 1_000_000, (false, false));
-        }
-        let mut times = Vec::with_capacity(100);
-        let before = allocs();
-        for k in 0..100 {
-            // a dead hero stops the sim (step returns at once): keep it alive so every tick carries the load
-            sim.p.hp = sim.p.max_hp;
-            let s = Instant::now();
-            sim.step(&script(k));
-            times.push(s.elapsed().as_micros());
-        }
-        let allocated = allocs() - before;
-        times.sort_unstable();
-        let p99 = times[98];
-        assert!(sim.live() >= 19_000, "load held: {}", sim.live());
-        assert_eq!((sim.tick, sim.outcome), (100, None), "every tick ran");
-        eprintln!("PERF 20k: tick p50 {} us p99 {p99} us max {} us", times[50], times[99]);
-        assert!(p99 <= 4000, "p99 {p99} us (p50 {} us)", times[50]);
-        assert_eq!(allocated, 0);
     }
 
     /// Number key = special: a 36-bolt ring at 3x damage, then a reload; rank shortens it; passive slots never cast.

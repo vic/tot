@@ -1,7 +1,7 @@
 //! World events on top of the solid arena: weather, NPCs. Everything here is deterministic and called once
 //! per tick from step() via `world_step`.
 use super::npc::{place, touch, Outcome, Placed, Service, Toucher};
-use super::weather::{sheltered, Forecast, Permille, Schedule};
+use super::weather::{sheltered, Forecast, Permille, Schedule, Weather};
 use super::{dist2, BossState, Cause, FamKind, Sim, Tier};
 use chest::{place as place_chests, BossClass, ChestKind, WorldChest};
 use goblin::{Fate, Goblin, GoldPile};
@@ -174,6 +174,17 @@ impl Sim<'_> {
         self.blasts_burn();
         self.goblins_step();
         self.boss_hazards();
+    }
+
+    /// The sky acting on the hero right now, if it hurts or hinders it: heat and acid rain burn an exposed hero,
+    /// wind shoves it wherever it stands. The hero says so (face barks).
+    pub fn sky_on_hero(&self) -> Option<Weather> {
+        let w = self.world.forecast(self.tick).now;
+        match w {
+            Weather::Wind => Some(w),
+            Weather::Heat | Weather::AcidRain if !sheltered(&self.arena, self.p.x, self.p.y) => Some(w),
+            _ => None,
+        }
     }
 
     /// Rain heals, acid hurts, shelter blocks both. Weather alone never kills: hp floors at 1.

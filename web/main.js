@@ -37,6 +37,8 @@ const term = new Terminal({ fontFamily: "monospace", fontSize: 14, theme: { back
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.open(document.getElementById("term"));
+// tot asks the page to open a link (its source and sponsor buttons) with a private OSC 8888
+term.parser.registerOscHandler(8888, (url) => { if (/^https:\/\//.test(url)) window.open(url, "_blank", "noopener"); return true; });
 try { term.loadAddon(new WebglAddon()); } catch { /* no WebGL: xterm keeps its DOM renderer */ }
 fit.fit();
 

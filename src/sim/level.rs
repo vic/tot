@@ -80,6 +80,9 @@ pub struct LevelDef {
 /// Stairs stand this far from the level's start (mm), in seeded directions; the hero takes one within STAIR_R.
 const STAIR_FAR: i32 = 30_000;
 const STAIR_R: i32 = 900;
+/// The hero comes out this far from the portal it came through (clear of its reach), trying this many directions.
+const ARRIVE_GAP: i32 = 2 * STAIR_R;
+const ARRIVE_DIRS: usize = 8;
 const STAIR_SALT: u64 = 0x57A1_0000_0000_0005;
 
 impl Sim<'_> {
@@ -144,6 +147,34 @@ impl Sim<'_> {
         self.place_stairs(self.level);
     }
 
+    /// The hero arrives beside the portal of this level that leads back to `from`: the level's own, else a new one
+    /// where the hero stands (a level is entered by a portal, so its mate is where you come out). It then steps
+    /// ARRIVE_GAP clear of the portal, so the arrival is not a trip back.
+    fn arrive_at_gate(&mut self, from: Level) {
+        let (gx, gy) = match self.stairs.iter().find(|s| s.to == from) {
+            Some(s) => (s.x, s.y),
+            None => {
+                let (x, y) = (self.p.x, self.p.y);
+                self.stairs.push(Stair { x, y, to: from });
+                (x, y)
+            }
+        };
+        self.walls.follow(&self.arena, gx, gy);
+        let r2 = i64::from(STAIR_R).pow(2);
+        // the first of ARRIVE_DIRS directions that leaves the hero off the gate (a wall can pull it back onto it)
+        let step = (self.trig.len() / ARRIVE_DIRS).max(1);
+        let spots: Vec<(i32, i32)> = (0..self.trig.len())
+            .step_by(step)
+            .map(|k| {
+                let (cx, cy) = self.trig[k];
+                self.free_near(gx + scale(cx, i64::from(ARRIVE_GAP)), gy + scale(cy, i64::from(ARRIVE_GAP)), self.c.player.radius)
+            })
+            .collect();
+        if let Some(&p) = spots.iter().find(|&&(x, y)| dist2(x - gx, y - gy) > r2) {
+            (self.p.x, self.p.y) = p;
+        }
+    }
+
     /// The hero on a stair takes it.
     pub(super) fn stairs_step(&mut self) {
         let r2 = i64::from(STAIR_R).pow(2);
@@ -153,13 +184,16 @@ impl Sim<'_> {
     }
 
     /// Go to `to`: its map, its people and loot, no foes; pals come along, foe crew bodies stay behind (they leave
-    /// the crew). The hero arrives at the level's start.
+    /// the crew). The hero arrives beside the portal that leads back to the level it came from.
     pub fn travel(&mut self, to: Level) {
+        let from = self.level;
         self.level = to;
         self.arena = crate::floorgen::arena(self.seed, to.floor(), self.c);
         (self.p.x, self.p.y) = (0, 0);
         self.walls = solid::Walls::new(&self.arena, 0, 0);
         (self.p.x, self.p.y) = self.free_near(0, 0, self.c.player.radius);
+        self.place_stairs(to);
+        self.arrive_at_gate(from);
         self.walls.follow(&self.arena, self.p.x, self.p.y);
         for i in (0..self.e.len()).rev() {
             self.e.remove(i);
@@ -183,7 +217,6 @@ impl Sim<'_> {
         if town {
             self.treasures.clear();
         }
-        self.place_stairs(to);
         self.seat_people();
         self.level_ev.push(to);
     }
@@ -193,6 +226,31 @@ impl Sim<'_> {
 mod tests {
     use super::*;
     use crate::data::tests::content;
+
+    /// A level is entered by a portal and its mate stands where you come out: beside you, never on you.
+    #[test]
+    fn arrival_stands_beside_the_portal_that_leads_back() {
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let (start, r) = (s.level, f64::from(STAIR_R));
+        let near_mate = |s: &Sim, back_to: Level| {
+            let m = s.stairs.iter().find(|st| st.to == back_to).copied().expect("a portal back");
+            (dist2(m.x - s.p.x, m.y - s.p.y) as f64).sqrt()
+        };
+        for hop in 0..3 {
+            let from = s.level;
+            let st = *s.stairs.iter().find(|st| st.to != from && st.to != Level::Town || hop == 1 && st.to == Level::Town).unwrap();
+            (s.p.x, s.p.y) = (st.x, st.y);
+            s.stairs_step();
+            assert_eq!(s.level, st.to, "hop {hop}: travelled");
+            let d = near_mate(&s, from);
+            assert!(d > r && d <= f64::from(2 * ARRIVE_GAP), "hop {hop}: the way back to {from:?} is {d} mm away: beside, not on you");
+        }
+        // NEG control: not travelling leaves the hero where the level's start put it, far from its portals
+        let s0 = Sim::new(&c, 7, None);
+        let far = s0.stairs.iter().map(|st| (dist2(st.x - s0.p.x, st.y - s0.p.y) as f64).sqrt()).fold(f64::MAX, f64::min);
+        assert!(far > f64::from(2 * ARRIVE_GAP), "control: at the start the portals are {far} mm away ({start:?})");
+    }
 
     #[test]
     fn stairs_link_town_and_deeps_and_each_level_is_its_own_place() {
@@ -221,7 +279,8 @@ mod tests {
         let fam = c.fam_ids().find(|&f| matches!(c.fam(f).kind, FamKind::Mob(_))).unwrap();
         let spawn = Cmd::Spawn { fam, n: NonZeroU16::MIN, tier: Tier::Trash, form: Formation::Scatter };
         assert_eq!(s.validate(&spawn), Err(Reject::Town), "no waves in town");
-        assert_eq!(s.stairs.iter().map(|st| st.to).collect::<Vec<_>>(), vec![Level::FIRST], "the town's stair leads down");
+        // the town's own stair leads down, and the portal the hero came out of leads back to depth 2
+        assert_eq!(s.stairs.iter().map(|st| st.to).collect::<Vec<_>>(), vec![Level::FIRST, Level::Deep(NonZeroU8::new(2).unwrap())], "the town's stair leads down, its mate of the way here leads back");
         // NEG: a hero off the stairs stays where it is
         let lvl = s.level;
         s.p.x += 5_000;

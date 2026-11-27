@@ -140,8 +140,8 @@
 {"t":"bind","mode":"scene","keys":["3"],"action":"scene_3","label":"choice 3"}
 {"t":"bind","mode":"scene","keys":["4"],"action":"scene_4","label":"choice 4"}
 {"t":"bind","mode":"scene","keys":["enter"],"action":"scene_close","label":"close"}
-{"t":"bind","mode":"play","keys":["o"],"action":"objective","label":"goal"}
-{"t":"bind","mode":"play","keys":["O"],"action":"objective_line","label":"path"}
+{"t":"bind","mode":"play","keys":["o"],"action":"objective","label":"next quest"}
+{"t":"bind","mode":"play","keys":["O"],"action":"objective_line","label":"quest path"}
 {"t":"bind","mode":"play","keys":["T"],"action":"theme","label":"skin"}
 {"t":"bind","mode":"theme","keys":["up"],"action":"theme_up","label":"up"}
 {"t":"bind","mode":"theme","keys":["down"],"action":"theme_down","label":"down"}

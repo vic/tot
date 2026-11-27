@@ -5,7 +5,7 @@ use crate::face::{self, Face, Mood};
 use crate::input::{Mode, Ui};
 use crate::floorgen::{Arena, Template};
 use crate::cam::Cam;
-use crate::iso::{Heading, Proj};
+use crate::iso::Proj;
 use crate::sim::{Ability, BARK_TICKS, BarkKind, BossClass, CONF_PANIC, Cause, FxShape, Outcome, Shape, Side, Sim, TeleKind, Tier, Weather, dist2};
 #[cfg(test)]
 use crate::sim::ItemId;
@@ -31,6 +31,20 @@ const MAP_W: u16 = PANEL_W;
 const MAP_H: u16 = 11;
 /// Map cell = this many floor cells. shortcut: fixed zoom, upgrade when zoom is a player option.
 const MAP_K: i32 = 4;
+/// The context hint shows for a portal, keeper or chest this close (mm).
+const HINT_R: i32 = 10_000;
+/// ... on this row, clear of the edge arrows (rows 0-1) and the boss bar.
+const HINT_ROW: i32 = 3;
+/// The followed quest is told on this row, over the context hint.
+const OBJECTIVE_ROW: i32 = 2;
+/// Samples along the way from the hero to its quest on the map (enough that no map cell on the line is skipped).
+const MAP_PATH_STEPS: i32 = 200;
+/// Titles over portals and chests sit this many rows above them; at most this many titles are drawn.
+const PORTAL_TITLE_LIFT: i32 = 2;
+const CHEST_TITLE_LIFT: i32 = 2;
+const TITLES_MAX: usize = 12;
+/// At most this many foes (the nearest) say what they are doing.
+const INTENT_MAX: usize = 8;
 /// Stats panel (bottom-right of the play area).
 const PANEL_W: u16 = 36;
 const PANEL_H: u16 = PANEL_CAST_ROW + 1 + Cast::ALL.len() as u16;
@@ -155,6 +169,8 @@ pub struct Frame {
     /// weather last frame, and the change banner (weather, frame clock ms it turned)
     sky: Option<Weather>,
     sky_banner: Option<(Weather, u64)>,
+    /// the level shown last and the frame time (ms) its location banner stays up until: arriving on another raises it
+    place: Option<(crate::sim::Level, u64)>,
     /// where the hero pane is drawn this frame (left col, top row); pointers keep off it
     pane_at: Option<(u16, u16)>,
     /// clickable cell spans this frame: [start, end) cell index and the URL (OSC 8 in `emit`)
@@ -240,6 +256,7 @@ impl Frame {
             died_ms: None,
             sky: None,
             sky_banner: None,
+            place: None,
             pane_at: None,
             links: Vec::new(),
             pops: Vec::with_capacity(POPS_MAX),
@@ -1339,6 +1356,37 @@ impl Frame {
     }
 
     /// The weather-change banner: big letters on a dark plate, drawn last so nothing covers it.
+    /// Arriving on another level raises a big banner with its name for ARRIVAL_MS, on the frame clock: the hero has
+    /// just come through a portal and must see where it is (the level a run starts on is not announced). A name too wide for the big font
+    /// falls back to one centred line.
+    fn arrival_fx(&mut self, sim: &Sim, now_ms: u64) {
+        let (c, pal) = (sim.c, &sim.c.pal());
+        let until = match self.place {
+            Some((l, until)) if l == sim.level => until,
+            Some(_) => now_ms + ARRIVAL_MS,
+            None => 0,
+        };
+        self.place = Some((sim.level, until));
+        if now_ms >= until {
+            return;
+        }
+        let fg = portal_ink(pal);
+        let name = level_name(sim, sim.level).to_uppercase();
+        let font = c.texts.font();
+        let (w, cols) = (font.width(&name) as i32, i32::from(self.cols));
+        if w + 4 > cols {
+            self.label(ARRIVAL_ROW + 2, cols / 2, &name, fg);
+            return;
+        }
+        let left = (cols - w) / 2;
+        self.plate(left - 2, ARRIVAL_ROW, w + 4, 5, mix(fg, pal.hud_bg, 850));
+        for (r, line) in font.rows(&name).iter().enumerate() {
+            for (k, ch) in line.chars().enumerate().filter(|&(_, ch)| ch != ' ') {
+                self.flash_cell(left + k as i32, ARRIVAL_ROW + r as i32, Glyph::of(ch).unwrap_or(Glyph::SPACE), fg);
+            }
+        }
+    }
+
     fn sky_banner_fx(&mut self, sim: &Sim, now_ms: u64) {
         let pal = &sim.c.pal();
         if let Some((bw, at)) = self.sky_banner {
@@ -1451,7 +1499,10 @@ impl Frame {
         let label = SUPPORT_LABEL;
         let sx = self.cols.saturating_sub(label.chars().count() as u16 + 5);
         self.button((row, sx), label, (c.pal().alarm, c.pal().bg), false, SUPPORT_URL);
-        sx
+        // the source button sits left of it, one cell apart
+        let src = sx.saturating_sub(SOURCE_LABEL.chars().count() as u16 + 5);
+        self.button((row, src), SOURCE_LABEL, (c.pal().chest, c.pal().bg), false, SOURCE_URL);
+        src
     }
 
     /// A clickable button: ` label ` filled with `bg`, rounded by half blocks (`▐ … ▌`); `tall` adds rims above and
@@ -1651,6 +1702,93 @@ impl Frame {
         }
     }
 
+    /// What the nearest few foes in sight are doing (raging, fleeing, surrounding, baiting, flanking), over their
+    /// heads: a foe the hero cannot read is a foe it cannot answer.
+    fn intent_labels(&mut self, sim: &Sim) {
+        use crate::sim::Intent;
+        let (c, pal) = (sim.c, &sim.c.pal());
+        let n = i32::from(c.view.actor_rows[2].max(1));
+        let view2 = i64::from(c.view.fog_end).pow(2);
+        let mut said: Vec<(i64, usize, Intent)> = (0..sim.e.len())
+            .filter_map(|k| sim.intent(k).map(|i| (dist2(sim.e.x[k] - sim.p.x, sim.e.y[k] - sim.p.y), k, i)))
+            .filter(|(d, _, _)| *d <= view2)
+            .collect();
+        said.sort_unstable_by_key(|&(d, k, _)| (d, k));
+        for (_, k, intent) in said.into_iter().take(INTENT_MAX) {
+            let (txt, fg) = match intent {
+                Intent::Rage => (t::INTENT_RAGE, pal.role(Role::Danger)),
+                Intent::Flee => (t::INTENT_FLEE, pal.text),
+                Intent::Surround => (t::INTENT_SURROUND, pal.dim),
+                Intent::Bait => (t::INTENT_BAIT, pal.dim),
+                Intent::Flank => (t::INTENT_FLANK, pal.dim),
+            };
+            let (col, row) = self.scr(self.pos[k].0, self.pos[k].1);
+            self.label(row - n - 1, col, c.texts.get(txt), fg);
+        }
+    }
+
+    /// Titles over the things the hero walks into or picks up: portals (where they lead), keepers, chests and
+    /// floor items (name and quality, in the rarity's colour). Only what is in sight; the nearest first, none over
+    /// another, at most TITLES_MAX.
+    fn world_titles(&mut self, sim: &Sim) {
+        use crate::sim::{Drop, Npc};
+        let (c, pal) = (sim.c, &sim.c.pal());
+        let n = i32::from(c.view.actor_rows[2].max(1));
+        let view2 = i64::from(c.view.fog_end).pow(2);
+        // (distance, world x, world y, rows above the spot, text, ink)
+        let mut found: Vec<(i64, i32, i32, i32, String, Rgb)> = Vec::new();
+        let mut add = |x: i32, y: i32, lift: i32, text: String, fg: Rgb| {
+            let d = dist2(x - sim.p.x, y - sim.p.y);
+            if d <= view2 {
+                found.push((d, x, y, lift, text, fg));
+            }
+        };
+        for st in &sim.stairs {
+            add(st.x, st.y, PORTAL_TITLE_LIFT, level_name(sim, st.to), portal_ink(pal));
+        }
+        for p in &sim.world.npcs {
+            // an agent's person already wears its own name
+            if sim.people_here().any(|q| (q.x, q.y) == (p.x, p.y)) {
+                continue;
+            }
+            let title = match p.npc {
+                Npc::Merchant { .. } => t::TITLE_MERCHANT,
+                Npc::Blacksmith { .. } => t::TITLE_BLACKSMITH,
+                Npc::Jeweler { .. } => t::TITLE_JEWELER,
+                Npc::Pal { .. } | Npc::Neutral => continue,
+            };
+            add(p.x, p.y, n + 1, c.texts.get(title).to_string(), pal.chest);
+        }
+        for w in &sim.world.chests {
+            let (title, ink) = if w.kind.is_boss() { (t::TITLE_BOSS_CHEST, pal.alarm) } else { (t::TITLE_CHEST, pal.chest) };
+            add(w.x, w.y, CHEST_TITLE_LIFT, c.texts.get(title).to_string(), ink);
+        }
+        for &(x, y) in &sim.treasures {
+            add(x, y, CHEST_TITLE_LIFT, c.texts.get(t::TITLE_CHEST).to_string(), pal.chest);
+        }
+        for k in 0..sim.drops.kind.len() {
+            if let Drop::Item(id) = sim.drops.kind[k]
+                && let Some(it) = c.items.get(usize::from(id.0))
+            {
+                add(sim.drops.x[k], sim.drops.y[k], -1, c.texts.fill(t::TITLE_ITEM, [&it.name, it.rarity.word()]), pal.role(it.rarity.role()));
+            }
+        }
+        found.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+        // (row, left, right) of each title placed: a title that would cover another moves up a row
+        let mut taken: Vec<(i32, i32, i32)> = Vec::new();
+        for (_, x, y, lift, text, fg) in found.into_iter().take(TITLES_MAX) {
+            let (col, row) = self.scr(f64::from(x), f64::from(y));
+            let w = text.chars().count() as i32;
+            let left = col - w / 2;
+            let mut r = row - lift;
+            while taken.iter().any(|&(tr, l, rt)| tr == r && left < rt && l < left + w) {
+                r -= 1;
+            }
+            taken.push((r, left, left + w));
+            self.label(r, col, &text, fg);
+        }
+    }
+
     /// Every crew member's name over its head, and over that the last line it said (drawn over the arena, under
     /// the panes and popups).
     fn crew_labels(&mut self, sim: &Sim, ui: &Ui, now_ms: u64) {
@@ -1750,21 +1888,42 @@ impl Frame {
         }
     }
 
+    /// Which way (on the screen) and how far a world point is from the hero: "▸ 120m".
+    fn where_to(&self, sim: &Sim, x: i32, y: i32) -> String {
+        let (px, py) = self.scr(f64::from(sim.p.x), f64::from(sim.p.y));
+        let (tx, ty) = self.scr(f64::from(x), f64::from(y));
+        let (dx, dy) = (tx - px, ty - py);
+        let arrow = if dx.abs() > dy.abs() { if dx > 0 { ARROW_E } else { ARROW_W } } else if dy > 0 { ARROW_S } else { ARROW_N };
+        format!("{arrow} {}m", crate::sim::isqrt(dist2(x - sim.p.x, y - sim.p.y)) / 1000)
+    }
+
+    /// The quest the hero follows, always on screen: its title, progress, which way it lies and how far, and the key
+    /// that switches to the next quest. Nothing when no quest is open.
+    fn objective_hud(&mut self, sim: &Sim, ui: &Ui) {
+        let (open, sel) = Self::objectives(sim, ui);
+        let Some((q, spot)) = sel.map(|k| &open[k]) else { return };
+        let (now, of) = q.progress(sim);
+        let place = spot.map_or_else(String::new, |(x, y)| self.where_to(sim, x, y));
+        let line = sim.c.texts.fill(t::QUEST_NOW, [q.title.as_str(), &now.to_string(), &of.to_string(), &place]);
+        let fit: String = line.chars().take(usize::from(self.cols.saturating_sub(MAP_W + PANEL_W + 2))).collect();
+        let w = fit.chars().count() as u16;
+        let x = self.cols.saturating_sub(w) / 2;
+        let pal = &sim.c.pal();
+        self.plate(i32::from(x) - 1, OBJECTIVE_ROW, i32::from(w) + 2, 1, pal.hud_bg);
+        self.text(OBJECTIVE_ROW as u16, x, &fit, objective_ink(pal));
+    }
+
     /// The task list (crew pane foot): every open quest with its progress, and for those placed here an arrow toward
     /// its objective and the metres to it; the followed one is marked.
     fn task_rows(&self, sim: &Sim, ui: &Ui) -> Vec<String> {
         let (open, sel) = Self::objectives(sim, ui);
-        let (px, py) = self.scr(f64::from(sim.p.x), f64::from(sim.p.y));
         open.iter()
             .enumerate()
             .map(|(k, (q, spot))| {
                 let (now, of) = q.progress(sim);
                 let mut s = sim.c.texts.fill(t::QUEST_ROW, [q.title.as_str(), &now.to_string(), &of.to_string()]);
                 if let Some((x, y)) = spot {
-                    let (tx, ty) = self.scr(f64::from(*x), f64::from(*y));
-                    let (dx, dy) = (tx - px, ty - py);
-                    let arrow = if dx.abs() > dy.abs() { if dx > 0 { ARROW_E } else { ARROW_W } } else if dy > 0 { ARROW_S } else { ARROW_N };
-                    s += &format!(" {arrow} {}m", crate::sim::isqrt(dist2(x - sim.p.x, y - sim.p.y)) / 1000);
+                    s += &format!(" {}", self.where_to(sim, *x, *y));
                 }
                 let mark = if Some(k) == sel { sim.c.texts.get(t::PICK_CURSOR).to_string() } else { " ".repeat(sim.c.texts.get(t::PICK_CURSOR).chars().count()) };
                 format!("{mark}{s}")
@@ -1930,6 +2089,25 @@ impl Frame {
         self.bar(0, x + 1, i64::from(sim.e.hp[b]), i64::from(sim.e.max[b]), BOSS_BAR_W, pal.alarm);
     }
 
+    /// One line near the top about what the hero can do with the nearest portal, keeper or chest in reach of
+    /// the eye: everything here is used by walking into it, which nothing else on screen says.
+    fn context_hint(&mut self, sim: &Sim) {
+        use crate::sim::Npc;
+        let (c, pal) = (sim.c, &sim.c.pal());
+        let d2 = |x: i32, y: i32| dist2(x - sim.p.x, y - sim.p.y);
+        let portals = sim.stairs.iter().map(|st| (d2(st.x, st.y), c.texts.fill(t::HINT_PORTAL, [&level_name(sim, st.to)])));
+        let keepers = sim.world.npcs.iter().filter(|p| matches!(p.npc, Npc::Merchant { .. } | Npc::Blacksmith { .. } | Npc::Jeweler { .. })).map(|p| (d2(p.x, p.y), c.texts.get(t::HINT_SHOP).to_string()));
+        let chests = sim.world.chests.iter().map(|w| (d2(w.x, w.y), c.texts.get(t::HINT_CHEST).to_string()));
+        let nearest = portals.chain(keepers).chain(chests).filter(|(d, _)| *d <= i64::from(HINT_R).pow(2)).min_by_key(|(d, _)| *d);
+        if let Some((_, line)) = nearest {
+            let fit: String = line.chars().take(usize::from(self.cols.saturating_sub(MAP_W + PANEL_W + 2))).collect();
+            let w = fit.chars().count() as u16;
+            let x = self.cols.saturating_sub(w) / 2;
+            self.plate(i32::from(x) - 1, HINT_ROW, i32::from(w) + 2, 1, pal.hud_bg);
+            self.text(HINT_ROW as u16, x, &fit, pal.text);
+        }
+    }
+
     fn overlays(&mut self, sim: &Sim, v: &View) {
         let (ui, now_ms) = (v.ui, v.now_ms);
         self.sky_fx(sim, now_ms);
@@ -1944,9 +2122,13 @@ impl Frame {
         if let Some(b) = sim.boss_ix() {
             t.push((sim.e.x[b], sim.e.y[b], sim.e.fam[b].ix()));
         }
-        self.pane(ui.glass, |f| f.map(sim, ui.heading, unit, (px, py), &t, &sim.treasures));
+        let (open, sel) = Self::objectives(sim, ui);
+        let path = if ui.obj_line { sel.and_then(|k| open[k].1) } else { None };
+        self.pane(ui.glass, |f| f.map(sim, unit, &t, &sim.treasures, path));
         self.loot_panes(sim, ui);
         self.crew_labels(sim, ui, now_ms);
+        self.world_titles(sim);
+        self.intent_labels(sim);
         self.pane(ui.glass, |f| f.panel(sim, ui, v.phase, v.last_bytes));
         self.crew_pane(sim, ui);
         self.objective_marks(sim, ui);
@@ -1976,6 +2158,8 @@ impl Frame {
             let s: String = level_name(sim, sim.level).chars().take(usize::from(MAP_W)).collect();
             self.text(MAP_H, 1, &s, c.pal().role(Role::Legendary));
         }
+        self.context_hint(sim);
+        self.objective_hud(sim, ui);
         // shouts last: only the popups may cover them
         self.pal_calls(sim);
         self.roars_fx(sim);
@@ -1985,6 +2169,7 @@ impl Frame {
         self.menu(sim, ui);
         self.death_fx(sim, now_ms);
         self.sky_banner_fx(sim, now_ms);
+        self.arrival_fx(sim, now_ms);
     }
 
     /// Draw a floating pane; as glass, every cell it blanked shows the arena again and every glyph it wrote sits
@@ -1997,48 +2182,84 @@ impl Frame {
         }
     }
 
-    fn map(&mut self, sim: &Sim, heading: Heading, unit: i32, (px, py): (i32, i32), t: &[(i32, i32, usize)], treasures: &[(i32, i32)]) {
+    /// The map, drawn in the same isometric projection as the arena (the camera's own, eased turn included), so
+    /// up on the map is up on the screen. One map cell = `unit` world mm along each axis, as before. Terrain: each
+    /// cell samples the world point the arena shows at that offset from the hero. Markers: each thing is projected
+    /// onto its cell, the least important first so the important ones land on top.
+    fn map(&mut self, sim: &Sim, unit: i32, t: &[(i32, i32, usize)], treasures: &[(i32, i32)], path: Option<(i32, i32)>) {
         let goals: Vec<(i32, i32)> = sim.quests.iter().filter_map(|q| sim.objective(q)).collect();
         let c = sim.c;
         let pal = &c.pal();
         let cols = usize::from(self.cols);
-        let (x0, y0) = (0u16, 0u16);
         if self.cols < MAP_W || self.play_rows() < MAP_H {
             return;
         }
+        let (cc, rc) = (i32::from(MAP_W / 2), i32::from(MAP_H / 2));
+        // screen cells per world mm: one map column spans `s` arena columns
+        let s = f64::from(unit) * 3.0 / 1000.0;
+        let (hx, hy) = (f64::from(sim.p.x), f64::from(sim.p.y));
         for dr in 0..MAP_H {
             for dc in 0..MAP_W {
-                let (ox, oy) = heading.unrot(i32::from(dc) - i32::from(MAP_W / 2), i32::from(dr) - i32::from(MAP_H / 2));
-                let (cx, cy) = (px + ox, py + oy);
+                let (ox, oy) = self.eye.p.unproject_f((f64::from(dc) - f64::from(cc)) * s, (f64::from(dr) - f64::from(rc)) * s);
+                let (cx, cy) = (((hx + ox) / f64::from(unit)).floor() as i32, ((hy + oy) / f64::from(unit)).floor() as i32);
                 let known = self.seen.contains(&(cx, cy));
-                let treasure = treasures.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy));
-                let (ch, fg) = if (cx, cy) == (px, py) {
-                    (c.texts.glyph(g::MAP_HERO), pal.player)
-                } else if treasure {
-                    (c.texts.glyph(g::MAP_CHEST), pal.chest)
-                } else if t.iter().any(|&(x, y, _)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
-                    (c.texts.glyph(g::MAP_BOSS), pal.alarm)
-                } else if sim.world.goblins.iter().any(|gb| (gb.x.div_euclid(unit), gb.y.div_euclid(unit)) == (cx, cy)) {
-                    (c.texts.glyph(g::MAP_GOBLIN), pal.chest)
-                } else if goals.iter().any(|&(x, y)| (x.div_euclid(unit), y.div_euclid(unit)) == (cx, cy)) {
-                    (c.texts.glyph(g::MAP_OBJECTIVE), objective_ink(pal))
-                } else if let Some(st) = sim.stairs.iter().find(|s| (s.x.div_euclid(unit), s.y.div_euclid(unit)) == (cx, cy)) {
-                    (stair_glyph(c, st.to), portal_ink(pal))
-                } else if let Some(p) = sim.world.npcs.iter().find(|p| p.npc != crate::sim::Npc::Neutral && (p.x.div_euclid(unit), p.y.div_euclid(unit)) == (cx, cy)) {
-                    npc_ink(c, p.npc)
-                } else if known && rock(sim.arena(), cx, cy) {
+                let (ch, fg) = if known && rock(sim.arena(), cx, cy) {
                     (c.texts.glyph(g::MAP_ROCK), pal.text)
                 } else if known {
                     (c.texts.glyph(g::MAP_FLOOR), pal.floor)
                 } else {
                     (Glyph::SPACE, pal.fog)
                 };
-                let i = usize::from(y0 + dr) * cols + usize::from(x0 + dc);
-                self.cells[i] = Cell { ch, fg, bg: if treasure && (cx, cy) != (px, py) { chest_glow(pal, sim.tick) } else if known { pal.hud_bg } else { pal.fog } };
+                self.cells[usize::from(dr) * cols + usize::from(dc)] = Cell { ch, fg, bg: if known { pal.hud_bg } else { pal.fog } };
             }
         }
+        // the map cell of a world point, if it is on the map
+        let at = |eye: &Eye, x: i32, y: i32| {
+            let (u, v) = eye.p.screen(f64::from(x) - hx, f64::from(y) - hy);
+            let (dc, dr) = ((u / s).round() as i32 + cc, (v / s).round() as i32 + rc);
+            ((0..i32::from(MAP_W)).contains(&dc) && (0..i32::from(MAP_H)).contains(&dr)).then_some(dr as usize * cols + dc as usize)
+        };
+        let eye = self.eye;
+        // the way to the followed quest: a dotted line from the hero, under every marker
+        if let Some((ox, oy)) = path {
+            let dot = Glyph::of('·').unwrap_or(Glyph::SPACE);
+            for k in 1..MAP_PATH_STEPS {
+                let f = f64::from(k) / f64::from(MAP_PATH_STEPS);
+                let (x, y) = ((hx + (f64::from(ox) - hx) * f) as i32, (hy + (f64::from(oy) - hy) * f) as i32);
+                if let Some(i) = at(&eye, x, y) {
+                    self.cells[i].ch = dot;
+                    self.cells[i].fg = objective_ink(pal);
+                }
+            }
+        }
+        let mark = |cells: &mut [Cell], (x, y): (i32, i32), (ch, fg): (Glyph, Rgb), glow: Option<Rgb>| {
+            if let Some(i) = at(&eye, x, y) {
+                cells[i] = Cell { ch, fg, bg: glow.unwrap_or(cells[i].bg) };
+            }
+        };
+        for p in sim.world.npcs.iter().filter(|p| p.npc != crate::sim::Npc::Neutral) {
+            mark(&mut self.cells, (p.x, p.y), npc_ink(c, p.npc), None);
+        }
+        for st in &sim.stairs {
+            mark(&mut self.cells, (st.x, st.y), (stair_glyph(c, st.to), portal_ink(pal)), None);
+        }
+        for &(x, y) in &goals {
+            mark(&mut self.cells, (x, y), (c.texts.glyph(g::MAP_OBJECTIVE), objective_ink(pal)), None);
+        }
+        for gb in &sim.world.goblins {
+            mark(&mut self.cells, (gb.x, gb.y), (c.texts.glyph(g::MAP_GOBLIN), pal.chest), None);
+        }
+        for &(x, y, _) in t {
+            mark(&mut self.cells, (x, y), (c.texts.glyph(g::MAP_BOSS), pal.alarm), None);
+        }
+        for &p in treasures {
+            mark(&mut self.cells, p, (c.texts.glyph(g::MAP_CHEST), pal.chest), Some(chest_glow(pal, sim.tick)));
+        }
+        // the hero is the middle cell
+        self.cells[usize::from(MAP_H / 2) * cols + usize::from(MAP_W / 2)] = Cell { ch: c.texts.glyph(g::MAP_HERO), fg: pal.player, bg: pal.hud_bg };
         self.rose(sim.c);
     }
+
     /// Waiting power-ups stack as small loot panes down the left edge under the map; `p` opens the top one.
     fn loot_panes(&mut self, sim: &Sim, ui: &Ui) {
         let n = sim.offers_waiting();
@@ -2894,6 +3115,9 @@ const LOOT_PULSE: u32 = 10;
 /// cannot set them: they are not in the text schema). The button opens the author's sponsor page.
 const SUPPORT_URL: &str = "https://github.com/sponsors/vic";
 const SUPPORT_LABEL: &str = "support tot <3";
+/// The source button, left of the sponsor button: fixed like it.
+const SOURCE_URL: &str = "https://github.com/vic/tot";
+const SOURCE_LABEL: &str = "source";
 const SUPPORT_PLEA: &str = "if you liked this game, help me make it better and sponsor me";
 /// Sponsor link: always at the bottom right, and pleaded on the death screen.
 /// Sky: tint strength (permille) per weather, one streak cell in SKY_STREAK_1_IN, fall speed, banner life.
@@ -2907,6 +3131,9 @@ const NIGHT_DARK: u32 = 450;
 const SKY_STREAK_1_IN: u64 = 45;
 const SKY_FALL_TICKS: u32 = 2;
 const SKY_BANNER_MS: u64 = 2500;
+/// The location banner after arriving on a level (ms), and the row it starts on.
+const ARRIVAL_MS: u64 = 3000;
+const ARRIVAL_ROW: i32 = 7;
 const DIED_SHAKE_MS: u64 = 1200;
 const CHEER_HOP_MS: u64 = 250;
 
@@ -3046,7 +3273,7 @@ struct Hint {
 /// Movement, specials, cards and shop offers fold into one hint each; digit runs read "1-8". In a shop the play
 /// One key row when the widest mode (play) fits whole with the mode tag and the sponsor button, else two.
 fn strip_rows(c: &Content, cols: u16) -> u16 {
-    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + SUPPORT_LABEL.chars().count() + 6;
+    let need: usize = hints(c, &Ui::new(true)).iter().map(hint_w).sum::<usize>() + 14 + SUPPORT_LABEL.chars().count() + SOURCE_LABEL.chars().count() + 11;
     if need <= usize::from(cols) { 1 } else { STRIP }
 }
 
@@ -3091,7 +3318,7 @@ fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
         .map(|(label, keys, on)| {
             let digits = keys.iter().all(|k| k.len() == 1 && k.as_bytes()[0].is_ascii_digit());
             let keys = if label == c.texts.get(t::HINT_MOVE) {
-                "wasd/hjkl".to_string()
+                "wasd/hjkl/arrows".to_string()
             } else if digits && keys.len() > 2 {
                 format!("{}-{}", keys[0], keys[keys.len() - 1])
             } else {
@@ -3137,29 +3364,158 @@ mod tests {
         assert_eq!(flips, 0, "the hero flips between neighbour cells {flips} times");
     }
 
+    /// Arriving on a level shows its name big for ARRIVAL_MS, then the banner is gone.
     #[test]
-    fn map_turns_with_heading_and_shows_explored_vs_fog() {
+    fn arriving_on_a_level_raises_its_name_banner() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let mut sim = Sim::new(&c, 7, None);
+        let mut f = Frame::new(&c, 160, 45);
+        let at = |now_ms| View { ui: &ui, now_ms, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let rows = |f: &Frame| f.plain().lines().skip(ARRIVAL_ROW as usize).take(5).collect::<Vec<_>>().join("\n");
+        let big = |s: &Sim, f: &Frame| {
+            let name = level_name(s, s.level).to_uppercase();
+            c.texts.font().rows(&name).iter().all(|r| rows(f).contains(r.trim_end()))
+        };
+        f.compose(&sim, &at(10_000));
+        assert!(!big(&sim, &f), "NEG: the level a run starts on is not announced");
+        sim.travel(crate::sim::Level::Town);
+        f.compose(&sim, &at(20_000));
+        assert!(big(&sim, &f), "the town is announced on arrival");
+        f.compose(&sim, &at(20_000 + ARRIVAL_MS - 1));
+        assert!(big(&sim, &f), "still up just before the end");
+        f.compose(&sim, &at(20_000 + ARRIVAL_MS));
+        assert!(!big(&sim, &f), "NEG: gone after {ARRIVAL_MS} ms");
+    }
+
+    /// A raging foe says RAGE! over its head; a calm one says nothing; at most INTENT_MAX say anything.
+    #[test]
+    fn foes_say_what_they_are_doing() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let view = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let melee = c.fam_ids().find(|&f| matches!(&c.fam(f).kind, crate::data::FamKind::Mob(crate::data::Mob { role: crate::data::MobRole::Melee, .. }))).unwrap();
+        let word = c.texts.get(t::INTENT_RAGE).to_string();
+        let mut sim = Sim::new(&c, 7, None);
+        sim.world.npcs.clear();
+        let mut f = Frame::new(&c, 160, 45);
+        sim.push_enemy(melee, Tier::Trash, (sim.p.x + 6_000, sim.p.y), 1000, (false, false));
+        f.compose(&sim, &view);
+        assert!(!f.plain().contains(&word), "NEG: a calm foe says nothing");
+        sim.e.status[0] = crate::sim::Status::None.enrage(c.hz().get());
+        f.compose(&sim, &view);
+        assert!(f.plain().contains(&word), "a raging foe says so");
+        for k in 0..2 * INTENT_MAX as i32 {
+            sim.push_enemy(melee, Tier::Trash, (sim.p.x + 4_000 + 700 * k, sim.p.y - 3_000 + 400 * (k % 7)), 1000, (false, false));
+            let j = sim.e.len() - 1;
+            sim.e.status[j] = crate::sim::Status::None.enrage(c.hz().get());
+        }
+        f.compose(&sim, &view);
+        assert!(f.plain().matches(&word).count() <= INTENT_MAX, "NEG: at most {INTENT_MAX} labels");
+    }
+
+    /// Floor items, portals and chests carry a title; an item shows its name and quality in the rarity colour.
+    #[test]
+    fn world_titles_name_items_portals_and_chests() {
+        use crate::data::Rarity;
+        use crate::sim::{Drop, ItemId};
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let view = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let id = ItemId(c.items.iter().position(|it| it.rarity == Rarity::Rare).unwrap() as u16);
+        let it = &c.items[usize::from(id.0)];
+        let title = c.texts.fill(t::TITLE_ITEM, [&it.name, it.rarity.word()]);
+        let mut sim = Sim::new(&c, 7, None);
+        sim.world.npcs.clear();
+        sim.world.chests.clear();
+        sim.treasures.clear();
+        sim.stairs.clear();
+        let mut drop = |sim: &mut Sim, dx: i32, dy: i32| {
+            sim.drops.x.push(sim.p.x + dx);
+            sim.drops.y.push(sim.p.y + dy);
+            sim.drops.kind.push(Drop::Item(id));
+            sim.drops.pulled.push(false);
+        };
+        drop(&mut sim, 3_000, 3_000);
+        let mut f = Frame::new(&c, 160, 40);
+        f.compose(&sim, &view);
+        assert!(f.plain().contains(&title), "the item shows its name and quality");
+        let at = f.plain().lines().find_map(|l| l.find(&title).map(|i| l[..i].chars().count())).unwrap();
+        let row = f.plain().lines().position(|l| l.contains(&title)).unwrap();
+        assert_eq!(f.cells[row * 160 + at].fg, c.pal().role(it.rarity.role()), "in the rarity colour");
+        // a chest and a portal each get their title
+        sim.treasures.push((sim.p.x - 3_000, sim.p.y + 3_000));
+        sim.stairs.push(crate::sim::Stair { x: sim.p.x + 4_000, y: sim.p.y - 4_000, to: crate::sim::Level::Town });
+        f.compose(&sim, &view);
+        let (chest, portal) = (c.texts.get(t::TITLE_CHEST).to_string(), level_name(&sim, crate::sim::Level::Town));
+        assert!(f.plain().contains(&chest) && f.plain().contains(&portal), "chest and portal titles");
+        // NEG: an item beyond sight has no title
+        let mut far = Sim::new(&c, 7, None);
+        far.world.npcs.clear();
+        far.world.chests.clear();
+        far.treasures.clear();
+        far.stairs.clear();
+        drop(&mut far, 10 * c.view.fog_end, 0);
+        f.compose(&far, &view);
+        assert!(!f.plain().contains(&title), "out of sight: no title");
+        // NEG: more than TITLES_MAX items: no more than TITLES_MAX titles
+        let mut many = Sim::new(&c, 7, None);
+        many.world.npcs.clear();
+        many.world.chests.clear();
+        many.treasures.clear();
+        many.stairs.clear();
+        for k in 0..(2 * TITLES_MAX as i32) {
+            drop(&mut many, 2_000 + 500 * k, -2_000 - 700 * (k % 5));
+        }
+        f.compose(&many, &view);
+        assert!(f.plain().matches(&title).count() <= TITLES_MAX, "capped at {TITLES_MAX}");
+    }
+
+    /// Next to a portal the screen says what walking into it does; far from everything it says nothing.
+    #[test]
+    fn context_hint_names_what_is_in_reach() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let mut sim = Sim::new(&c, 7, None);
+        let view = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
+        let row = |f: &Frame| f.plain().lines().nth(HINT_ROW as usize).unwrap().to_string();
+        let st = sim.stairs[0];
+        let want = c.texts.fill(t::HINT_PORTAL, ["X"]).replace("X", "");
+        (sim.p.x, sim.p.y) = (st.x + HINT_R / 2, st.y);
+        let mut f = Frame::new(&c, 160, 40);
+        f.compose(&sim, &view);
+        assert!(row(&f).contains(&want), "near the portal: want {want:?} in {}", row(&f));
+        // NEG: out of reach of every portal, keeper and chest
+        (sim.p.x, sim.p.y) = (st.x + 10 * HINT_R, st.y + 10 * HINT_R);
+        sim.world.chests.clear();
+        sim.world.npcs.clear();
+        sim.stairs.truncate(0);
+        f.compose(&sim, &view);
+        assert!(!row(&f).contains("walk "), "far away: {}", row(&f));
+    }
+
+    /// The map is isometric like the arena: world (-x,-y) is up on the screen, so it is up on the map too.
+    #[test]
+    fn map_is_isometric_like_the_arena_and_shows_explored_vs_fog() {
         let c = Content::parse(&texts()).unwrap();
         let sim = Sim::new(&c, 7, None);
         let unit = c.view.floor_cell.max(1) * MAP_K;
         let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
-        // a treasure 2 map cells east of the hero, in world axes
-        let chest = [((px + 2) * unit + unit / 2, py * unit + unit / 2)];
         let at = |f: &Frame, (dc, dr): (i32, i32)| f.cells[(MAP_H as i32 / 2 + dr) as usize * 120 + (MAP_W as i32 / 2 + dc) as usize];
-        let mut north = Frame::new(&c, 120, 40);
-        north.map(&sim, Heading::default(), unit, (px, py), &[], &chest);
-        for h in [Heading::default().right(), Heading::default().right().right()] {
+        // a treasure one unit up-left in world axes: straight up on the map (same column, one row up); one unit
+        // along +x -y: two columns right, same row
+        let (hx, hy) = (sim.p.x, sim.p.y);
+        for (off, want) in [((-unit, -unit), (0, -1)), ((unit, -unit), (2, 0))] {
             let mut f = Frame::new(&c, 120, 40);
-            f.map(&sim, h, unit, (px, py), &[], &chest);
-            let want = h.rot(2, 0);
-            assert_eq!(at(&f, want).ch.ch(), '■', "chest lands at the turned offset {want:?} for {h:?}");
-            assert_ne!(at(&north, want).ch.ch(), '■', "control: heading N puts it elsewhere");
+            f.map(&sim, unit, &[], &[(hx + off.0, hy + off.1)], None);
+            assert_eq!(at(&f, want).ch.ch(), '■', "chest at world offset {off:?} lands at map offset {want:?}");
+            assert_ne!(at(&f, (0, 1)).ch.ch(), '■', "control: not below the hero");
         }
-        // explored vs fog: radius 1 around the hero
+        // explored vs fog: radius 2 around the hero
         let mut f = Frame::new(&c, 120, 40);
-        explore(&mut f.seen, (px, py), 1);
-        f.map(&sim, Heading::default(), unit, (px, py), &[], &[]);
-        let (known, unknown) = (at(&f, (1, 0)), at(&f, (3, 0)));
+        explore(&mut f.seen, (px, py), 2);
+        f.map(&sim, unit, &[], &[], None);
+        let (known, unknown) = (at(&f, (0, -1)), at(&f, (0, -5)));
         assert_eq!((known.ch.ch(), known.bg), ('░', c.pal().hud_bg));
         assert_eq!((unknown.ch.ch(), unknown.bg), (' ', c.pal().fog));
     }
@@ -4139,21 +4495,22 @@ mod tests {
         f.emit();
         let out = String::from_utf8_lossy(&f.out).to_string();
         assert!(out.contains(&format!("\x1b]8;id=tot;{url}")), "OSC 8 link emitted");
-        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count() + 4, "each link cell closed");
+        assert_eq!(out.matches("\x1b]8;;").count(), SUPPORT_LABEL.chars().count() + SOURCE_LABEL.chars().count() + 8, "each link cell closed");
         let fam = c.fam_ids().next().unwrap();
         sim.outcome = Some(Outcome::Dead { cause: Cause::Contact { fam, tier: Tier::Trash }, foreseen: true });
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         assert!(f.plain().contains(SUPPORT_PLEA), "death plea");
-        assert_eq!(f.links.len(), 2, "button + plea are both links");
+        assert_eq!(f.links.len(), 3, "source button + sponsor button + plea are all links");
         let (fx, _) = (0..120u16).map(|x| (x, f.link_at(x, 39))).find(|p| p.1.is_some()).unwrap();
-        assert_eq!(f.link_at(fx, 39), Some(SUPPORT_URL), "click on the bottom button hits the link");
+        assert_eq!(f.link_at(fx, 39), Some(SOURCE_URL), "the first button, left of the sponsor one, opens the source");
+        assert_eq!(f.link_at(117, 39), Some(SUPPORT_URL), "the sponsor button keeps the right end");
         assert_eq!(f.link_at(0, 0), None, "NEG: elsewhere no link");
     }
 
     #[test]
     fn one_key_row_when_everything_fits() {
         let c = Content::parse(&texts()).unwrap();
-        let (narrow, wide) = (Frame::new(&c, 120, 40), Frame::new(&c, 260, 40));
+        let (narrow, wide) = (Frame::new(&c, 120, 40), Frame::new(&c, 300, 40));
         assert_eq!((narrow.strip, wide.strip), (2, 1), "two rows only when the keys do not fit on one");
         assert_eq!(wide.play_rows(), narrow.play_rows() + 1, "the play area gains the row");
         let mut f = wide;
@@ -4234,7 +4591,7 @@ mod tests {
     // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
     // re-pinned 2026-11-10: cyan portal blocks and big portal arrows, shop stalls, shorter key labels (goal, path)
     // re-pinned 2026-11-12: map as wide as the stats pane, stats rows for bosses, quests, points, souls, damage; g glass key
-    const GOLDEN: u64 = 0x1e72_883a_f02b_3330;
+    const GOLDEN: u64 = 0x995a_9f25_0ae0_7e97;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -4309,13 +4666,15 @@ mod tests {
             assert!(t99 <= 2_000_000, "compose p99 {t99} ns");
         }
         let mut f = Frame::new(&c, 120, 40);
-        let sim = Sim::new(&c, 1, None);
+        // a still scene: under a sky that burns the hero it would speak on the second frame
+        let sim = (1..).map(|k| Sim::new(&c, k, None)).find(|s| s.sky_on_hero().is_none()).unwrap();
         let ui = Ui::new(true);
         let v = View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 };
         f.compose(&sim, &v);
         assert!(f.emit() > 0);
         f.compose(&sim, &v);
-        assert_eq!((f.emit(), f.out.len()), (0, 0), "unchanged state => no bytes");
+        let (n, len) = (f.emit(), f.out.len());
+        assert_eq!((n, len), (0, 0), "unchanged state => no bytes: {:?}", String::from_utf8_lossy(&f.out));
     }
 
     #[test]
@@ -5040,6 +5399,45 @@ mod tests {
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let row = c.texts.fill(t::QUEST_ROW, ["Rat Purge", "7", "20"]);
         assert!(f.plain().contains(&row), "{row}\n{}", f.plain());
+    }
+
+    /// The followed quest is told on screen (title, progress, way, distance) and its way is drawn on the map; `o`
+    /// switches quest and the line to it can be hidden.
+    #[test]
+    fn the_followed_quest_is_told_on_screen_and_its_path_is_on_the_map() {
+        use crate::sim::{Goal, Reward, Spot};
+        let c = Content::parse(&texts()).unwrap();
+        let mut sim = Sim::new(&c, 7, None);
+        let mut ui = Ui::new(true);
+        let mut f = Frame::new(&c, 160, 45);
+        let w = |s: &str| crate::sim::Word::parse(s).unwrap();
+        let line = |f: &Frame| f.plain().lines().nth(OBJECTIVE_ROW as usize).unwrap().to_string();
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(!line(&f).contains("QUEST"), "NEG: no quest, no line: {}", line(&f));
+        sim.give_quest(w("east"), w("Go East"), Goal::Slay(5), Reward::default(), Spot::new(None, 10, 0)).unwrap();
+        sim.give_quest(w("kill"), w("Kill Them"), Goal::Slay(9), Reward::default(), None).unwrap();
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(line(&f).contains("QUEST Go East 0/5"), "the followed quest: {}", line(&f));
+        assert!(line(&f).contains('m') && line(&f).contains("next quest"), "how far, and the key: {}", line(&f));
+        // `o` follows the next quest
+        ui.obj_sel += 1;
+        f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
+        assert!(line(&f).contains("QUEST Kill Them 0/9"), "the next quest: {}", line(&f));
+        // the map: dots between the hero and a quest 10 tiles east
+        ui.obj_sel = 0;
+        let spot = sim.objective(sim.quests.iter().find(|q| !q.done).unwrap()).unwrap();
+        let unit = c.view.floor_cell.max(1) * MAP_K;
+        let dots = |path| {
+            let mut m = Frame::new(&c, 160, 45);
+            m.map(&sim, unit, &[], &[], path);
+            (0..usize::from(MAP_H)).flat_map(|r| m.cells[r * 160..r * 160 + usize::from(MAP_W)].iter().map(|x| x.ch.ch())).filter(|&ch| ch == '·').count()
+        };
+        assert!(dots(Some(spot)) >= 3, "the path is drawn on the map: {}", dots(Some(spot)));
+        assert_eq!(dots(None), 0, "NEG: no path asked, no dots");
+        // O hides the line: the map gets none
+        ui.obj_line = false;
+        let (open, sel) = Frame::objectives(&sim, &ui);
+        assert!(!ui.obj_line && sel.and_then(|k| open[k].1).is_some(), "the quest has a spot; the line is switched off");
     }
 
     #[test]

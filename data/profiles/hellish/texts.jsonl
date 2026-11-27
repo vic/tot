@@ -362,3 +362,21 @@
 {"t":"text","id":"theme_title","text":"HUES > {query} ({n})"}
 {"t":"text","id":"theme_none","text":"No such hues in hell."}
 {"t":"text","id":"theme_keys","text":"type to filter  up/down  enter keep  esc back"}
+{"t":"text","id":"hint_portal","text":"walk into the portal to travel to {name}"}
+{"t":"text","id":"hint_shop","text":"walk up to the keeper to trade"}
+{"t":"text","id":"hint_chest","text":"walk into the chest to open it"}
+{"t":"text","id":"title_item","text":"{name} [{quality}]"}
+{"t":"text","id":"title_merchant","text":"MERCHANT"}
+{"t":"text","id":"title_blacksmith","text":"BLACKSMITH"}
+{"t":"text","id":"title_jeweler","text":"JEWELER"}
+{"t":"text","id":"title_chest","text":"CHEST"}
+{"t":"text","id":"title_boss_chest","text":"BOSS CHEST"}
+{"t":"text","id":"intent_rage","text":"RAGE!"}
+{"t":"text","id":"intent_flee","text":"fleeing"}
+{"t":"text","id":"intent_surround","text":"surrounding"}
+{"t":"text","id":"intent_bait","text":"baiting"}
+{"t":"text","id":"intent_flank","text":"flanking"}
+{"t":"bark","id":"heat","shout":"BURNS!","lines":["The heat of the pit reaches up here.","Sun like a furnace door. I burn.","Even the sun is on the dead side.","My flesh smokes. Shade, quickly."]}
+{"t":"bark","id":"acid","shout":"ACID!","lines":["The rain is bile. It burns.","Brimstone falls from the sky.","The sky weeps acid on the faithful.","Find shelter. This rain eats stone."]}
+{"t":"bark","id":"wind","shout":"WIND!","lines":["The wind howls and shoves me back.","The dead wind will not let me pass.","A gale from the pit. I cannot walk.","Wailing wind. Each step is a fight."]}
+{"t":"text","id":"quest_now","text":"QUEST {title} {now}/{of} {where}   o: next quest"}

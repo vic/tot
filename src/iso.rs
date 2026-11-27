@@ -74,12 +74,14 @@ impl Proj {
     }
 
     /// World point (mm) -> screen cell (round half up).
+    #[cfg(test)]
     pub fn project(self, x: f64, y: f64) -> (i32, i32) {
         let (c, r) = self.screen(x, y);
         ((c + 0.5).floor() as i32, (r + 0.5).floor() as i32)
     }
 
     /// Screen cell -> world point (mm) of the cell centre.
+    #[cfg(test)]
     pub fn unproject(self, col: i32, row: i32) -> (f64, f64) {
         self.unproject_f(f64::from(col), f64::from(row))
     }

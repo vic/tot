@@ -25,7 +25,7 @@ const fn big(id: &'static str, doc: &'static str) -> Spec {
     Spec { id, slots: &[], font: Font::Big, doc }
 }
 
-pub const TXTS: [Spec; 254] = [
+pub const TXTS: [Spec; 269] = [
     line("pick_adventure", &[], "Start screen, step 1: one header line centred under the title art, above the list of adventures."),
     line("pick_class", &[], "Start screen, step 2: one header line centred under the title art, above the hero classes of the picked adventure."),
     // agentic adventure steps of the start screen (drawn in the base adventure)
@@ -241,6 +241,21 @@ pub const TXTS: [Spec; 254] = [
     line("msg_no_browser", &["url"], "Status message: the sponsor link was clicked but no browser was found."),
     line("msg_opening", &["url"], "Status message: the sponsor link is opening."),
     line("msg_open_failed", &["url", "error"], "Status message: the browser did not start."),
+    line("quest_now", &["title","now","of","where"], "Top of the arena: the quest the hero follows, its progress, which way and how far it is."),
+    line("intent_flank", &[], "Over a foe circling to the hero's back."),
+    line("intent_bait", &[], "Over a foe luring the hero out."),
+    line("intent_surround", &[], "Over a foe moving to its place on a ring round the hero."),
+    line("intent_flee", &[], "Over a foe running from the hero."),
+    line("intent_rage", &[], "Over a foe in a rage."),
+    line("title_boss_chest", &[], "Title over a chest that opens into a boss."),
+    line("title_chest", &[], "Title over a chest lying in the world."),
+    line("title_jeweler", &[], "Title over a jeweler."),
+    line("title_blacksmith", &[], "Title over a blacksmith."),
+    line("title_merchant", &[], "Title over a merchant."),
+    line("title_item", &["name","quality"], "Title over an item lying on the floor: its name and its quality word."),
+    line("hint_chest", &[], "One line near a chest: how to open it."),
+    line("hint_shop", &[], "One line near a shop keeper: how to trade."),
+    line("hint_portal", &["name"], "One line near a portal: what walking into it does."),
     line("whichkey_more", &[], "Which-key popup: the label of a key that opens a further group."),
     line("shop_piece", &["slot", "item", "plus"], "Shop popup, smith and jeweler: the piece the next upgrade or enchant works on (tab picks the slot)."),
     line("shop_upgrade", &["gold", "ore"], "Shop popup, blacksmith: the upgrade key and what the next plus costs."),
@@ -625,6 +640,21 @@ pub mod t {
     pub const MSG_NO_BROWSER: Txt<1> = Txt::named("msg_no_browser");
     pub const MSG_OPENING: Txt<1> = Txt::named("msg_opening");
     pub const MSG_OPEN_FAILED: Txt<2> = Txt::named("msg_open_failed");
+    pub const QUEST_NOW: Txt<4> = Txt::named("quest_now");
+    pub const INTENT_FLANK: Txt<0> = Txt::named("intent_flank");
+    pub const INTENT_BAIT: Txt<0> = Txt::named("intent_bait");
+    pub const INTENT_SURROUND: Txt<0> = Txt::named("intent_surround");
+    pub const INTENT_FLEE: Txt<0> = Txt::named("intent_flee");
+    pub const INTENT_RAGE: Txt<0> = Txt::named("intent_rage");
+    pub const TITLE_BOSS_CHEST: Txt<0> = Txt::named("title_boss_chest");
+    pub const TITLE_CHEST: Txt<0> = Txt::named("title_chest");
+    pub const TITLE_JEWELER: Txt<0> = Txt::named("title_jeweler");
+    pub const TITLE_BLACKSMITH: Txt<0> = Txt::named("title_blacksmith");
+    pub const TITLE_MERCHANT: Txt<0> = Txt::named("title_merchant");
+    pub const TITLE_ITEM: Txt<2> = Txt::named("title_item");
+    pub const HINT_CHEST: Txt<0> = Txt::named("hint_chest");
+    pub const HINT_SHOP: Txt<0> = Txt::named("hint_shop");
+    pub const HINT_PORTAL: Txt<1> = Txt::named("hint_portal");
     pub const WHICHKEY_MORE: Txt<0> = Txt::named("whichkey_more");
     pub const SHOP_PIECE: Txt<3> = Txt::named("shop_piece");
     pub const SHOP_UPGRADE: Txt<2> = Txt::named("shop_upgrade");

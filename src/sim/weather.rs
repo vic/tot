@@ -26,10 +26,10 @@ const WEIGHTS: [(Weather, u64); 8] =
 const SHELTER_TILES: i32 = 2;
 /// Hero HP change per second in milli-HP when exposed.
 const RAIN_HEAL: i32 = 500;
-const ACID_HURT: i32 = 1000;
-const HEAT_HURT: i32 = 400;
+const ACID_HURT: i32 = 4000;
+const HEAT_HURT: i32 = 2500;
 /// Wind push per second (mm), and the hero.s speed in snow and heat (permille).
-const WIND_MMPS: i32 = 1500;
+const WIND_MMPS: i32 = 4000;
 const SNOW_HERO: u32 = 800;
 const HEAT_HERO: u32 = 900;
 

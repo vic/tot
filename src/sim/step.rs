@@ -311,12 +311,7 @@ impl<'c> Sim<'c> {
                     chase = td2 > i64::from(*range).pow(2) * 3 / 4;
                 }
                 // thief: runs from the player inside its flee radius, else dives for the nearest loot
-                let flee = match &fam.kind {
-                    FamKind::Mob(Mob { role: MobRole::Thief { flee }, .. }) => Some(*flee),
-                    _ if e.panic[i] => Some(PANIC_FLEE),
-                    _ => None,
-                };
-                if let Some(flee) = flee {
+                if let Some(flee) = flee_radius(fam, e.panic[i]) {
                     if dp2 <= i64::from(flee).pow(2) {
                         (tx, ty, td2) = (x + (x - px), y + (y - py), dp2);
                     } else if let Some(k) = (0..self.drops.x.len()).max_by_key(|&k| {
@@ -1679,6 +1674,44 @@ impl<'c> Sim<'c> {
         f(self.tele.len() as i64);
         f(i64::from(self.stats.kills));
         h
+    }
+}
+
+/// How close the hero must come before a foe runs from it: a thief by its role, a panicked foe by PANIC_FLEE.
+fn flee_radius(fam: &crate::data::Fam, panic: bool) -> Option<i32> {
+    match &fam.kind {
+        FamKind::Mob(Mob { role: MobRole::Thief { flee }, .. }) => Some(*flee),
+        _ if panic => Some(PANIC_FLEE),
+        _ => None,
+    }
+}
+
+impl Sim<'_> {
+    /// What the hostile foe `i` is visibly doing, for the screen: raging, running from the hero, or working
+    /// the crowd tactic it was born with (surround, bait, flank) while close enough to the hero to use it.
+    pub fn intent(&self, i: usize) -> Option<Intent> {
+        let (e, c) = (&self.e, self.c);
+        if e.side[i] != Side::Hostile {
+            return None;
+        }
+        let fam = c.fam(e.fam[i]);
+        let dp2 = dist2(self.p.x - e.x[i], self.p.y - e.y[i]);
+        if matches!(e.status[i], Status::Raging { .. }) {
+            return Some(Intent::Rage);
+        }
+        if flee_radius(fam, e.panic[i]).is_some_and(|r| dp2 <= i64::from(r).pow(2)) {
+            return Some(Intent::Flee);
+        }
+        let melee = e.tier[i] != Tier::Boss && !e.panic[i] && matches!(&fam.kind, FamKind::Mob(Mob { role: MobRole::Melee, .. }));
+        if melee && dp2 <= i64::from(c.view.view_r + SEP_MARGIN).pow(2) {
+            return match Tactic::of(e.id[i]) {
+                Tactic::Rush => None,
+                Tactic::Surround => Some(Intent::Surround),
+                Tactic::Bait => Some(Intent::Bait),
+                Tactic::Flank => Some(Intent::Flank),
+            };
+        }
+        None
     }
 }
 

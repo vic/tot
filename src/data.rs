@@ -1180,11 +1180,14 @@ pub enum Bark {
     Frozen,
     Hungry,
     Gold,
+    Heat,
+    Acid,
+    Wind,
 }
 
 impl Bark {
-    pub const ALL: [Bark; 12] =
-        [Bark::LowHp, Bark::Hurt, Bark::Reloading, Bark::Passive, Bark::NoTarget, Bark::Empty, Bark::Level, Bark::Streak, Bark::Special, Bark::Frozen, Bark::Hungry, Bark::Gold];
+    pub const ALL: [Bark; 15] =
+        [Bark::LowHp, Bark::Hurt, Bark::Reloading, Bark::Passive, Bark::NoTarget, Bark::Empty, Bark::Level, Bark::Streak, Bark::Special, Bark::Frozen, Bark::Hungry, Bark::Gold, Bark::Heat, Bark::Acid, Bark::Wind];
     fn id(self) -> &'static str {
         match self {
             Bark::LowHp => "low_hp",
@@ -1199,6 +1202,9 @@ impl Bark {
             Bark::Frozen => "frozen",
             Bark::Hungry => "hungry",
             Bark::Gold => "gold",
+            Bark::Heat => "heat",
+            Bark::Acid => "acid",
+            Bark::Wind => "wind",
         }
     }
     /// When the hero says it (the schema doc an adventure author reads).
@@ -1216,6 +1222,9 @@ impl Bark {
             Bark::Frozen => "the hero is frozen",
             Bark::Hungry => "the hero gets hungry",
             Bark::Gold => "the hero picks up gold",
+            Bark::Heat => "the sun burns the hero (heat, not sheltered)",
+            Bark::Acid => "acid rain burns the hero (not sheltered)",
+            Bark::Wind => "the wind pushes the hero about",
         }
     }
 }
@@ -1580,6 +1589,10 @@ const RARITIES: [(&str, Rarity); 5] =
     [("common", Rarity::Common), ("rare", Rarity::Rare), ("epic", Rarity::Epic), ("legendary", Rarity::Legendary), ("unique", Rarity::Unique)];
 
 impl Rarity {
+    /// The word an item of this rarity is called (the data key).
+    pub fn word(self) -> &'static str {
+        RARITIES.iter().find(|(_, r)| *r == self).map_or("", |(w, _)| w)
+    }
     /// Colour role every widget draws this rarity in.
     pub fn role(self) -> Role {
         match self {

@@ -26,6 +26,8 @@ const LOW_HP_PCT: i64 = 30;
 /// Pain shows this many ticks after a hit; idle eyes move every GLANCE_S seconds.
 const PAIN_TICKS: u32 = 8;
 const GLANCE_S: u32 = 2;
+/// The hero says the sky hurts it at most this often (seconds).
+const SKY_SAY_S: u32 = 8;
 
 #[derive(Clone, Copy, Default)]
 struct Seen {
@@ -47,6 +49,8 @@ pub struct Face {
     last: Option<Seen>,
     laugh_until: u32,
     bark: Option<(Event, u32)>,
+    /// tick of the last line about the sky
+    sky_said: Option<u32>,
 }
 
 fn seen(sim: &Sim) -> Seen {
@@ -96,6 +100,17 @@ impl Face {
         }
         if now.frozen && !old.frozen {
             say(self, Event::Frozen);
+        }
+        // the sky burns or shoves the hero: say so, now and then while it lasts
+        if let Some(w) = sim.sky_on_hero()
+            && self.sky_said.is_none_or(|t| sim.tick.saturating_sub(t) >= SKY_SAY_S * hz)
+        {
+            self.sky_said = Some(sim.tick);
+            say(self, match w {
+                crate::sim::Weather::Heat => Event::Heat,
+                crate::sim::Weather::AcidRain => Event::Acid,
+                _ => Event::Wind,
+            });
         }
         // a special just went off: some slot's reload jumped up
         if now.reloads > old.reloads {
@@ -186,6 +201,38 @@ pub fn rows(c: &crate::data::Content, mood: Mood, eyes: i32) -> &[String] {
 mod tests {
     use super::*;
     use crate::data::tests::content;
+
+    /// Heat, acid rain and wind each make the hero say so; a clear sky makes it say nothing.
+    #[test]
+    fn the_hero_says_when_the_sky_hurts_it() {
+        use crate::sim::Weather;
+        let c = content();
+        let mut s = Sim::new(&c, 7, None);
+        let hz = c.hz().get();
+        let when = |s: &Sim, w: Weather| (0..4000u32).map(|k| k * hz).find(|&t| s.world.forecast(t).now == w).expect("that sky comes up");
+        for (w, say) in [(Weather::Heat, Event::Heat), (Weather::AcidRain, Event::Acid), (Weather::Wind, Event::Wind)] {
+            let t = when(&s, w);
+            let mut f = Face::default();
+            s.tick = t;
+            assert_eq!(s.sky_on_hero(), Some(w), "{w:?}: the sky is on the hero (precondition)");
+            f.observe(&s);
+            s.tick = t + 1;
+            f.observe(&s);
+            assert_eq!(f.bark, Some((say, t + 1)), "{w:?}: the hero says it");
+            // not again at once
+            s.tick = t + 2;
+            f.observe(&s);
+            assert_eq!(f.bark, Some((say, t + 1)), "{w:?}: and not every frame");
+        }
+        // NEG: a clear sky
+        let t = when(&s, Weather::Clear);
+        let mut f = Face::default();
+        s.tick = t;
+        f.observe(&s);
+        s.tick = t + 1;
+        f.observe(&s);
+        assert_eq!((s.sky_on_hero(), f.bark), (None, None), "clear: nothing to say");
+    }
 
     #[test]
     fn events_bark_and_moods_follow_what_happened() {

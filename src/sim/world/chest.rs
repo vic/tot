@@ -36,6 +36,11 @@ pub enum ChestKind {
 }
 
 impl ChestKind {
+    /// Opens into a boss.
+    pub fn is_boss(self) -> bool {
+        matches!(self, ChestKind::Boss(_))
+    }
+
     /// False chests give themselves away once the hero is near.
     pub fn is_false(self) -> bool {
         matches!(self, ChestKind::Bomb | ChestKind::Mimic)
