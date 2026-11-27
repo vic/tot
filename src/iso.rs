@@ -21,11 +21,6 @@ impl Heading {
     pub fn quarter(self) -> u8 {
         self.0
     }
-    /// world -> view (the inverse quarter turn)
-    #[cfg(test)]
-    pub(crate) fn rot(self, x: i32, y: i32) -> (i32, i32) {
-        Heading((4 - self.0) % 4).unrot(x, y)
-    }
     /// view -> world
     pub(crate) fn unrot(self, x: i32, y: i32) -> (i32, i32) {
         match self.0 {

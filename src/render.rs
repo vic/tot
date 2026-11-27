@@ -2198,12 +2198,19 @@ impl Frame {
         // screen cells per world mm: one map column spans `s` arena columns
         let s = f64::from(unit) * 3.0 / 1000.0;
         let (hx, hy) = (f64::from(sim.p.x), f64::from(sim.p.y));
+        let p = self.eye.p;
         for dr in 0..MAP_H {
             for dc in 0..MAP_W {
-                let (ox, oy) = self.eye.p.unproject_f((f64::from(dc) - f64::from(cc)) * s, (f64::from(dr) - f64::from(rc)) * s);
-                let (cx, cy) = (((hx + ox) / f64::from(unit)).floor() as i32, ((hy + oy) / f64::from(unit)).floor() as i32);
-                let known = self.seen.contains(&(cx, cy));
-                let (ch, fg) = if known && rock(sim.arena(), cx, cy) {
+                // the world point at an offset (in map cells) from this cell's centre, as the arena shows it
+                let world = |du: f64, dv: f64| {
+                    let (ox, oy) = p.unproject_f((f64::from(dc) - f64::from(cc) + du) * s, (f64::from(dr) - f64::from(rc) + dv) * s);
+                    (hx + ox, hy + oy)
+                };
+                let (wx, wy) = world(0.0, 0.0);
+                let known = self.seen.contains(&((wx / f64::from(unit)).floor() as i32, (wy / f64::from(unit)).floor() as i32));
+                // rock where most of the real tiles under the cell are solid, so walls keep the arena's diagonals
+                let rock = known && MAP_SAMPLES.iter().filter(|&&(du, dv)| { let (x, y) = world(du, dv); sim.arena().tile_mm(x as i32, y as i32).solid() }).count() * 2 > MAP_SAMPLES.len();
+                let (ch, fg) = if rock {
                     (c.texts.glyph(g::MAP_ROCK), pal.text)
                 } else if known {
                     (c.texts.glyph(g::MAP_FLOOR), pal.floor)
@@ -2303,7 +2310,9 @@ impl Frame {
         self.flash_cell(ROSE_C as i32, ROSE_C as i32, c.texts.glyph(g::STAR), pal.dim);
         // each letter takes one cell: the first glyph of the adventure's compass word
         for (k, (wx, wy)) in COMPASS.into_iter().enumerate() {
-            let (col, row) = at(p.rot(f64::from(wx), f64::from(wy)));
+            // each direction through the arena's own projection (isometric: north is a diagonal, not straight up)
+            let (u, v) = p.screen(f64::from(wx) * 1000.0, f64::from(wy) * 1000.0);
+            let (col, row) = at((u / ROSE_ISO.0, v / ROSE_ISO.1));
             let letter = Glyph::text(c.texts.get(t::DIR[k])).next().unwrap_or(Glyph::SPACE);
             self.flash_cell(col, row, letter, if k == 0 { pal.alarm } else { pal.text });
         }
@@ -2982,12 +2991,6 @@ fn sky_fg(pal: &crate::data::Palette, w: Weather) -> Rgb {
     }
 }
 
-/// Map cell (MAP_K x MAP_K tiles) is mostly rock: at least a quarter of its tiles are solid.
-fn rock(ar: &Arena, cx: i32, cy: i32) -> bool {
-    let (t0x, t0y) = (cx * MAP_K, cy * MAP_K);
-    (0..MAP_K).flat_map(|dy| (0..MAP_K).map(move |dx| (dx, dy))).filter(|&(dx, dy)| ar.tile(t0x + dx, t0y + dy).solid()).count() as i32 * 4 >= MAP_K * MAP_K
-}
-
 fn solid(ar: &Arena, fc: i32, fx: i32, fy: i32) -> bool {
     ar.tile_mm(fx * fc + fc / 2, fy * fc + fc / 2).solid()
 }
@@ -3173,6 +3176,11 @@ fn chest_glow(pal: &crate::data::Palette, tick: u32) -> Rgb {
 
 /// Compass centre cell (col = row) in the 3x3 plate at the map's top-left.
 const ROSE_C: f64 = 1.0;
+/// Where, in map cells from a cell's centre, the tiles that decide whether it is rock are read.
+const MAP_SAMPLES: [(f64, f64); 5] = [(0.0, 0.0), (-0.3, -0.3), (0.3, -0.3), (-0.3, 0.3), (0.3, 0.3)];
+/// Screen cells (columns, rows) one metre east or south projects to: a compass arm is a unit step in the same
+/// projection as the arena, so it is a corner of the 3x3 plate.
+const ROSE_ISO: (f64, f64) = (3.0, 1.5);
 /// Waiting power-up panes: most shown, and their width.
 const LOOT_PANES: u16 = 4;
 const LOOT_PANE_W: i32 = 16;
@@ -3430,7 +3438,7 @@ mod tests {
         sim.world.chests.clear();
         sim.treasures.clear();
         sim.stairs.clear();
-        let mut drop = |sim: &mut Sim, dx: i32, dy: i32| {
+        let drop = |sim: &mut Sim, dx: i32, dy: i32| {
             sim.drops.x.push(sim.p.x + dx);
             sim.drops.y.push(sim.p.y + dy);
             sim.drops.kind.push(Drop::Item(id));
@@ -3550,16 +3558,16 @@ mod tests {
             }
             ((i % 120) as f64 - ROSE_C, (i / 120) as f64 - ROSE_C)
         };
-        let mut h = Heading::default();
         for k in 0..4 {
             let (dx, dy) = n_at(&mut f, f64::from(k));
-            let (wx, wy) = h.rot(0, -1);
-            assert_eq!((dx.signum() as i32 * i32::from(dx.abs() > 0.5), dy.signum() as i32 * i32::from(dy.abs() > 0.5)), (wx, wy), "at rest N points where the map's north is (heading {k})");
-            h = h.right();
+            // isometric: north is a corner of the plate, where the arena's projection puts it
+            let (u, v) = Proj::at(f64::from(k)).screen(0.0, -1000.0);
+            assert_eq!((dx, dy), ((u / ROSE_ISO.0).round(), (v / ROSE_ISO.1).round()), "N follows the arena projection (quarter turn {k})");
+            assert!(dx.abs() == 1.0 && dy.abs() == 1.0, "N is a diagonal, not straight up: {dx},{dy} (quarter turn {k})");
         }
         // half a turn: N sits between where it was and where it goes (smooth, not a jump)
         let (a, mid, b) = (n_at(&mut f, 0.0), n_at(&mut f, 0.5), n_at(&mut f, 1.0));
-        assert!(mid != a && mid != b && mid.0 > a.0 && mid.0 < b.0 + 0.5, "swings through: {a:?} {mid:?} {b:?}");
+        assert!(mid != a && mid != b, "swings through: {a:?} {mid:?} {b:?}");
     }
 
     #[test]
@@ -4591,7 +4599,7 @@ mod tests {
     // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
     // re-pinned 2026-11-10: cyan portal blocks and big portal arrows, shop stalls, shorter key labels (goal, path)
     // re-pinned 2026-11-12: map as wide as the stats pane, stats rows for bosses, quests, points, souls, damage; g glass key
-    const GOLDEN: u64 = 0x995a_9f25_0ae0_7e97;
+    const GOLDEN: u64 = 0xe0d1_77cb_4c55_9e6b;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

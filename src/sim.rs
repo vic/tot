@@ -1434,11 +1434,10 @@ impl<'c> Sim<'c> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::tests::{content, texts};
+    use crate::data::tests::content;
     use crate::director::Director;
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
-    use std::time::Instant;
 
     // Counting allocator (tests only): per-thread count, so parallel tests do not interfere.
     struct Counting;
