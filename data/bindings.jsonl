@@ -19,12 +19,12 @@
 {"t":"bind","mode":"play","keys":["d"],"action":"right","label":"right"}
 {"t":"bind","mode":"play","keys":["l"],"action":"right","label":"right"}
 {"t":"bind","mode":"play","keys":["right"],"action":"right","label":"right"}
-{"t":"bind","mode":"play","keys":["shift"],"action":"dodge","label":"dodge"}
+{"t":"bind","mode":"play","keys":["shift"],"action":"fire","label":"fire"}
 {"t":"bind","mode":"play","keys":["x"],"action":"hack","label":"hack"}
 {"t":"bind","mode":"play","keys":["q"],"action":"rot_left","label":"rotate left"}
 {"t":"bind","mode":"play","keys":["e"],"action":"rot_right","label":"rotate right"}
 {"t":"bind","mode":"play","keys":[":"],"action":"cmd","label":"cmd"}
-{"t":"bind","mode":"play","keys":["space"],"action":"fire","label":"fire"}
+{"t":"bind","mode":"play","keys":["space"],"action":"dodge","label":"evade"}
 {"t":"bind","mode":"play","keys":["F"],"action":"autofire","label":"autofire"}
 {"t":"bind","mode":"play","keys":["W"],"action":"autowalk","label":"autowalk"}
 {"t":"bind","mode":"play","keys":["p"],"action":"pick","label":"power-up"}

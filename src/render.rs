@@ -2195,8 +2195,7 @@ impl Frame {
             return;
         }
         let (cc, rc) = (i32::from(MAP_W / 2), i32::from(MAP_H / 2));
-        // screen cells per world mm: one map column spans `s` arena columns
-        let s = f64::from(unit) * 3.0 / 1000.0;
+        let s = MAP_SCALE;
         let (hx, hy) = (f64::from(sim.p.x), f64::from(sim.p.y));
         let p = self.eye.p;
         for dr in 0..MAP_H {
@@ -2227,15 +2226,16 @@ impl Frame {
             ((0..i32::from(MAP_W)).contains(&dc) && (0..i32::from(MAP_H)).contains(&dr)).then_some(dr as usize * cols + dc as usize)
         };
         let eye = self.eye;
-        // the way to the followed quest: a dotted line from the hero, under every marker
+        // the way to the followed quest, lit: a bright trail on a glow, over fog and rock alike, under every marker
         if let Some((ox, oy)) = path {
-            let dot = Glyph::of('·').unwrap_or(Glyph::SPACE);
+            let dot = Glyph::of('●').or(Glyph::of('•')).unwrap_or(Glyph::SPACE);
             for k in 1..MAP_PATH_STEPS {
                 let f = f64::from(k) / f64::from(MAP_PATH_STEPS);
                 let (x, y) = ((hx + (f64::from(ox) - hx) * f) as i32, (hy + (f64::from(oy) - hy) * f) as i32);
                 if let Some(i) = at(&eye, x, y) {
                     self.cells[i].ch = dot;
                     self.cells[i].fg = objective_ink(pal);
+                    self.cells[i].bg = mix(objective_ink(pal), pal.hud_bg, PATH_GLOW);
                 }
             }
         }
@@ -2637,14 +2637,13 @@ impl Frame {
                 let i = usize::from(row) * cols + usize::from(x) + k;
                 self.cells[i] = Cell { ch: Glyph::of(ch).unwrap_or(Glyph::SPACE), fg: key, bg: pal.bg };
             }
-            // a toggle shows its state as the label's background: green on, red off (no extra text)
+            // a toggle that is off is muted, key and label (on keeps the normal colours): no extra text, no tint
             let lx = x + h.keys.chars().count() as u16 + 1;
             let end = self.text(row, lx, &h.label, pal.text);
-            if let Some(on) = h.on {
-                let bg = mix(pal.role(if on { Role::Heal } else { Role::Danger }), pal.bg, TOGGLE_BG);
+            if h.on == Some(false) {
                 let i = usize::from(row) * cols;
-                for cell in &mut self.cells[i + usize::from(lx)..i + usize::from(end)] {
-                    cell.bg = bg;
+                for cell in &mut self.cells[i + usize::from(x)..i + usize::from(end)] {
+                    cell.fg = pal.dim;
                 }
             }
         }
@@ -3104,7 +3103,6 @@ impl Roar {
 /// Which-key popup: widest inner width.
 const WK_MAX_W: usize = 72;
 /// Toggle label background: state colour mixed this far (permille) toward the background.
-const TOGGLE_BG: u32 = 450;
 /// Picker card rows: rarity colour mixed this far (permille) toward the panel background.
 const CARD_TINT: u32 = 780;
 /// Story card: seconds it stays, letters typed per second.
@@ -3176,6 +3174,10 @@ fn chest_glow(pal: &crate::data::Palette, tick: u32) -> Rgb {
 
 /// Compass centre cell (col = row) in the 3x3 plate at the map's top-left.
 const ROSE_C: f64 = 1.0;
+/// One map cell spans this many arena cells each way: the map is for finding the way, so it takes in about three screens.
+const MAP_SCALE: f64 = 12.0;
+/// How much of the quest colour the lit trail glows in (permille).
+const PATH_GLOW: u32 = 450;
 /// Where, in map cells from a cell's centre, the tiles that decide whether it is rock are read.
 const MAP_SAMPLES: [(f64, f64); 5] = [(0.0, 0.0), (-0.3, -0.3), (0.3, -0.3), (-0.3, 0.3), (0.3, 0.3)];
 /// Screen cells (columns, rows) one metre east or south projects to: a compass arm is a unit step in the same
@@ -3510,10 +3512,9 @@ mod tests {
         let unit = c.view.floor_cell.max(1) * MAP_K;
         let (px, py) = (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit));
         let at = |f: &Frame, (dc, dr): (i32, i32)| f.cells[(MAP_H as i32 / 2 + dr) as usize * 120 + (MAP_W as i32 / 2 + dc) as usize];
-        // a treasure one unit up-left in world axes: straight up on the map (same column, one row up); one unit
-        // along +x -y: two columns right, same row
+        // a treasure one unit up-left in world axes: straight up on the map, 2 rows; one unit along +x -y: 4 columns right
         let (hx, hy) = (sim.p.x, sim.p.y);
-        for (off, want) in [((-unit, -unit), (0, -1)), ((unit, -unit), (2, 0))] {
+        for (off, want) in [((-unit, -unit), (0, -2)), ((unit, -unit), (4, 0))] {
             let mut f = Frame::new(&c, 120, 40);
             f.map(&sim, unit, &[], &[(hx + off.0, hy + off.1)], None);
             assert_eq!(at(&f, want).ch.ch(), '■', "chest at world offset {off:?} lands at map offset {want:?}");
@@ -3523,7 +3524,7 @@ mod tests {
         let mut f = Frame::new(&c, 120, 40);
         explore(&mut f.seen, (px, py), 2);
         f.map(&sim, unit, &[], &[], None);
-        let (known, unknown) = (at(&f, (0, -1)), at(&f, (0, -5)));
+        let (known, unknown) = (at(&f, (0, -2)), at(&f, (16, 0)));
         assert_eq!((known.ch.ch(), known.bg), ('░', c.pal().hud_bg));
         assert_eq!((unknown.ch.ch(), unknown.bg), (' ', c.pal().fog));
     }
@@ -3801,14 +3802,18 @@ mod tests {
     #[test]
     fn map_shows_rock_only_where_explored() {
         let c = Content::parse(&texts()).unwrap();
-        let sim = Sim::new(&c, 7, None);
+        let mut sim = Sim::new(&c, 7, None);
+        // the map is a miniature of the screen: stand a few metres from a wall so some is on it
+        let wall = (0..200).map(|k| sim.p.x + k * 1000).find(|&x| sim.arena().tile_mm(x, sim.p.y).solid()).expect("a wall to the east");
+        sim.p.x = wall - 6_000;
         let ui = Ui::new(true);
         let mut f = Frame::new(&c, 120, 40);
         let map = |f: &Frame| (0..usize::from(MAP_H)).flat_map(|r| f.cells[r * 120..r * 120 + usize::from(MAP_W)].iter().map(|c| c.ch.ch())).filter(|&ch| ch == '█').count();
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         let near = map(&f);
         // explore the whole map window: the room's cave walls appear
-        explore(&mut f.seen, (0, 0), i32::from(MAP_W));
+        let unit = c.view.floor_cell.max(1) * MAP_K;
+        explore(&mut f.seen, (sim.p.x.div_euclid(unit), sim.p.y.div_euclid(unit)), i32::from(MAP_W));
         f.compose(&sim, &View { ui: &ui, now_ms: 0, alpha: 1.0, phase: "BUILD", last_bytes: 0 });
         assert!(map(&f) > near + 10, "explored rock shows on the map ({} vs {near})", map(&f));
     }
@@ -4134,11 +4139,11 @@ mod tests {
         assert!(!map(&f).contains(merchant) && !map(&f).contains(goblin), "control: none on the map");
         let gold_arrows = |f: &Frame| f.cells.iter().filter(|cl| [ARROW_E, ARROW_W, ARROW_N, ARROW_S].contains(&cl.ch.ch()) && cl.fg == c.pal().chest).count();
         let before = gold_arrows(&f);
-        sim.world.npcs = vec![Placed { npc: Npc::Merchant { honest: true }, x: sim.p.x + 40_000, y: sim.p.y }];
+        sim.world.npcs = vec![Placed { npc: Npc::Merchant { honest: true }, x: sim.p.x + 30_000, y: sim.p.y }];
         f.compose(&sim, &view);
         assert!(map(&f).contains(merchant), "merchant on the map");
         assert_eq!(gold_arrows(&f), before + 1, "and a gold arrow points at it");
-        sim.world.goblins.push(crate::sim::Goblin { x: sim.p.x, y: sim.p.y - 30_000 });
+        sim.world.goblins.push(crate::sim::Goblin { x: sim.p.x, y: sim.p.y - 16_000 });
         f.compose(&sim, &view);
         assert!(map(&f).contains(goblin), "goblin on the map");
     }
@@ -4545,7 +4550,7 @@ mod tests {
             let shown = hints(&c, &ui).into_iter().any(|h| a.contains(&format!("{} {}", h.keys, h.label)) && (h.label == b.label || ["move", "special", "turn", "+camera"].contains(&h.label.as_str())));
             assert!(shown, "binding {:?} ({}) not on the bottom rows:\n{a}", b.keys, b.label);
         }
-        assert!(a.contains("spc fire") && a.contains("Q quit") && a.contains("1-8 special"), "{a}");
+        assert!(a.contains("shift fire") && a.contains("spc evade") && a.contains("Q quit") && a.contains("1-8 special"), "{a}");
         // walking, time and bytes change: the rows do not
         for k in 0..40 {
             sim.step(&Input { mv: (1, 0), autofire: true, ..Input::default() });
@@ -4553,18 +4558,19 @@ mod tests {
         }
         assert_eq!(rows(&f), a, "fixed layout");
         // keys stand out by colour (accent, plain background); the label is ordinary text
-        let at = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("spc fire").map(|x| (38 + r, l[..x].chars().count()))).unwrap();
+        let at = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("shift fire").map(|x| (38 + r, l[..x].chars().count()))).unwrap();
         let cell = |f: &Frame, dx: usize| f.cells[at.0 * 120 + at.1 + dx];
         assert!(cell(&f, 0).fg == key_fg(&c.pal()) && cell(&f, 0).bg == cell(&f, 5).bg && cell(&f, 5).fg != key_fg(&c.pal()), "key in accent, no block");
-        // a toggle shows its state as the label background only: text never changes
+        // a toggle that is off is muted: same text, dim colours; on keeps the normal ones
         let lab = f.plain().lines().skip(38).enumerate().find_map(|(r, l)| l.find("F autofire").map(|x| (38 + r, l[..x].chars().count() + 2))).unwrap();
-        let bg_at = |f: &Frame| f.cells[lab.0 * 120 + lab.1].bg;
-        let on_bg = bg_at(&f);
-        assert!(on_bg != c.pal().bg, "ON has a coloured background");
+        let fg_at = |f: &Frame| f.cells[lab.0 * 120 + lab.1].fg;
+        let on_fg = fg_at(&f);
+        assert_eq!(on_fg, c.pal().text, "ON: the normal label colour");
         ui.autofire = false;
         f.compose(&sim, &View { ui: &ui, now_ms: 9_999, alpha: 1.0, phase: "SWARM", last_bytes: 0 });
         assert_eq!(rows(&f), a, "same text with auto-fire off");
-        assert!(bg_at(&f) != on_bg && bg_at(&f) != c.pal().bg, "OFF: another colour");
+        assert_eq!(fg_at(&f), c.pal().dim, "OFF: muted");
+        assert!(f.cells[lab.0 * 120 + lab.1 - 2].fg == c.pal().dim, "OFF: the key is muted too");
         assert_eq!(rows(&f).replace("auto-fire [OFF]", "auto-fire [ON] "), a, "only the tag changed");
     }
 
@@ -4599,7 +4605,7 @@ mod tests {
     // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
     // re-pinned 2026-11-10: cyan portal blocks and big portal arrows, shop stalls, shorter key labels (goal, path)
     // re-pinned 2026-11-12: map as wide as the stats pane, stats rows for bosses, quests, points, souls, damage; g glass key
-    const GOLDEN: u64 = 0xe0d1_77cb_4c55_9e6b;
+    const GOLDEN: u64 = 0xab02_2efb_eed1_cb84;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))
@@ -4754,10 +4760,9 @@ mod tests {
         let n = usize::from(c.view.actor_rows[0]);
         let pi = (rc as usize - n) * 120 + cc as usize;
         assert_eq!(f.cells[pi].ch.ch(), '@');
-        // the strip is plain except the sponsor button (a link span) and toggle labels (state colours)
+        // the strip is plain except the link buttons
         let in_link = |i: usize| f.links.iter().any(|(lo, hi, _)| (*lo..*hi).contains(&i));
-        let toggles = [Role::Heal, Role::Danger].map(|r| mix(c.pal().role(r), c.pal().bg, TOGGLE_BG));
-        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal().hud_bg || cell.bg == c.pal().bg || in_link(i) || toggles.contains(&cell.bg)));
+        assert!(f.cells.iter().enumerate().skip((40 - 2) * 120).all(|(i, cell)| cell.bg == c.pal().hud_bg || cell.bg == c.pal().bg || in_link(i)));
     }
 
     fn headings() -> [Heading; 4] {
@@ -5438,7 +5443,7 @@ mod tests {
         let dots = |path| {
             let mut m = Frame::new(&c, 160, 45);
             m.map(&sim, unit, &[], &[], path);
-            (0..usize::from(MAP_H)).flat_map(|r| m.cells[r * 160..r * 160 + usize::from(MAP_W)].iter().map(|x| x.ch.ch())).filter(|&ch| ch == '·').count()
+            (0..usize::from(MAP_H)).flat_map(|r| m.cells[r * 160..r * 160 + usize::from(MAP_W)].iter().map(|x| x.ch.ch())).filter(|&ch| ch == '●' || ch == '•').count()
         };
         assert!(dots(Some(spot)) >= 3, "the path is drawn on the map: {}", dots(Some(spot)));
         assert_eq!(dots(None), 0, "NEG: no path asked, no dots");

@@ -479,7 +479,6 @@ pub struct Ui {
     pub quit: bool,
     pub sel: u8,
     pub cursor: (i32, i32),
-    shift_clean: bool,
     dodge: bool,
     hack: bool,
     pick: Option<PickChoice>,
@@ -622,7 +621,6 @@ impl Ui {
             quit: false,
             sel: 0,
             cursor: (0, 0),
-            shift_clean: false,
             dodge: false,
             hack: false,
             pick: None,
@@ -710,9 +708,6 @@ impl Ui {
     pub fn key(&mut self, ev: KeyEv, c: &Content, now_ms: u64) {
         self.now_ms = now_ms;
         if ev.kind == Kind::Release {
-            if ev.key == Key::Shift && self.shift_clean && self.bound(c, &[Key::Shift]) == Some(Action::Dodge) {
-                self.dodge = true;
-            }
             for b in c.binds.iter().filter(|b| b.keys == [ev.key] && matches!(b.mode, Mode::Play | Mode::Pick)) {
                 if let Some(d) = b.action.dir() {
                     self.held[d] = None;
@@ -724,10 +719,6 @@ impl Ui {
             return;
         }
         if ev.kind == Kind::Repeat && self.mode != Mode::Look {
-            return;
-        }
-        self.shift_clean = ev.key == Key::Shift;
-        if ev.key == Key::Shift {
             return;
         }
         if self.mode == Mode::Cmd && self.edit(ev, c) {
@@ -1185,7 +1176,7 @@ pub(crate) mod tests {
         feed(&mut ui, b"\x1b[119u");
         assert_eq!(ui.input(false).mv.1, -1, "control: plain w walks");
         feed(&mut ui, b"\x1b[119;1:3u");
-        // space hold: auto-fire off, a foe in range
+        // shift hold: auto-fire off, a foe in range
         let mut sim = Sim::new(&c, 7, None);
         let fam = c.fam_ids().find(|&f| c.fam(f).key == "scrapper").unwrap();
         sim.push_enemy(fam, Tier::Trash, (sim.p.x + 5_000, sim.p.y), 100_000_000, (false, false));
@@ -1200,9 +1191,9 @@ pub(crate) mod tests {
             n
         };
         assert_eq!(volleys(&mut ui, &mut sim, 60), 0, "control: nothing pressed, no fire");
-        feed(&mut ui, b"\x1b[32u");
-        assert!(volleys(&mut ui, &mut sim, 120) >= 3, "held space fires again and again");
-        feed(&mut ui, b"\x1b[32;1:3u");
+        feed(&mut ui, b"\x1b[57441u");
+        assert!(volleys(&mut ui, &mut sim, 120) >= 3, "held shift fires again and again");
+        feed(&mut ui, b"\x1b[57441;1:3u");
         let _ = volleys(&mut ui, &mut sim, 30);
         assert_eq!(volleys(&mut ui, &mut sim, 60), 0, "released: stops");
     }
@@ -1248,12 +1239,16 @@ pub(crate) mod tests {
         assert_ne!(ui.input(true).mv, before, "new press uses new heading");
     }
 
+    fn shift(kind: Kind) -> KeyEv {
+        KeyEv { key: Key::Shift, kind, text: None }
+    }
+
     fn release(c: char) -> KeyEv {
         KeyEv { key: Key::Char(c), kind: Kind::Release, text: None }
     }
 
     #[test]
-    fn autowalk_toggles_by_shift_w_and_cmd_space_fire_is_held() {
+    fn autowalk_toggles_by_shift_w_and_held_shift_fires() {
         let c = content();
         let mut ui = Ui::new(false);
         assert!(!ui.autowalk && !ui.fire);
@@ -1263,19 +1258,19 @@ pub(crate) mod tests {
         assert!(ui.autowalk);
         ui.run_cmd("autowalk off", &c);
         assert!(!ui.autowalk);
-        ui.key(press(' '), &c, 0);
+        ui.key(shift(Kind::Press), &c, 0);
         assert!(ui.fire);
-        ui.key(release(' '), &c, 0);
+        ui.key(shift(Kind::Release), &c, 0);
         assert!(!ui.fire);
         // negative controls: other key release keeps it, a direction key never sets it
-        ui.key(press(' '), &c, 0);
+        ui.key(shift(Kind::Press), &c, 0);
         ui.key(release('d'), &c, 0);
         assert!(ui.fire);
-        ui.key(release(' '), &c, 0);
+        ui.key(shift(Kind::Release), &c, 0);
         ui.key(press('d'), &c, 0);
         assert!(!ui.fire);
         // mode change drops a held fire even without its release
-        ui.key(press(' '), &c, 0);
+        ui.key(shift(Kind::Press), &c, 0);
         ui.key(press('t'), &c, 0);
         let _ = ui.input(true);
         assert!(!ui.fire);
@@ -1516,18 +1511,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn shift_tap_dodges_but_shift_chord_does_not() {
+    fn shift_holds_fire_and_space_evades() {
         let c = content();
         let mut ui = Ui::new(true);
-        let sh = |kind| KeyEv { key: Key::Shift, kind, text: None };
-        ui.key(sh(Kind::Press), &c, 0);
-        ui.key(sh(Kind::Release), &c, 0);
-        assert!(ui.input(true).dodge);
-        ui.key(sh(Kind::Press), &c, 0);
-        ui.key(press(':'), &c, 0);
-        ui.key(sh(Kind::Release), &c, 0);
-        assert!(!ui.input(true).dodge);
-        assert_eq!(ui.mode, Mode::Cmd);
+        let key = |k, kind| KeyEv { key: k, kind, text: None };
+        ui.key(key(Key::Shift, Kind::Press), &c, 0);
+        assert!(ui.input(true).fire, "shift held: firing");
+        ui.key(key(Key::Shift, Kind::Release), &c, 0);
+        assert!(!ui.input(true).fire, "NEG: released: not firing");
+        assert!(!ui.input(true).dodge, "NEG: shift does not evade");
+        ui.key(key(Key::Char(' '), Kind::Press), &c, 0);
+        assert!(ui.input(true).dodge, "space evades");
     }
 
     #[test]

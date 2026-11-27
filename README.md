@@ -129,8 +129,8 @@ inside. Keep the `data` directory next to it.
 
 ## Keys
 
-In play mode, `wasd`, `hjkl` or the arrow keys move the hero. A tap on Shift dodges. `x` hacks a foe. `q` and `e`
-turn the camera. `:` opens the command line, and Space opens the leader menu, which lists the next keys after a short
+In play mode, `wasd`, `hjkl` or the arrow keys move the hero. Hold Shift to fire (or toggle auto-fire with `F`), and Space evades with a short cooldown. `x` hacks a foe. `q` and `e`
+turn the camera. `:` opens the command line, and `c` opens the camera menu, which lists its keys after a short
 wait. In the pick screen, `h` and `l` select a power, Enter takes it and `s` skips. `t`, `i` and `b` open the skill tree, the gear and the bags. `P` speaks to
 the agents and `L` opens the legacy. After a death or a win, `r` starts a new run and `q` quits. Every key is data in `data/bindings.jsonl`, so you can remap it.
 
