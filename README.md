@@ -1,4 +1,6 @@
-# ToT
+# ToT - Terms of Torment
+
+[**Play at https://tot.oeiuwq.com**](https://tot.oeiuwq.com)
 
 [![Sponsor](https://img.shields.io/badge/sponsor-vic-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/vic)
 
