@@ -162,13 +162,14 @@ pub struct Frame {
 }
 
 /// This frame's projection: angle, camera centre (world mm), absolute screen-grid origin.
-/// The floor grid is world-fixed: screen cell (c, r) shows grid cell (c - cc + o.0, r - rc + o.1).
+/// `o` is the camera in screen-grid cells, exact (not rounded): screen cell (c, r) shows the world point at
+/// (c - cc + o.0, r - rc + o.1), so every actor and the floor move together.
 #[derive(Clone, Copy)]
 struct Eye {
     p: Proj,
     cx: f64,
     cy: f64,
-    o: (i32, i32),
+    o: (f64, f64),
 }
 
 /// What the strip shows besides sim state; `now_ms` is the frame clock (fake in tests),
@@ -222,7 +223,7 @@ impl Frame {
             fog,
             out: Vec::with_capacity(1 << 20),
             cam: Cam::default(),
-            eye: Eye { p: Proj::at(0.0), cx: 0.0, cy: 0.0, o: (0, 0) },
+            eye: Eye { p: Proj::at(0.0), cx: 0.0, cy: 0.0, o: (0.0, 0.0) },
             tick: None,
             prev: Vec::new(),
             cur: Vec::new(),
@@ -287,15 +288,16 @@ impl Frame {
 
     /// Screen cell (col, row) of a world point.
     fn scr(&self, x: f64, y: f64) -> (i32, i32) {
-        let (c, r) = self.eye.p.project(x, y);
+        let (c, r) = self.eye.p.screen(x, y);
         let (cc, rc) = self.centre();
-        (c - self.eye.o.0 + cc, r - self.eye.o.1 + rc)
+        // round the offset from the camera once: rounding the point and the camera apart makes a steady walker hop a cell
+        (((c - self.eye.o.0 + 0.5).floor() as i32) + cc, ((r - self.eye.o.1 + 0.5).floor() as i32) + rc)
     }
 
     /// World point (mm) at the centre of screen cell (col, row).
     fn world(&self, col: i32, row: i32) -> (f64, f64) {
         let (cc, rc) = self.centre();
-        self.eye.p.unproject(col - cc + self.eye.o.0, row - rc + self.eye.o.1)
+        self.eye.p.unproject_f(f64::from(col - cc) + self.eye.o.0, f64::from(row - rc) + self.eye.o.1)
     }
 
     /// View depth (mm) relative to the camera.
@@ -392,7 +394,7 @@ impl Frame {
         self.cam.update(&c.view, v.now_ms, ui.heading, fpx, fpy);
         let p = self.cam.proj(&c.view, v.now_ms);
         // camera shown at cell resolution: the grid origin is the camera's own cell
-        self.eye = Eye { p, cx: self.cam.x, cy: self.cam.y, o: p.project(self.cam.x, self.cam.y) };
+        self.eye = Eye { p, cx: self.cam.x, cy: self.cam.y, o: p.screen(self.cam.x, self.cam.y) };
         // a level an agent gave a look of its own paints its floor and walls in it
         let (floor_rgb, _) = level_look(sim);
         // 1. floor: one glyph per world floor cell, at the cell its centre projects to
@@ -3104,6 +3106,37 @@ fn hints(c: &Content, ui: &Ui) -> Vec<Hint> {
 mod tests {
     use super::*;
 
+    /// The hero walks on at a steady speed and the camera follows: the hero's screen cell, relative to where the
+    /// camera holds it, must not flip between neighbour cells frame to frame (tot: the hero hops).
+    #[test]
+    fn walking_hero_does_not_hop_on_screen() {
+        let c = Content::parse(&texts()).unwrap();
+        let ui = Ui::new(true);
+        let mut sim = Sim::new(&c, 7, None);
+        let mut f = Frame::new(&c, 120, 40);
+        let hz = u64::from(c.hz().get());
+        let tick_ms = 1000 / hz;
+        let step = 150; // mm per tick: 4.5 m/s
+        let (mut last_tick_ms, mut cells) = (0u64, Vec::new());
+        for ms in (0..6000u64).step_by(16) {
+            while ms >= last_tick_ms + tick_ms {
+                last_tick_ms += tick_ms;
+                sim.p.x += step;
+                sim.tick += 1;
+            }
+            let alpha = (ms - last_tick_ms) as f64 / tick_ms as f64;
+            f.compose(&sim, &View { ui: &ui, now_ms: ms, alpha, phase: "BUILD", last_bytes: 0 });
+            let hx = f64::from(sim.p.x) - f64::from(step) * (1.0 - alpha);
+            if ms > 3000 {
+                cells.push(f.scr(hx, f64::from(sim.p.y)));
+            }
+        }
+        let cols: Vec<i32> = cells.iter().map(|c| c.0).collect();
+        println!("hero screen cols {cols:?}");
+        let flips = cols.windows(3).filter(|w| (w[1] - w[0]) * (w[2] - w[1]) < 0).count();
+        assert_eq!(flips, 0, "the hero flips between neighbour cells {flips} times");
+    }
+
     #[test]
     fn map_turns_with_heading_and_shows_explored_vs_fog() {
         let c = Content::parse(&texts()).unwrap();
@@ -4201,7 +4234,7 @@ mod tests {
     // re-pinned 2026-11-10: the level name under the map, stairs on the map and the screen edge
     // re-pinned 2026-11-10: cyan portal blocks and big portal arrows, shop stalls, shorter key labels (goal, path)
     // re-pinned 2026-11-12: map as wide as the stats pane, stats rows for bosses, quests, points, souls, damage; g glass key
-    const GOLDEN: u64 = 0xc2b7_5c61_e27d_b997;
+    const GOLDEN: u64 = 0x1e72_883a_f02b_3330;
 
     fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3))

@@ -81,7 +81,12 @@ impl Proj {
 
     /// Screen cell -> world point (mm) of the cell centre.
     pub fn unproject(self, col: i32, row: i32) -> (f64, f64) {
-        let (u, v) = (f64::from(col) * 1000.0 / 3.0, f64::from(row) * 2000.0 / 3.0); // x - y, x + y
+        self.unproject_f(f64::from(col), f64::from(row))
+    }
+
+    /// The same for a point between cells.
+    pub fn unproject_f(self, col: f64, row: f64) -> (f64, f64) {
+        let (u, v) = (col * 1000.0 / 3.0, row * 2000.0 / 3.0); // x - y, x + y
         let (x, y) = ((u + v) / 2.0, (v - u) / 2.0);
         (x * self.c + y * self.s, -x * self.s + y * self.c)
     }
