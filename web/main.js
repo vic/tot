@@ -1,4 +1,7 @@
-import { init, Terminal, FitAddon } from "ghostty-web";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import "@xterm/xterm/css/xterm.css";
 
 const msg = document.getElementById("msg");
 
@@ -30,11 +33,11 @@ if (!crossOriginIsolated) {
   throw new Error("not cross-origin isolated");
 }
 
-await init();
 const term = new Terminal({ fontFamily: "monospace", fontSize: 14, theme: { background: "#05031a" } });
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.open(document.getElementById("term"));
+try { term.loadAddon(new WebglAddon()); } catch { /* no WebGL: xterm keeps its DOM renderer */ }
 fit.fit();
 
 const ctl = new SharedArrayBuffer(16);
@@ -69,7 +72,7 @@ term.attachCustomKeyEventHandler((e) => {
   send(seq);
   return false;
 });
-addEventListener("keyup", (e) => { const s = kitty(e); if (s !== null) { e.preventDefault(); send(s); } }); // ghostty-web gives no key releases
+addEventListener("keyup", (e) => { const s = kitty(e); if (s !== null) { e.preventDefault(); send(s); } }); // the terminal widget gives no key releases
 term.onData((d) => { if (d.startsWith("\x1b[<")) send(d); }); // mouse reports (the sponsor button)
 addEventListener("resize", () => { fit.fit(); size(); send("\x1b[?2048;0;0;0;0t"); });
 term.focus();
