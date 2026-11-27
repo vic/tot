@@ -20,6 +20,7 @@ mod sim;
 mod trig;
 mod skill;
 mod text;
+#[cfg_attr(target_os = "wasi", path = "tty_wasi.rs")]
 mod tty;
 
 use std::fmt;

@@ -3,10 +3,44 @@
 //! replies on a socket of our own.
 use crate::{Error, Result};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+
+/// No unix sockets here (the browser build): the Claude link never opens, every call fails with Unsupported.
+#[cfg(not(unix))]
+mod nosock {
+    use std::io::{Error, ErrorKind, Read, Result, Write};
+    use std::path::Path;
+    use std::time::Duration;
+    pub struct UnixListener;
+    pub struct UnixStream;
+    fn no<T>() -> Result<T> {
+        Err(Error::from(ErrorKind::Unsupported))
+    }
+    impl UnixListener {
+        pub fn bind(_: &Path) -> Result<Self> { no() }
+        pub fn set_nonblocking(&self, _: bool) -> Result<()> { no() }
+        pub fn accept(&self) -> Result<(UnixStream, ())> { no() }
+    }
+    impl UnixStream {
+        pub fn connect(_: &Path) -> Result<Self> { no() }
+        pub fn set_nonblocking(&self, _: bool) -> Result<()> { no() }
+        pub fn set_read_timeout(&self, _: Option<Duration>) -> Result<()> { no() }
+        pub fn set_write_timeout(&self, _: Option<Duration>) -> Result<()> { no() }
+    }
+    impl Read for UnixStream {
+        fn read(&mut self, _: &mut [u8]) -> Result<usize> { no() }
+    }
+    impl Write for UnixStream {
+        fn write(&mut self, _: &[u8]) -> Result<usize> { no() }
+        fn flush(&mut self) -> Result<()> { no() }
+    }
+}
+#[cfg(not(unix))]
+use nosock::{UnixListener, UnixStream};
 
 /// Write and read deadline of one socket exchange.
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -82,7 +116,8 @@ impl Inbox {
         // a leftover file of a dead earlier run with our pid: nothing can listen on it now
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path)?;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        #[cfg(unix)]
+        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
         Ok(Inbox { path, listener })
     }

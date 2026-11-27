@@ -1,0 +1,16 @@
+{
+  "name": "tot-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.2",
+    "ghostty-web": "^0.4.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}

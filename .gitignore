@@ -5,3 +5,6 @@ dist
 result
 .envrc
 .direnv
+web/node_modules
+web/dist
+web/tot.wasm

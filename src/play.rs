@@ -9,7 +9,7 @@ use crate::text::t;
 use crate::tty::Tty;
 use crate::{Error, Result};
 use serde_json::json;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -59,9 +59,9 @@ impl Telemetry {
 
 /// Run seed from OS entropy (design sec 7.2: runs never equal; replay reads the saved seed).
 pub fn entropy_seed() -> Result<u64> {
-    let mut b = [0u8; 8];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
-    Ok(u64::from_le_bytes(b))
+    // std seeds each RandomState from the OS (getrandom, or WASI random_get), so no /dev/urandom is needed
+    use std::hash::{BuildHasher, Hasher};
+    Ok(std::collections::hash_map::RandomState::new().build_hasher().finish())
 }
 
 /// The start screen loop: pick an adventure (it loads, and the screen repaints in its palette, texts and classes),
